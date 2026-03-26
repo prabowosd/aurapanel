@@ -28,6 +28,11 @@ const routes = [
         component: Websites
       },
       {
+        path: 'websites/:domain',
+        name: 'WebsiteManage',
+        component: () => import('../views/WebsiteManage.vue')
+      },
+      {
         path: 'packages',
         name: 'Packages',
         component: () => import('../views/Packages.vue')
@@ -51,6 +56,41 @@ const routes = [
         path: 'dns',
         name: 'DNS',
         component: () => import('../views/DNS.vue')
+      },
+      {
+        path: 'security',
+        name: 'Security',
+        component: () => import('../views/Security.vue')
+      },
+      {
+        path: 'app-runtime',
+        name: 'AppRuntime',
+        component: () => import('../views/AppRuntime.vue')
+      },
+      {
+        path: 'minio',
+        name: 'MinIO',
+        component: () => import('../views/MinIO.vue')
+      },
+      {
+        path: 'cron-jobs',
+        name: 'CronJobs',
+        component: () => import('../views/CronJobs.vue')
+      },
+      {
+        path: 'log-viewer',
+        name: 'LogViewer',
+        component: () => import('../views/LogViewer.vue')
+      },
+      {
+        path: 'federated',
+        name: 'Federated',
+        component: () => import('../views/Federated.vue')
+      },
+      {
+        path: 'auradb',
+        name: 'AuraDB',
+        component: () => import('../views/AuraDB.vue')
       },
       // Docker Manager routes
       {
@@ -89,6 +129,30 @@ const routes = [
         name: 'Docker Packages',
         component: () => import('../views/DockerApps.vue'),
         meta: { dockerAppsTab: 'packages' }
+      },
+      // CloudFlare
+      {
+        path: 'cloudflare',
+        name: 'CloudFlare',
+        component: () => import('../views/CloudFlare.vue')
+      },
+      // File Manager
+      {
+        path: 'filemanager',
+        name: 'FileManager',
+        component: () => import('../views/FileManager.vue')
+      },
+      // PHP Management
+      {
+        path: 'php',
+        name: 'PHP',
+        component: () => import('../views/PHP.vue')
+      },
+      // Server Status
+      {
+        path: 'server-status',
+        name: 'ServerStatus',
+        component: () => import('../views/ServerStatus.vue')
       }
     ]
   }

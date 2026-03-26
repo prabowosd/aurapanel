@@ -1,5 +1,5 @@
 pub mod reseller;
 pub mod cms;
+pub mod manager;
 
-pub use reseller::ResellerManager;
-pub use cms::CmsInstaller;
+pub use manager::{UserManager, PanelUser, CreateUserRequest};

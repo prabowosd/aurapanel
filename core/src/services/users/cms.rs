@@ -1,5 +1,4 @@
 use anyhow::Result;
-use std::process::Command;
 
 pub struct CmsInstaller;
 
@@ -8,7 +7,7 @@ impl CmsInstaller {
         Self {}
     }
 
-    pub fn install_wordpress(&self, domain: &str, admin_email: &str) -> Result<bool> {
+    pub fn install_wordpress(&self, domain: &str, _admin_email: &str) -> Result<bool> {
         // wp-cli integration (mocked here for now)
         println!("Installing WordPress for {} via wp-cli...", domain);
         Ok(true)

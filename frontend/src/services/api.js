@@ -1,9 +1,9 @@
 import axios from 'axios'
 import { useAuthStore } from '../stores/auth'
 
-// API Gateway Base URL (Go Lang Gateway)
+// API Gateway Base URL
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
@@ -14,6 +14,11 @@ const api = axios.create({
 // Request Interceptor (Auth Token Enjeksiyonu)
 api.interceptors.request.use(config => {
   const authStore = useAuthStore()
+  if (authStore.token && authStore.isTokenExpired(authStore.token)) {
+    authStore.logout()
+    window.location.href = '/login'
+    return Promise.reject(new Error('Session expired'))
+  }
   if (authStore.token) {
     config.headers.Authorization = `Bearer ${authStore.token}`
   }

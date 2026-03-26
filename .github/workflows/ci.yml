@@ -1,0 +1,94 @@
+name: AuraPanel CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  core:
+    name: Core (Rust)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cargo check
+        run: cargo check
+      - name: Cargo test
+        run: cargo test
+
+  gateway:
+    name: API Gateway (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+      - name: Go test
+        run: go test ./...
+      - name: Go build
+        run: go build ./...
+      - name: Go vet
+        run: go vet ./...
+
+  frontend:
+    name: Frontend (Vue)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Test
+        run: npm run test
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+
+  security:
+    name: Security Gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cargo audit
+        run: |
+          cargo install cargo-audit --locked
+          cd core
+          cargo audit
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+      - name: Go vuln check
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          cd api-gateway
+          govulncheck ./...
+
+      - name: Rust clippy (basic SAST)
+        run: |
+          cd core
+          cargo clippy --all-targets -- -D warnings

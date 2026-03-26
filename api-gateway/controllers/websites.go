@@ -2,7 +2,7 @@ package controllers
 
 import (
 	"bytes"
-	"encoding/json"
+	"io"
 	"net/http"
 )
 
@@ -12,43 +12,41 @@ type BaseResponse struct {
 	Data    interface{} `json:"data,omitempty"`
 }
 
-// ListWebsites
-func ListWebsites(w http.ResponseWriter, r *http.Request) {
-	sites := []map[string]interface{}{
-		{"id": 1, "domain": "example.com", "php": "8.1", "status": "active"},
-		{"id": 2, "domain": "test.com", "php": "8.3", "status": "active"},
+func forwardCore(w http.ResponseWriter, r *http.Request, method, path string, body io.Reader) {
+	req, err := http.NewRequest(method, coreBaseURL()+path, body)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, BaseResponse{Status: "error", Message: err.Error()})
+		return
 	}
-	
-	resp := BaseResponse{Status: "success", Message: "Websites retrieved", Data: sites}
+	req.Header.Set("Content-Type", "application/json")
+
+	if auth := r.Header.Get("Authorization"); auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, BaseResponse{Status: "error", Message: "Core API request failed: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
 }
 
-// CreateWebsite
+// ListWebsites proxies website list to Rust Core.
+func ListWebsites(w http.ResponseWriter, r *http.Request) {
+	forwardCore(w, r, http.MethodGet, "/api/v1/vhost/list", nil)
+}
+
+// CreateWebsite proxies website creation to Rust Core.
 func CreateWebsite(w http.ResponseWriter, r *http.Request) {
-	// Parse body
-	var reqBody map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Prepare payload for Rust Core
-	// e.g. {"domain": "example.com", "user": "admin", "php_version": "8.1"}
-	payloadBytes, _ := json.Marshal(reqBody)
-	
-	respRust, err := http.Post("http://127.0.0.1:3000/vhost", "application/json", bytes.NewBuffer(payloadBytes))
+	payload, err := io.ReadAll(r.Body)
 	if err != nil {
-		resp := BaseResponse{Status: "error", Message: "Core API ile iletişim kurulamadı: " + err.Error()}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		writeJSON(w, http.StatusBadRequest, BaseResponse{Status: "error", Message: "invalid body"})
 		return
 	}
-	defer respRust.Body.Close()
-
-	var rustResult map[string]interface{}
-	json.NewDecoder(respRust.Body).Decode(&rustResult)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(rustResult)
+	forwardCore(w, r, http.MethodPost, "/api/v1/vhost", bytes.NewReader(payload))
 }

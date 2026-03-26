@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RedisConfig {

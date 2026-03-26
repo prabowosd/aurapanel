@@ -1,5 +1,13 @@
+pub mod nodejs;
+pub mod python;
+
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
+
+use self::nodejs::NodeManager;
+use self::python::PythonManager;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CmsInstallConfig {
@@ -10,28 +18,248 @@ pub struct CmsInstallConfig {
     pub db_pass: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NodeAppRequest {
+    pub app_name: String,
+    pub start_script: String,
+    pub dir: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PythonAppRequest {
+    pub app_name: String,
+    pub wsgi_module: String,
+    pub dir: String,
+    pub port: u16,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RuntimeAppInfo {
+    pub app_name: String,
+    pub runtime: String,
+    pub dir: String,
+    pub status: String,
+}
+
+#[derive(Default)]
+struct RuntimeState {
+    apps: HashMap<String, RuntimeAppInfo>,
+}
+
+fn runtime_state() -> &'static Mutex<RuntimeState> {
+    static STATE: OnceLock<Mutex<RuntimeState>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(RuntimeState::default()))
+}
+
+fn dev_simulation_enabled() -> bool {
+    crate::runtime::simulation_enabled()
+}
+
+fn command_available(cmd: &str) -> bool {
+    Command::new("which")
+        .arg(cmd)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
 pub struct AppManager;
 
 impl AppManager {
     /// Tek tıklamayla WordPress, Laravel veya benzeri CMS'leri indirip kurar
     pub async fn install_cms(config: &CmsInstallConfig) -> Result<(), String> {
-        println!("[DEV MODE] Installing {} on {}", config.app_type, config.domain);
-
         let public_html = format!("/home/aurapanel/public_html/{}", config.domain);
+
+        if dev_simulation_enabled() {
+            println!("[DEV MODE] Installing {} on {}", config.app_type, config.domain);
+            return Ok(());
+        }
 
         match config.app_type.as_str() {
             "wordpress" => {
-                // Şimdilik wp-cli komutlarını simüle ediyoruz.
-                // Command::new("wp").arg("core").arg("download").arg("--path=".to_owned() + &public_html).output();
-                println!("WordPress indirme ve wp-config kurulumu simüle edildi.");
+                if !command_available("wp") {
+                    return Err("wp-cli is not installed. Install wp-cli or enable AURAPANEL_DEV_SIMULATION=1.".to_string());
+                }
+                std::fs::create_dir_all(&public_html)
+                    .map_err(|e| format!("Failed to create target directory: {}", e))?;
+
+                let output = Command::new("wp")
+                    .args(["core", "download", "--allow-root", "--path"])
+                    .arg(&public_html)
+                    .output()
+                    .map_err(|e| format!("Failed to run wp-cli: {}", e))?;
+                if !output.status.success() {
+                    return Err(String::from_utf8_lossy(&output.stderr).to_string());
+                }
             },
             "laravel" => {
-                // Command::new("composer").arg("create-project").arg("--prefer-dist").arg("laravel/laravel").arg(&public_html).output();
-                println!("Laravel skeleton indirmesi simüle edildi.");
+                if !command_available("composer") {
+                    return Err("composer is not installed. Install composer or enable AURAPANEL_DEV_SIMULATION=1.".to_string());
+                }
+                let output = Command::new("composer")
+                    .args(["create-project", "--prefer-dist", "--no-interaction", "laravel/laravel"])
+                    .arg(&public_html)
+                    .output()
+                    .map_err(|e| format!("Failed to run composer: {}", e))?;
+                if !output.status.success() {
+                    return Err(String::from_utf8_lossy(&output.stderr).to_string());
+                }
             },
             _ => return Err(format!("Desteklenmeyen uygulama tipi: {}", config.app_type)),
         }
 
         Ok(())
+    }
+
+    pub fn list_runtime_apps() -> Result<Vec<RuntimeAppInfo>, String> {
+        let guard = runtime_state().lock().map_err(|e| e.to_string())?;
+        Ok(guard.apps.values().cloned().collect())
+    }
+
+    pub fn node_install_dependencies(dir: &str) -> Result<String, String> {
+        if cfg!(target_os = "windows") {
+            if dev_simulation_enabled() {
+                return Ok("[DEV MODE] Node dependencies installed (simulated).".to_string());
+            }
+            return Err("Node dependency install is not supported on Windows runtime mode. Enable AURAPANEL_DEV_SIMULATION=1 for simulation.".to_string());
+        }
+        let ok = NodeManager::new()
+            .install_dependencies(dir)
+            .map_err(|e| e.to_string())?;
+        if ok {
+            Ok("Node dependencies installed.".to_string())
+        } else {
+            Err("Node dependencies install failed.".to_string())
+        }
+    }
+
+    pub fn node_start(req: &NodeAppRequest) -> Result<String, String> {
+        if cfg!(target_os = "windows") {
+            if !dev_simulation_enabled() {
+                return Err("Node runtime start is not supported on Windows runtime mode. Enable AURAPANEL_DEV_SIMULATION=1 for simulation.".to_string());
+            }
+            let mut guard = runtime_state().lock().map_err(|e| e.to_string())?;
+            guard.apps.insert(
+                req.app_name.clone(),
+                RuntimeAppInfo {
+                    app_name: req.app_name.clone(),
+                    runtime: "node".to_string(),
+                    dir: req.dir.clone(),
+                    status: "running".to_string(),
+                },
+            );
+            return Ok("[DEV MODE] Node app started (simulated).".to_string());
+        }
+        let ok = NodeManager::new()
+            .start_app(&req.app_name, &req.start_script, &req.dir)
+            .map_err(|e| e.to_string())?;
+        if ok {
+            let mut guard = runtime_state().lock().map_err(|e| e.to_string())?;
+            guard.apps.insert(
+                req.app_name.clone(),
+                RuntimeAppInfo {
+                    app_name: req.app_name.clone(),
+                    runtime: "node".to_string(),
+                    dir: req.dir.clone(),
+                    status: "running".to_string(),
+                },
+            );
+            Ok("Node app started.".to_string())
+        } else {
+            Err("Node app start failed.".to_string())
+        }
+    }
+
+    pub fn node_stop(app_name: &str) -> Result<String, String> {
+        if cfg!(target_os = "windows") {
+            if !dev_simulation_enabled() {
+                return Err("Node runtime stop is not supported on Windows runtime mode. Enable AURAPANEL_DEV_SIMULATION=1 for simulation.".to_string());
+            }
+            let mut guard = runtime_state().lock().map_err(|e| e.to_string())?;
+            if let Some(app) = guard.apps.get_mut(app_name) {
+                app.status = "stopped".to_string();
+            }
+            return Ok("[DEV MODE] Node app stopped (simulated).".to_string());
+        }
+        let ok = NodeManager::new().stop_app(app_name).map_err(|e| e.to_string())?;
+        if ok {
+            let mut guard = runtime_state().lock().map_err(|e| e.to_string())?;
+            if let Some(app) = guard.apps.get_mut(app_name) {
+                app.status = "stopped".to_string();
+            }
+            Ok("Node app stopped.".to_string())
+        } else {
+            Err("Node app stop failed.".to_string())
+        }
+    }
+
+    pub fn python_create_venv(dir: &str) -> Result<String, String> {
+        if cfg!(target_os = "windows") {
+            if dev_simulation_enabled() {
+                return Ok("[DEV MODE] Python venv created (simulated).".to_string());
+            }
+            return Err("Python venv creation is not supported on Windows runtime mode. Enable AURAPANEL_DEV_SIMULATION=1 for simulation.".to_string());
+        }
+        let ok = PythonManager::new().create_venv(dir).map_err(|e| e.to_string())?;
+        if ok {
+            Ok("Python venv created.".to_string())
+        } else {
+            Err("Python venv creation failed.".to_string())
+        }
+    }
+
+    pub fn python_install_requirements(dir: &str) -> Result<String, String> {
+        if cfg!(target_os = "windows") {
+            if dev_simulation_enabled() {
+                return Ok("[DEV MODE] Python requirements installed (simulated).".to_string());
+            }
+            return Err("Python requirements install is not supported on Windows runtime mode. Enable AURAPANEL_DEV_SIMULATION=1 for simulation.".to_string());
+        }
+        let ok = PythonManager::new()
+            .install_requirements(dir)
+            .map_err(|e| e.to_string())?;
+        if ok {
+            Ok("Python requirements installed.".to_string())
+        } else {
+            Err("Python requirements install failed.".to_string())
+        }
+    }
+
+    pub fn python_start(req: &PythonAppRequest) -> Result<String, String> {
+        if cfg!(target_os = "windows") {
+            if !dev_simulation_enabled() {
+                return Err("Python runtime start is not supported on Windows runtime mode. Enable AURAPANEL_DEV_SIMULATION=1 for simulation.".to_string());
+            }
+            let mut guard = runtime_state().lock().map_err(|e| e.to_string())?;
+            guard.apps.insert(
+                req.app_name.clone(),
+                RuntimeAppInfo {
+                    app_name: req.app_name.clone(),
+                    runtime: "python".to_string(),
+                    dir: req.dir.clone(),
+                    status: "running".to_string(),
+                },
+            );
+            return Ok("[DEV MODE] Python app started (simulated).".to_string());
+        }
+
+        let ok = PythonManager::new()
+            .start_gunicorn(&req.app_name, &req.wsgi_module, &req.dir, req.port)
+            .map_err(|e| e.to_string())?;
+        if ok {
+            let mut guard = runtime_state().lock().map_err(|e| e.to_string())?;
+            guard.apps.insert(
+                req.app_name.clone(),
+                RuntimeAppInfo {
+                    app_name: req.app_name.clone(),
+                    runtime: "python".to_string(),
+                    dir: req.dir.clone(),
+                    status: "running".to_string(),
+                },
+            );
+            Ok("Python app started.".to_string())
+        } else {
+            Err("Python app start failed.".to_string())
+        }
     }
 }

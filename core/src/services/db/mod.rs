@@ -1,9 +1,10 @@
-use serde::{Deserialize, Serialize};
+﻿use serde::{Deserialize, Serialize};
 use std::process::Command;
 
 pub mod auradb;
+pub mod ops;
 
-// ─── Ortak Yapılar ──────────────────────────────────────────
+// ¦¦¦ Ortak Yapılar ¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DbConfig {
@@ -11,6 +12,7 @@ pub struct DbConfig {
     pub db_user: String,
     pub db_pass: String,
     pub host: Option<String>,
+    pub site_domain: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -28,7 +30,16 @@ pub struct DbUserInfo {
     pub engine: String,
 }
 
-// ─── MariaDB Manager ────────────────────────────────────────
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DbCreateResult {
+    pub message: String,
+    pub db_name: String,
+    pub db_user: String,
+    pub engine: String,
+    pub site_domain: Option<String>,
+}
+
+// ¦¦¦ MariaDB Manager ¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦
 
 pub struct MariaDbManager;
 
@@ -48,7 +59,7 @@ impl MariaDbManager {
         }
     }
 
-    pub fn create_database(config: &DbConfig) -> Result<String, String> {
+    pub fn create_database(config: &DbConfig) -> Result<DbCreateResult, String> {
         let host = config.host.as_deref().unwrap_or("localhost");
         let sqls = vec![
             format!("CREATE DATABASE IF NOT EXISTS `{}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;", config.db_name),
@@ -59,7 +70,13 @@ impl MariaDbManager {
         for sql in &sqls {
             Self::run_sql(sql)?;
         }
-        Ok(format!("MariaDB veritabanı '{}' ve kullanıcı '{}' oluşturuldu", config.db_name, config.db_user))
+        Ok(DbCreateResult {
+            message: format!("MariaDB veritabanı '{}' ve kullanıcı '{}' oluşturuldu", config.db_name, config.db_user),
+            db_name: config.db_name.clone(),
+            db_user: config.db_user.clone(),
+            engine: "mariadb".to_string(),
+            site_domain: config.site_domain.clone(),
+        })
     }
 
     pub fn drop_database(db_name: &str) -> Result<String, String> {
@@ -119,7 +136,7 @@ impl MariaDbManager {
     }
 }
 
-// ─── PostgreSQL Manager ──────────────────────────────────────
+// ¦¦¦ PostgreSQL Manager ¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦
 
 pub struct PostgresManager;
 
@@ -139,7 +156,7 @@ impl PostgresManager {
         }
     }
 
-    pub fn create_database(config: &DbConfig) -> Result<String, String> {
+    pub fn create_database(config: &DbConfig) -> Result<DbCreateResult, String> {
         // Kullanıcı oluştur
         Self::run_psql(&format!(
             "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{}') THEN CREATE ROLE \"{}\" LOGIN PASSWORD '{}'; END IF; END $$;",
@@ -173,7 +190,13 @@ impl PostgresManager {
             config.db_name, config.db_user
         ))?;
 
-        Ok(format!("PostgreSQL veritabanı '{}' ve kullanıcı '{}' oluşturuldu", config.db_name, config.db_user))
+        Ok(DbCreateResult {
+            message: format!("PostgreSQL veritabanı '{}' ve kullanıcı '{}' oluşturuldu", config.db_name, config.db_user),
+            db_name: config.db_name.clone(),
+            db_user: config.db_user.clone(),
+            engine: "postgresql".to_string(),
+            site_domain: config.site_domain.clone(),
+        })
     }
 
     pub fn drop_database(db_name: &str) -> Result<String, String> {
@@ -241,3 +264,4 @@ impl PostgresManager {
         Ok(users)
     }
 }
+

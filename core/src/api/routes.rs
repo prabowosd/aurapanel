@@ -2,26 +2,68 @@ use axum::{
     routing::{get, post},
     Router,
     Json,
-    extract::State,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::services::nitro::{NitroEngine, VHostConfig};
+use crate::services::nitro::{NitroEngine, VHostConfig, VHostUpdateConfig};
 use crate::services::dns::{PowerDnsManager, DnsZoneConfig};
-use crate::services::db::{DbConfig, MariaDbManager, PostgresManager};
-use crate::services::mail::{MailManager, MailboxConfig};
+use crate::services::db::{DbConfig, MariaDbManager, PostgresManager, auradb::DbExplorerManager};
+use crate::services::db::ops::{
+    DbPasswordChangeRequest,
+    RemoteAccessGrantRequest,
+    change_password_mariadb,
+    change_password_postgres,
+    list_remote_access_mariadb,
+    list_remote_access_postgres,
+    allow_remote_access_mariadb,
+    allow_remote_access_postgres,
+    check_connection_readiness,
+};
+use crate::services::mail::{
+    MailManager,
+    MailboxConfig,
+    MailForwardConfig,
+    MailForwardDeleteRequest,
+    MailCatchAllConfig,
+    MailRoutingConfig,
+    MailRoutingDeleteRequest,
+    MailWebmailSsoRequest,
+};
 use crate::services::perf::{PerfManager, RedisConfig};
-use crate::services::security::{SecurityManager, FirewallRule};
+use crate::services::security::{SecurityManager, FirewallRule, HardeningRequest};
 use crate::services::security::waf::{MlWaf, HttpRequest as WafHttpRequest};
 use crate::services::monitor::MonitorManager;
-use crate::services::apps::{AppManager, CmsInstallConfig};
+use crate::services::apps::{AppManager, CmsInstallConfig, NodeAppRequest, PythonAppRequest};
 use crate::services::federated::{FederatedManager, WireguardConfig};
 use crate::services::ssl::{SslManager, SslConfig};
-use crate::services::secure_connect::{SecureConnectManager, SftpUserConfig};
-use crate::services::storage::{BackupManager, BackupConfig};
+use crate::services::secure_connect::{
+    SecureConnectManager,
+    SftpUserConfig,
+    SftpPasswordResetRequest,
+};
+use crate::services::storage::{BackupManager, BackupConfig, StorageManager, MinioBucketRequest, MinioCredentialsRequest};
 use crate::services::monitor::gitops::{GitOpsManager, GitOpsConfig};
-use crate::services::docker::{DockerManager, docker::{CreateContainerConfig, PullImageConfig}};
+use crate::services::docker::{DockerManager, docker::{CreateContainerConfig, PullImageConfig}, apps::{DockerAppsManager, CreateDockerAppRequest}};
+use crate::services::cloudflare::CloudFlareManager;
+use crate::services::cloudflare::cloudflare::*;
+use crate::services::filemanager::FileManager;
+use crate::services::php::PhpManager;
+use crate::services::status::StatusManager;
+use crate::services::users::{UserManager, CreateUserRequest};
+use crate::services::packages::{PackageManager, CreatePackageRequest};
+use crate::services::websites::{
+    WebsitesManager,
+    CreateSubdomainRequest,
+    ConvertSubdomainRequest,
+    SubdomainPhpUpdateRequest,
+    WebsiteDbLinkRequest,
+    WebsiteAliasRequest,
+    WebsiteOpenBasedirRequest,
+    WebsiteRewriteRequest,
+    WebsiteVhostConfigRequest,
+    WebsiteCustomSslRequest,
+};
 
 #[derive(Serialize)]
 struct StatusResponse {
@@ -33,26 +75,129 @@ struct StatusResponse {
 pub fn routes() -> Router {
     Router::new()
         .route("/health", get(health_check))
+        // VHost / Sites
         .route("/vhost", post(create_vhost_handler))
+        .route("/vhost/list", get(vhost_list_handler))
+        .route("/vhost/delete", post(vhost_delete_handler))
+        .route("/vhost/suspend", post(vhost_suspend_handler))
+        .route("/vhost/unsuspend", post(vhost_unsuspend_handler))
+        .route("/vhost/update", post(vhost_update_handler))
+        .route("/websites/subdomains", get(websites_subdomains_list_handler))
+        .route("/websites/subdomains", post(websites_subdomains_create_handler))
+        .route("/websites/subdomains", axum::routing::delete(websites_subdomains_delete_handler))
+        .route("/websites/subdomains/php", post(websites_subdomains_php_update_handler))
+        .route("/websites/subdomains/convert", post(websites_subdomains_convert_handler))
+        .route("/websites/db-links", get(websites_db_links_list_handler))
+        .route("/websites/db-links", post(websites_db_links_create_handler))
+        .route("/websites/db-links", axum::routing::delete(websites_db_links_delete_handler))
+        .route("/websites/db-links/verify", post(websites_db_links_verify_handler))
+        .route("/websites/aliases", get(websites_aliases_list_handler))
+        .route("/websites/aliases", post(websites_aliases_create_handler))
+        .route("/websites/aliases", axum::routing::delete(websites_aliases_delete_handler))
+        .route("/websites/advanced-config", get(websites_advanced_config_get_handler))
+        .route("/websites/open-basedir", post(websites_open_basedir_set_handler))
+        .route("/websites/rewrite", post(websites_rewrite_save_handler))
+        .route("/websites/vhost-config", post(websites_vhost_config_save_handler))
+        .route("/websites/custom-ssl", get(websites_custom_ssl_get_handler))
+        .route("/websites/custom-ssl", post(websites_custom_ssl_save_handler))
+        // DNS
         .route("/dns/zone", post(create_dns_zone_handler))
+        .route("/dns/zones", get(dns_zones_list_handler))
+        .route("/dns/zones/:domain", axum::routing::delete(delete_dns_zone_handler))
+        .route("/dns/zones/:domain/records", get(get_dns_records_handler))
+        .route("/dns/zones/:domain/records", post(add_dns_record_handler))
+        .route("/dns/zones/:domain/records", axum::routing::delete(delete_dns_record_handler))
+        .route("/dns/zones/:domain/dnssec", post(set_dnssec_handler))
+        .route("/dns/reconcile", post(dns_reconcile_handler))
+        .route("/dns/default-nameservers", get(get_default_ns_handler))
+        .route("/dns/default-nameservers", post(set_default_ns_handler))
+        .route("/dns/default-nameservers/wizard", post(default_ns_wizard_handler))
+        .route("/dns/default-nameservers/reset", post(default_ns_reset_handler))
+        // Databases
         .route("/db/mariadb/list", get(mariadb_list_handler))
         .route("/db/mariadb/create", post(mariadb_create_handler))
         .route("/db/mariadb/drop", post(mariadb_drop_handler))
         .route("/db/mariadb/users", get(mariadb_users_handler))
+        .route("/db/mariadb/password", post(mariadb_password_handler))
+        .route("/db/mariadb/remote-access", get(mariadb_remote_access_list_handler))
+        .route("/db/mariadb/remote-access", post(mariadb_remote_access_allow_handler))
         .route("/db/postgres/list", get(postgres_list_handler))
         .route("/db/postgres/create", post(postgres_create_handler))
         .route("/db/postgres/drop", post(postgres_drop_handler))
         .route("/db/postgres/users", get(postgres_users_handler))
+        .route("/db/postgres/password", post(postgres_password_handler))
+        .route("/db/postgres/remote-access", get(postgres_remote_access_list_handler))
+        .route("/db/postgres/remote-access", post(postgres_remote_access_allow_handler))
+        .route("/db/explorer/bridge", post(db_explorer_bridge_create_handler))
+        .route("/db/explorer/bridge/resolve", get(db_explorer_bridge_resolve_handler))
+        .route("/db/explorer/query", post(db_explorer_query_handler))
+        .route("/db/explorer/tables", post(db_explorer_tables_handler))
         .route("/mail/create", post(create_mailbox_handler))
+        .route("/mail/list", get(mail_list_handler))
+        .route("/mail/delete", post(mail_delete_handler))
+        .route("/mail/forwards", get(mail_forwards_list_handler))
+        .route("/mail/forwards", post(mail_forwards_create_handler))
+        .route("/mail/forwards", axum::routing::delete(mail_forwards_delete_handler))
+        .route("/mail/catch-all", get(mail_catch_all_get_handler))
+        .route("/mail/catch-all", post(mail_catch_all_set_handler))
+        .route("/mail/routing", get(mail_routing_list_handler))
+        .route("/mail/routing", post(mail_routing_create_handler))
+        .route("/mail/routing", axum::routing::delete(mail_routing_delete_handler))
+        .route("/mail/dkim", get(mail_dkim_get_handler))
+        .route("/mail/dkim/rotate", post(mail_dkim_rotate_handler))
+        .route("/mail/webmail/sso", post(mail_webmail_sso_handler))
+        // Users
+        .route("/users/list", get(users_list_handler))
+        .route("/users/create", post(users_create_handler))
+        .route("/users/delete", post(users_delete_handler))
+        // Packages
+        .route("/packages/list", get(packages_list_handler))
+        .route("/packages/create", post(packages_create_handler))
+        .route("/packages/delete", post(packages_delete_handler))
         .route("/perf/redis", post(create_redis_handler))
         .route("/security/firewall", post(firewall_rule_handler))
         .route("/security/waf", post(waf_inspect_handler))
+        .route("/security/status", get(security_status_handler))
+        .route("/security/firewall/rules", get(firewall_rules_list_handler))
+        .route("/security/firewall/rules", axum::routing::delete(firewall_rule_delete_handler))
+        .route("/security/ssh-keys", get(ssh_keys_list_handler))
+        .route("/security/ssh-keys", post(ssh_keys_add_handler))
+        .route("/security/ssh-keys", axum::routing::delete(ssh_keys_delete_handler))
+        .route("/security/2fa/setup", post(security_2fa_setup_handler))
+        .route("/security/2fa/verify", post(security_2fa_verify_handler))
+        .route("/security/hardening/apply", post(security_hardening_apply_handler))
+        .route("/security/immutable/status", get(security_immutable_status_handler))
+        .route("/security/live-patch", post(security_live_patch_handler))
+        .route("/security/ebpf/events", get(security_ebpf_events_handler))
+        .route("/security/ebpf/collect", post(security_ebpf_collect_handler))
         .route("/monitor/sre", get(sre_metrics_handler))
+        .route("/monitor/sre/log-query", post(sre_log_query_handler))
+        .route("/monitor/sre/optimize", get(sre_optimize_handler))
+        .route("/monitor/cron/jobs", get(cron_jobs_list_handler))
+        .route("/monitor/cron/jobs", post(cron_jobs_create_handler))
+        .route("/monitor/cron/jobs", axum::routing::delete(cron_jobs_delete_handler))
+        .route("/monitor/logs/site", get(site_logs_handler))
         .route("/apps/install", post(install_cms_handler))
+        .route("/apps/runtime/list", get(runtime_apps_list_handler))
+        .route("/apps/runtime/node/install-deps", post(node_install_deps_handler))
+        .route("/apps/runtime/node/start", post(node_start_handler))
+        .route("/apps/runtime/node/stop", post(node_stop_handler))
+        .route("/apps/runtime/python/venv", post(python_create_venv_handler))
+        .route("/apps/runtime/python/install", post(python_install_requirements_handler))
+        .route("/apps/runtime/python/start", post(python_start_handler))
         .route("/federated/join", post(cluster_join_handler))
+        .route("/federated/nodes", get(cluster_nodes_list_handler))
+        .route("/federated/mode", get(cluster_mode_handler))
         .route("/ssl/issue", post(issue_ssl_handler))
         .route("/sftp/create", post(create_sftp_handler))
+        .route("/sftp/list", get(list_sftp_handler))
+        .route("/sftp/delete", post(delete_sftp_handler))
+        .route("/sftp/password", post(reset_sftp_password_handler))
         .route("/backup/create", post(create_backup_handler))
+        .route("/backup/restore", post(restore_backup_handler))
+        .route("/storage/minio/buckets", get(minio_buckets_list_handler))
+        .route("/storage/minio/buckets", post(minio_buckets_create_handler))
+        .route("/storage/minio/credentials", post(minio_credentials_handler))
         .route("/gitops/deploy", post(gitops_deploy_handler))
         // Docker Manager
         .route("/docker/containers", get(docker_list_containers))
@@ -63,6 +208,42 @@ pub fn routes() -> Router {
         .route("/docker/containers/remove", post(docker_action_handler))
         .route("/docker/images", get(docker_list_images))
         .route("/docker/images/pull", post(docker_pull_image))
+        .route("/docker/images/remove", post(docker_remove_image))
+        // Docker Apps
+        .route("/docker/apps/templates", get(docker_apps_list_templates))
+        .route("/docker/packages", get(docker_apps_list_packages))
+        .route("/docker/apps/installed", get(docker_apps_list_installed))
+        .route("/docker/apps/install", post(docker_apps_install))
+        .route("/docker/apps/remove", post(docker_apps_remove))
+        // CloudFlare API
+        .route("/cloudflare/zones", post(cf_list_zones))
+        .route("/cloudflare/dns/list", post(cf_list_dns_records))
+        .route("/cloudflare/dns/create", post(cf_create_dns_record))
+        .route("/cloudflare/dns/delete", post(cf_delete_dns_record))
+        .route("/cloudflare/ssl", post(cf_set_ssl_mode))
+        .route("/cloudflare/cache/purge", post(cf_purge_cache))
+        .route("/cloudflare/security", post(cf_set_security_level))
+        .route("/cloudflare/devmode", post(cf_set_dev_mode))
+        .route("/cloudflare/analytics", post(cf_get_analytics))
+        // File Manager API
+        .route("/files/list", post(file_list_handler))
+        .route("/files/read", post(file_read_handler))
+        .route("/files/write", post(file_write_handler))
+        .route("/files/create_dir", post(file_create_dir_handler))
+        .route("/files/delete", post(file_delete_handler))
+        .route("/files/rename", post(file_rename_handler))
+        // PHP Management API
+        .route("/php/versions", get(php_list_versions))
+        .route("/php/install", post(php_install_handler))
+        .route("/php/remove", post(php_remove_handler))
+        .route("/php/restart", post(php_restart_handler))
+        .route("/php/ini/get", post(php_get_ini_handler))
+        .route("/php/ini/save", post(php_save_ini_handler))
+        // Server Status API
+        .route("/status/metrics", get(status_metrics_handler))
+        .route("/status/services", get(status_services_handler))
+        .route("/status/processes", get(status_processes_handler))
+        .route("/status/service/control", post(status_service_control_handler))
 }
 
 async fn health_check() -> Json<StatusResponse> {
@@ -89,6 +270,27 @@ async fn cluster_join_handler(
     }
 }
 
+async fn cluster_nodes_list_handler() -> Json<serde_json::Value> {
+    match FederatedManager::list_cluster_nodes() {
+        Ok(nodes) => Json(json!({
+            "status": "success",
+            "data": nodes,
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
+async fn cluster_mode_handler() -> Json<serde_json::Value> {
+    let mode = FederatedManager::mode_status();
+    Json(json!({
+        "status": "success",
+        "data": mode,
+    }))
+}
+
 // Handler for SRE Metrics
 async fn sre_metrics_handler() -> Json<serde_json::Value> {
     match MonitorManager::predict_bottleneck().await {
@@ -100,6 +302,92 @@ async fn sre_metrics_handler() -> Json<serde_json::Value> {
             "status": "error",
             "message": e,
         })),
+    }
+}
+
+#[derive(Deserialize)]
+struct SreLogQueryPayload {
+    query: String,
+}
+
+// Handler for AI-SRE natural language log query
+async fn sre_log_query_handler(
+    Json(payload): Json<SreLogQueryPayload>,
+) -> Json<serde_json::Value> {
+    match MonitorManager::analyze_log_query(&payload.query).await {
+        Ok(result) => Json(json!({
+            "status": "success",
+            "data": result,
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
+// Handler for AI-SRE optimization suggestions
+async fn sre_optimize_handler() -> Json<serde_json::Value> {
+    match MonitorManager::suggest_optimizations().await {
+        Ok(actions) => Json(json!({
+            "status": "success",
+            "actions": actions,
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
+#[derive(Deserialize)]
+struct CronCreatePayload {
+    user: String,
+    schedule: String,
+    command: String,
+}
+
+#[derive(Deserialize)]
+struct CronDeleteQuery {
+    id: u64,
+}
+
+async fn cron_jobs_list_handler() -> Json<serde_json::Value> {
+    match MonitorManager::list_cron_jobs() {
+        Ok(jobs) => Json(json!({ "status": "success", "data": jobs })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn cron_jobs_create_handler(Json(payload): Json<CronCreatePayload>) -> Json<serde_json::Value> {
+    match MonitorManager::add_cron_job(&payload.user, &payload.schedule, &payload.command) {
+        Ok(job) => Json(json!({ "status": "success", "data": job })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn cron_jobs_delete_handler(
+    axum::extract::Query(query): axum::extract::Query<CronDeleteQuery>,
+) -> Json<serde_json::Value> {
+    match MonitorManager::delete_cron_job(query.id) {
+        Ok(_) => Json(json!({ "status": "success", "message": "Cron job deleted." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct SiteLogsQuery {
+    domain: String,
+    lines: Option<u32>,
+    kind: Option<String>,
+}
+
+async fn site_logs_handler(
+    axum::extract::Query(query): axum::extract::Query<SiteLogsQuery>,
+) -> Json<serde_json::Value> {
+    match MonitorManager::stream_site_logs_kind(&query.domain, query.kind.as_deref(), query.lines.unwrap_or(50)) {
+        Ok(logs) => Json(json!({ "status": "success", "data": logs })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
 
@@ -116,6 +404,65 @@ async fn install_cms_handler(
             "status": "error",
             "message": e,
         })),
+    }
+}
+
+async fn runtime_apps_list_handler() -> Json<serde_json::Value> {
+    match AppManager::list_runtime_apps() {
+        Ok(apps) => Json(json!({ "status": "success", "data": apps })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct RuntimeDirPayload {
+    dir: String,
+}
+
+#[derive(Deserialize)]
+struct NodeStopPayload {
+    app_name: String,
+}
+
+async fn node_install_deps_handler(Json(payload): Json<RuntimeDirPayload>) -> Json<serde_json::Value> {
+    match AppManager::node_install_dependencies(&payload.dir) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn node_start_handler(Json(payload): Json<NodeAppRequest>) -> Json<serde_json::Value> {
+    match AppManager::node_start(&payload) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn node_stop_handler(Json(payload): Json<NodeStopPayload>) -> Json<serde_json::Value> {
+    match AppManager::node_stop(&payload.app_name) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn python_create_venv_handler(Json(payload): Json<RuntimeDirPayload>) -> Json<serde_json::Value> {
+    match AppManager::python_create_venv(&payload.dir) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn python_install_requirements_handler(Json(payload): Json<RuntimeDirPayload>) -> Json<serde_json::Value> {
+    match AppManager::python_install_requirements(&payload.dir) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn python_start_handler(Json(payload): Json<PythonAppRequest>) -> Json<serde_json::Value> {
+    match AppManager::python_start(&payload) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
 
@@ -151,6 +498,165 @@ async fn firewall_rule_handler(
     }
 }
 
+async fn security_status_handler() -> Json<serde_json::Value> {
+    Json(json!({
+        "status": "success",
+        "data": SecurityManager::status(),
+    }))
+}
+
+async fn firewall_rules_list_handler() -> Json<serde_json::Value> {
+    match SecurityManager::list_firewall_rules() {
+        Ok(rules) => Json(json!({ "status": "success", "data": rules })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct FirewallDeleteQuery {
+    ip_address: String,
+}
+
+async fn firewall_rule_delete_handler(
+    axum::extract::Query(query): axum::extract::Query<FirewallDeleteQuery>,
+) -> Json<serde_json::Value> {
+    match SecurityManager::delete_firewall_rule(&query.ip_address) {
+        Ok(_) => Json(json!({ "status": "success", "message": "Firewall rule deleted." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct SshKeyCreatePayload {
+    user: String,
+    title: String,
+    public_key: String,
+}
+
+#[derive(Deserialize)]
+struct SshKeyDeleteQuery {
+    user: String,
+    key_id: String,
+}
+
+#[derive(Deserialize)]
+struct SshKeyListQuery {
+    user: Option<String>,
+}
+
+async fn ssh_keys_add_handler(
+    Json(payload): Json<SshKeyCreatePayload>,
+) -> Json<serde_json::Value> {
+    match SecurityManager::add_ssh_key(&payload.user, &payload.title, &payload.public_key) {
+        Ok(key) => Json(json!({ "status": "success", "data": key })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn ssh_keys_list_handler(
+    axum::extract::Query(query): axum::extract::Query<SshKeyListQuery>,
+) -> Json<serde_json::Value> {
+    match SecurityManager::list_ssh_keys(query.user.as_deref()) {
+        Ok(keys) => Json(json!({ "status": "success", "data": keys })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn ssh_keys_delete_handler(
+    axum::extract::Query(query): axum::extract::Query<SshKeyDeleteQuery>,
+) -> Json<serde_json::Value> {
+    match SecurityManager::delete_ssh_key(&query.user, &query.key_id) {
+        Ok(_) => Json(json!({ "status": "success", "message": "SSH key deleted." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct TwoFaSetupPayload {
+    account_name: String,
+}
+
+#[derive(Deserialize)]
+struct TwoFaVerifyPayload {
+    secret: String,
+    token: String,
+}
+
+async fn security_2fa_setup_handler(
+    Json(payload): Json<TwoFaSetupPayload>,
+) -> Json<serde_json::Value> {
+    match SecurityManager::setup_totp(&payload.account_name) {
+        Ok((secret, qr_base64)) => Json(json!({
+            "status": "success",
+            "data": {
+                "secret": secret,
+                "qr_base64": qr_base64
+            }
+        })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn security_2fa_verify_handler(
+    Json(payload): Json<TwoFaVerifyPayload>,
+) -> Json<serde_json::Value> {
+    match SecurityManager::verify_totp(&payload.secret, &payload.token) {
+        Ok(valid) => Json(json!({ "status": "success", "valid": valid })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn security_hardening_apply_handler(
+    Json(payload): Json<HardeningRequest>,
+) -> Json<serde_json::Value> {
+    match SecurityManager::apply_one_click_hardening(&payload) {
+        Ok(result) => Json(json!({ "status": "success", "data": result })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn security_immutable_status_handler() -> Json<serde_json::Value> {
+    match SecurityManager::immutable_os_status() {
+        Ok(status) => Json(json!({ "status": "success", "data": status })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct LivePatchPayload {
+    target: String,
+}
+
+async fn security_live_patch_handler(
+    Json(payload): Json<LivePatchPayload>,
+) -> Json<serde_json::Value> {
+    match SecurityManager::run_live_patch(&payload.target) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn security_ebpf_events_handler() -> Json<serde_json::Value> {
+    match SecurityManager::list_ebpf_events() {
+        Ok(events) => Json(json!({ "status": "success", "data": events })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct EbpfCollectPayload {
+    limit: Option<usize>,
+}
+
+async fn security_ebpf_collect_handler(
+    Json(payload): Json<EbpfCollectPayload>,
+) -> Json<serde_json::Value> {
+    match SecurityManager::collect_ebpf_events(payload.limit.unwrap_or(100)) {
+        Ok(events) => Json(json!({ "status": "success", "data": events })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
 // Handler for creating a new mailbox
 async fn create_mailbox_handler(
     Json(payload): Json<MailboxConfig>,
@@ -178,7 +684,11 @@ async fn mariadb_list_handler() -> Json<serde_json::Value> {
 
 async fn mariadb_create_handler(Json(payload): Json<DbConfig>) -> Json<serde_json::Value> {
     match MariaDbManager::create_database(&payload) {
-        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Ok(result) => Json(json!({
+            "status": "success",
+            "message": result.message,
+            "data": result,
+        })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
@@ -186,6 +696,11 @@ async fn mariadb_create_handler(Json(payload): Json<DbConfig>) -> Json<serde_jso
 #[derive(Deserialize)]
 struct DropDbRequest {
     name: String,
+}
+
+#[derive(Deserialize)]
+struct RemoteAccessListQuery {
+    db_user: Option<String>,
 }
 
 async fn mariadb_drop_handler(Json(payload): Json<DropDbRequest>) -> Json<serde_json::Value> {
@@ -202,6 +717,33 @@ async fn mariadb_users_handler() -> Json<serde_json::Value> {
     }
 }
 
+async fn mariadb_password_handler(
+    Json(payload): Json<DbPasswordChangeRequest>,
+) -> Json<serde_json::Value> {
+    match change_password_mariadb(&payload) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn mariadb_remote_access_list_handler(
+    axum::extract::Query(query): axum::extract::Query<RemoteAccessListQuery>,
+) -> Json<serde_json::Value> {
+    match list_remote_access_mariadb(query.db_user.as_deref()) {
+        Ok(rules) => Json(json!({ "status": "success", "data": rules })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn mariadb_remote_access_allow_handler(
+    Json(payload): Json<RemoteAccessGrantRequest>,
+) -> Json<serde_json::Value> {
+    match allow_remote_access_mariadb(&payload) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
 // ─── PostgreSQL Handlers ──────────────────────────────────────
 
 async fn postgres_list_handler() -> Json<serde_json::Value> {
@@ -213,7 +755,11 @@ async fn postgres_list_handler() -> Json<serde_json::Value> {
 
 async fn postgres_create_handler(Json(payload): Json<DbConfig>) -> Json<serde_json::Value> {
     match PostgresManager::create_database(&payload) {
-        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Ok(result) => Json(json!({
+            "status": "success",
+            "message": result.message,
+            "data": result,
+        })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
@@ -229,6 +775,211 @@ async fn postgres_users_handler() -> Json<serde_json::Value> {
     match PostgresManager::list_users() {
         Ok(users) => Json(json!({ "status": "success", "data": users })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn postgres_password_handler(
+    Json(payload): Json<DbPasswordChangeRequest>,
+) -> Json<serde_json::Value> {
+    match change_password_postgres(&payload) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn postgres_remote_access_list_handler(
+    axum::extract::Query(query): axum::extract::Query<RemoteAccessListQuery>,
+) -> Json<serde_json::Value> {
+    match list_remote_access_postgres(query.db_user.as_deref()) {
+        Ok(rules) => Json(json!({ "status": "success", "data": rules })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn postgres_remote_access_allow_handler(
+    Json(payload): Json<RemoteAccessGrantRequest>,
+) -> Json<serde_json::Value> {
+    match allow_remote_access_postgres(&payload) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct DbExplorerQueryPayload {
+    db_type: Option<String>,
+    connection_string: Option<String>,
+    query: String,
+    bridge_token: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DbExplorerTablesPayload {
+    db_type: Option<String>,
+    connection_string: Option<String>,
+    bridge_token: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DbExplorerBridgeCreatePayload {
+    domain: Option<String>,
+    engine: String,
+    db_name: String,
+    db_user: Option<String>,
+    ttl_seconds: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct DbExplorerBridgeResolveQuery {
+    token: String,
+}
+
+fn normalize_db_engine(engine: &str) -> Option<&'static str> {
+    let normalized = engine.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "mysql" | "mariadb" => Some("mariadb"),
+        "postgres" | "postgresql" => Some("postgresql"),
+        _ => None,
+    }
+}
+
+async fn db_explorer_query_handler(
+    Json(payload): Json<DbExplorerQueryPayload>,
+) -> Json<serde_json::Value> {
+    let mgr = DbExplorerManager::new();
+    if let Some(token) = payload.bridge_token.as_deref().map(str::trim).filter(|x| !x.is_empty()) {
+        return match mgr.execute_query_with_bridge(token, &payload.query) {
+            Ok(result) => Json(json!({ "status": "success", "data": result })),
+            Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
+        };
+    }
+
+    let db_type = payload.db_type.unwrap_or_default();
+    let connection_string = payload.connection_string.unwrap_or_default();
+    if db_type.trim().is_empty() || connection_string.trim().is_empty() {
+        return Json(json!({
+            "status": "error",
+            "message": "db_type and connection_string are required when bridge_token is not provided."
+        }));
+    }
+
+    match mgr.execute_query(&db_type, &connection_string, &payload.query) {
+        Ok(result) => Json(json!({ "status": "success", "data": result })),
+        Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
+    }
+}
+
+async fn db_explorer_tables_handler(
+    Json(payload): Json<DbExplorerTablesPayload>,
+) -> Json<serde_json::Value> {
+    let mgr = DbExplorerManager::new();
+    if let Some(token) = payload.bridge_token.as_deref().map(str::trim).filter(|x| !x.is_empty()) {
+        return match mgr.list_tables_with_bridge(token) {
+            Ok(tables) => Json(json!({ "status": "success", "data": tables })),
+            Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
+        };
+    }
+
+    let db_type = payload.db_type.unwrap_or_default();
+    let connection_string = payload.connection_string.unwrap_or_default();
+    if db_type.trim().is_empty() || connection_string.trim().is_empty() {
+        return Json(json!({
+            "status": "error",
+            "message": "db_type and connection_string are required when bridge_token is not provided."
+        }));
+    }
+
+    match mgr.list_tables(&db_type, &connection_string) {
+        Ok(tables) => Json(json!({ "status": "success", "data": tables })),
+        Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
+    }
+}
+
+async fn db_explorer_bridge_create_handler(
+    Json(payload): Json<DbExplorerBridgeCreatePayload>,
+) -> Json<serde_json::Value> {
+    let engine = match normalize_db_engine(&payload.engine) {
+        Some(e) => e.to_string(),
+        None => {
+            return Json(json!({
+                "status": "error",
+                "message": "Unsupported database engine.",
+            }))
+        }
+    };
+
+    let db_name = payload.db_name.trim().to_string();
+    if db_name.is_empty() {
+        return Json(json!({
+            "status": "error",
+            "message": "db_name is required.",
+        }));
+    }
+
+    let mut domain = payload.domain.unwrap_or_default().trim().to_ascii_lowercase();
+    let mut db_user = payload.db_user.unwrap_or_default().trim().to_string();
+
+    if domain.is_empty() || db_user.is_empty() {
+        match WebsitesManager::list_db_links(None) {
+            Ok(links) => {
+                if let Some(link) = links.into_iter().find(|x| {
+                    x.engine == engine
+                        && x.db_name == db_name
+                        && (domain.is_empty() || x.domain == domain)
+                }) {
+                    if domain.is_empty() {
+                        domain = link.domain;
+                    }
+                    if db_user.is_empty() {
+                        db_user = link.db_user;
+                    }
+                }
+            }
+            Err(e) => {
+                return Json(json!({
+                    "status": "error",
+                    "message": e,
+                }));
+            }
+        }
+    }
+
+    if domain.is_empty() || db_user.is_empty() {
+        return Json(json!({
+            "status": "error",
+            "message": "Website-DB link bulunamadi. Once website-db baglantisi olusturun.",
+        }));
+    }
+
+    match DbExplorerManager::create_bridge_ticket(
+        &domain,
+        &engine,
+        &db_name,
+        &db_user,
+        payload.ttl_seconds,
+    ) {
+        Ok(ticket) => Json(json!({
+            "status": "success",
+            "data": {
+                "token": ticket.token,
+                "expires_at": ticket.expires_at,
+                "profile": ticket.profile,
+                "url": format!("/auradb?bridge={}", ticket.token),
+            }
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e.to_string(),
+        })),
+    }
+}
+
+async fn db_explorer_bridge_resolve_handler(
+    axum::extract::Query(query): axum::extract::Query<DbExplorerBridgeResolveQuery>,
+) -> Json<serde_json::Value> {
+    match DbExplorerManager::resolve_bridge_token(&query.token) {
+        Ok(profile) => Json(json!({ "status": "success", "data": profile })),
+        Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
     }
 }
 
@@ -249,15 +1000,133 @@ async fn create_dns_zone_handler(
     }
 }
 
+#[derive(Deserialize)]
+struct CreateVhostPayload {
+    domain: String,
+    user: Option<String>,
+    php_version: String,
+    package: Option<String>,
+    email: Option<String>,
+    mail_domain: Option<bool>,
+    apache_backend: Option<bool>,
+}
+
+fn detect_server_ip() -> Option<String> {
+    if let Ok(ip) = std::env::var("AURAPANEL_SERVER_IP") {
+        let ip = ip.trim().to_string();
+        if !ip.is_empty() {
+            return Some(ip);
+        }
+    }
+
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("1.1.1.1:80").ok()?;
+    let ip = socket.local_addr().ok()?.ip();
+
+    if ip.is_loopback() || ip.is_unspecified() {
+        None
+    } else {
+        Some(ip.to_string())
+    }
+}
+
+fn resolve_dns_server_ip(preferred: Option<String>) -> Result<String, String> {
+    if let Some(ip) = preferred {
+        let ip = ip.trim().to_string();
+        if !ip.is_empty() {
+            return Ok(ip);
+        }
+    }
+
+    match detect_server_ip() {
+        Some(ip) => Ok(ip),
+        None => {
+            if crate::runtime::is_production() {
+                Err("Gercek sunucu IP'si tespit edilemedi. Production modda AURAPANEL_SERVER_IP tanimlayin.".to_string())
+            } else {
+                Ok("127.0.0.1".to_string())
+            }
+        }
+    }
+}
+
 // Handler for creating a new website / vhost
 async fn create_vhost_handler(
-    Json(payload): Json<VHostConfig>,
+    Json(payload): Json<CreateVhostPayload>,
 ) -> Json<serde_json::Value> {
-    match NitroEngine::create_vhost(&payload) {
-        Ok(_) => Json(json!({
-            "status": "success",
-            "message": format!("VHost for {} created successfully.", payload.domain),
-        })),
+    let domain = payload.domain.trim().to_lowercase();
+    let owner = payload
+        .user
+        .unwrap_or_else(|| "aura".to_string())
+        .trim()
+        .to_string();
+    let php_version = payload.php_version.trim().to_string();
+
+    if domain.is_empty() || owner.is_empty() || php_version.is_empty() {
+        return Json(json!({
+            "status": "error",
+            "message": "domain, user ve php_version zorunludur",
+        }));
+    }
+
+    let config = VHostConfig {
+        domain: domain.clone(),
+        user: owner.clone(),
+        php_version: php_version.clone(),
+    };
+
+    match NitroEngine::create_vhost(&config) {
+        Ok(_) => {
+            let mut warnings: Vec<String> = Vec::new();
+            let server_ip = match resolve_dns_server_ip(None) {
+                Ok(ip) => {
+                    if ip == "127.0.0.1" {
+                        warnings.push("Gercek sunucu IP'si tespit edilemedi, DNS bootstrap 127.0.0.1 ile olusturuldu.".to_string());
+                    }
+                    ip
+                }
+                Err(e) => {
+                    return Json(json!({
+                        "status": "error",
+                        "message": e,
+                    }))
+                }
+            };
+
+            // Best-effort DNS otomasyonu: vhost olustuktan sonra zone ve varsayilan kayitlari olustur.
+            let pdns = PowerDnsManager::new();
+            let dns_cfg = DnsZoneConfig {
+                domain: domain.clone(),
+                server_ip,
+            };
+            if let Err(e) = pdns.create_zone(&dns_cfg).await {
+                warnings.push(format!("DNS zone otomatik olusturulamadi: {}", e));
+            }
+
+            let update_cfg = VHostUpdateConfig {
+                domain: domain.clone(),
+                owner: Some(owner),
+                php_version: Some(php_version),
+                package: payload.package,
+                email: payload.email,
+            };
+            if let Err(e) = NitroEngine::update_vhost(&update_cfg) {
+                warnings.push(format!("Website metadata guncellenemedi: {}", e));
+            }
+
+            if payload.mail_domain.unwrap_or(false) {
+                warnings.push("Mail domain bootstrap su an metadata seviyesinde; DKIM/MX otomasyonu sonraki fazda.".to_string());
+            }
+            if payload.apache_backend.unwrap_or(false) {
+                warnings.push("Apache backend toggle secildi; runtime backend switch sonraki fazda tamamlanacak.".to_string());
+            }
+
+            Json(json!({
+                "status": "success",
+                "message": format!("VHost for {} created successfully.", domain),
+                "warnings": warnings,
+            }))
+        }
         Err(e) => Json(json!({
             "status": "error",
             "message": e,
@@ -297,6 +1166,36 @@ async fn create_sftp_handler(
     }
 }
 
+#[derive(Deserialize)]
+struct SftpDeletePayload {
+    username: String,
+}
+
+async fn list_sftp_handler() -> Json<serde_json::Value> {
+    match SecureConnectManager::list_sftp_users() {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn delete_sftp_handler(
+    Json(payload): Json<SftpDeletePayload>,
+) -> Json<serde_json::Value> {
+    match SecureConnectManager::delete_sftp_user(&payload.username) {
+        Ok(_) => Json(json!({ "status": "success", "message": "SFTP user deleted." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn reset_sftp_password_handler(
+    Json(payload): Json<SftpPasswordResetRequest>,
+) -> Json<serde_json::Value> {
+    match SecureConnectManager::reset_sftp_password(&payload) {
+        Ok(_) => Json(json!({ "status": "success", "message": "SFTP password updated." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
 // Handler for creating backup
 async fn create_backup_handler(
     Json(payload): Json<BackupConfig>,
@@ -306,6 +1205,75 @@ async fn create_backup_handler(
             "status": "success",
             "message": format!("Backup created for {}.", payload.domain),
             "snapshot_id": snapshot,
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
+#[derive(Deserialize)]
+struct BackupRestorePayload {
+    domain: String,
+    backup_path: String,
+    remote_repo: Option<String>,
+    password: Option<String>,
+    snapshot_id: String,
+}
+
+async fn restore_backup_handler(
+    Json(payload): Json<BackupRestorePayload>,
+) -> Json<serde_json::Value> {
+    let cfg = BackupConfig {
+        domain: payload.domain,
+        backup_path: payload.backup_path,
+        remote_repo: payload.remote_repo.unwrap_or_default(),
+        password: payload.password.unwrap_or_default(),
+        incremental: None,
+    };
+
+    match BackupManager::restore_backup(&cfg, &payload.snapshot_id).await {
+        Ok(_) => Json(json!({ "status": "success", "message": "Backup restore tamamlandi." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn minio_buckets_list_handler() -> Json<serde_json::Value> {
+    match StorageManager::list_buckets() {
+        Ok(buckets) => Json(json!({
+            "status": "success",
+            "data": buckets,
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
+async fn minio_buckets_create_handler(
+    Json(payload): Json<MinioBucketRequest>,
+) -> Json<serde_json::Value> {
+    match StorageManager::create_bucket(&payload.bucket_name) {
+        Ok(_) => Json(json!({
+            "status": "success",
+            "message": "Bucket created.",
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
+async fn minio_credentials_handler(
+    Json(payload): Json<MinioCredentialsRequest>,
+) -> Json<serde_json::Value> {
+    match StorageManager::generate_credentials(&payload.user) {
+        Ok(creds) => Json(json!({
+            "status": "success",
+            "data": creds,
         })),
         Err(e) => Json(json!({
             "status": "error",
@@ -399,3 +1367,1221 @@ async fn docker_pull_image(
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
+
+#[derive(Deserialize)]
+struct DockerImageRemovePayload {
+    id: String,
+    force: Option<bool>,
+}
+
+async fn docker_remove_image(
+    Json(payload): Json<DockerImageRemovePayload>,
+) -> Json<serde_json::Value> {
+    match DockerManager::remove_image(&payload.id, payload.force.unwrap_or(false)) {
+        Ok(_) => Json(json!({ "status": "success", "message": format!("Image removed: {}", payload.id) })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+// ─── Docker Apps Handlers ─────────────────────────────────────
+
+async fn docker_apps_list_templates() -> Json<serde_json::Value> {
+    let templates = DockerAppsManager::list_templates();
+    Json(json!({ "status": "success", "data": templates }))
+}
+
+async fn docker_apps_list_packages() -> Json<serde_json::Value> {
+    let packages = DockerAppsManager::list_packages();
+    Json(json!({ "status": "success", "data": packages }))
+}
+
+async fn docker_apps_list_installed() -> Json<serde_json::Value> {
+    // Şimdilik sistemdeki tüm container'ları uygulama olarak döndürüyoruz
+    match DockerManager::list_containers() {
+        Ok(containers) => Json(json!({ "status": "success", "data": containers })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn docker_apps_install(Json(payload): Json<CreateDockerAppRequest>) -> Json<serde_json::Value> {
+    match DockerAppsManager::create_app(&payload) {
+        Ok(id) => Json(json!({ "status": "success", "message": format!("Uygulama {} başarıyla kuruldu. Container ID: {}", payload.app_name, id) })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct DockerAppRemovePayload {
+    app_name: String,
+}
+
+async fn docker_apps_remove(Json(payload): Json<DockerAppRemovePayload>) -> Json<serde_json::Value> {
+    // DockerAppManager uygulamaları adlarıyla siliyor
+    match DockerManager::remove_container(&payload.app_name, true) {
+        Ok(_) => Json(json!({ "status": "success", "message": format!("Uygulama {} başarıyla kaldırıldı.", payload.app_name) })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+// ─── CloudFlare Handlers ─────────────────────────────────────
+
+#[derive(Deserialize)]
+struct CfAuthPayload {
+    api_key: String,
+    email: String,
+}
+
+#[derive(Deserialize)]
+struct CfZonePayload {
+    api_key: String,
+    email: String,
+    zone_id: String,
+}
+
+async fn cf_list_zones(Json(payload): Json<CfAuthPayload>) -> Json<serde_json::Value> {
+    match CloudFlareManager::list_zones(&payload.api_key, &payload.email) {
+        Ok(zones) => Json(json!({ "status": "success", "data": zones })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn cf_list_dns_records(Json(payload): Json<CfZonePayload>) -> Json<serde_json::Value> {
+    match CloudFlareManager::list_dns_records(&payload.api_key, &payload.email, &payload.zone_id) {
+        Ok(records) => Json(json!({ "status": "success", "data": records })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct CfCreateDnsPayload {
+    api_key: String,
+    email: String,
+    zone_id: String,
+    r#type: String,
+    name: String,
+    content: String,
+    ttl: Option<u32>,
+    proxied: Option<bool>,
+}
+
+async fn cf_create_dns_record(Json(payload): Json<CfCreateDnsPayload>) -> Json<serde_json::Value> {
+    let req = CreateDnsRecordRequest {
+        zone_id: payload.zone_id,
+        r#type: payload.r#type,
+        name: payload.name,
+        content: payload.content,
+        ttl: payload.ttl,
+        proxied: payload.proxied,
+    };
+    match CloudFlareManager::create_dns_record(&payload.api_key, &payload.email, &req) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct CfDeleteDnsPayload {
+    api_key: String,
+    email: String,
+    zone_id: String,
+    record_id: String,
+}
+
+async fn cf_delete_dns_record(Json(payload): Json<CfDeleteDnsPayload>) -> Json<serde_json::Value> {
+    let req = DeleteDnsRecordRequest { zone_id: payload.zone_id, record_id: payload.record_id };
+    match CloudFlareManager::delete_dns_record(&payload.api_key, &payload.email, &req) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct CfSslPayload {
+    api_key: String,
+    email: String,
+    zone_id: String,
+    mode: String,
+}
+
+async fn cf_set_ssl_mode(Json(payload): Json<CfSslPayload>) -> Json<serde_json::Value> {
+    let req = SetSslModeRequest { zone_id: payload.zone_id, mode: payload.mode };
+    match CloudFlareManager::set_ssl_mode(&payload.api_key, &payload.email, &req) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct CfPurgeCachePayload {
+    api_key: String,
+    email: String,
+    zone_id: String,
+    purge_everything: Option<bool>,
+    files: Option<Vec<String>>,
+}
+
+async fn cf_purge_cache(Json(payload): Json<CfPurgeCachePayload>) -> Json<serde_json::Value> {
+    let req = PurgeCacheRequest { zone_id: payload.zone_id, purge_everything: payload.purge_everything, files: payload.files };
+    match CloudFlareManager::purge_cache(&payload.api_key, &payload.email, &req) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct CfSecurityPayload {
+    api_key: String,
+    email: String,
+    zone_id: String,
+    level: String,
+}
+
+async fn cf_set_security_level(Json(payload): Json<CfSecurityPayload>) -> Json<serde_json::Value> {
+    let req = SetSecurityLevelRequest { zone_id: payload.zone_id, level: payload.level };
+    match CloudFlareManager::set_security_level(&payload.api_key, &payload.email, &req) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct CfDevModePayload {
+    api_key: String,
+    email: String,
+    zone_id: String,
+    enabled: bool,
+}
+
+async fn cf_set_dev_mode(Json(payload): Json<CfDevModePayload>) -> Json<serde_json::Value> {
+    let req = DevModeRequest { zone_id: payload.zone_id, enabled: payload.enabled };
+    match CloudFlareManager::set_dev_mode(&payload.api_key, &payload.email, &req) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn cf_get_analytics(Json(payload): Json<CfZonePayload>) -> Json<serde_json::Value> {
+    match CloudFlareManager::get_zone_analytics(&payload.api_key, &payload.email, &payload.zone_id) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+// ─── File Manager Handlers ───────────────────────────────────
+
+#[derive(Deserialize)]
+struct FilePathPayload {
+    path: String,
+}
+
+#[derive(Deserialize)]
+struct FileWritePayload {
+    path: String,
+    content: String,
+}
+
+#[derive(Deserialize)]
+struct FileRenamePayload {
+    old_path: String,
+    new_path: String,
+}
+
+async fn file_list_handler(Json(payload): Json<FilePathPayload>) -> Json<serde_json::Value> {
+    match FileManager::list_dir(&payload.path) {
+        Ok(items) => Json(json!({ "status": "success", "data": items })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn file_read_handler(Json(payload): Json<FilePathPayload>) -> Json<serde_json::Value> {
+    match FileManager::read_file(&payload.path) {
+        Ok(content) => Json(json!({ "status": "success", "data": content })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn file_write_handler(Json(payload): Json<FileWritePayload>) -> Json<serde_json::Value> {
+    match FileManager::write_file(&payload.path, &payload.content) {
+        Ok(_) => Json(json!({ "status": "success", "message": "Dosya kaydedildi." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn file_create_dir_handler(Json(payload): Json<FilePathPayload>) -> Json<serde_json::Value> {
+    match FileManager::create_dir(&payload.path) {
+        Ok(_) => Json(json!({ "status": "success", "message": "Klasör oluşturuldu." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn file_delete_handler(Json(payload): Json<FilePathPayload>) -> Json<serde_json::Value> {
+    match FileManager::delete_item(&payload.path) {
+        Ok(_) => Json(json!({ "status": "success", "message": "Silindi." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn file_rename_handler(Json(payload): Json<FileRenamePayload>) -> Json<serde_json::Value> {
+    match FileManager::rename_item(&payload.old_path, &payload.new_path) {
+        Ok(_) => Json(json!({ "status": "success", "message": "İsim değiştirildi." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+// ─── PHP Management Handlers ────────────────────────────────
+
+#[derive(Deserialize)]
+struct PhpVersionPayload {
+    version: String,
+}
+
+#[derive(Deserialize)]
+struct PhpIniSavePayload {
+    version: String,
+    content: String,
+}
+
+async fn php_list_versions() -> Json<serde_json::Value> {
+    match PhpManager::list_versions() {
+        Ok(versions) => Json(json!({ "status": "success", "data": versions })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn php_install_handler(Json(payload): Json<PhpVersionPayload>) -> Json<serde_json::Value> {
+    match PhpManager::install_version(&payload.version) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn php_remove_handler(Json(payload): Json<PhpVersionPayload>) -> Json<serde_json::Value> {
+    match PhpManager::remove_version(&payload.version) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn php_restart_handler(Json(payload): Json<PhpVersionPayload>) -> Json<serde_json::Value> {
+    match PhpManager::restart_fpm(&payload.version) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn php_get_ini_handler(Json(payload): Json<PhpVersionPayload>) -> Json<serde_json::Value> {
+    match PhpManager::get_ini(&payload.version) {
+        Ok(content) => Json(json!({ "status": "success", "data": content })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn php_save_ini_handler(Json(payload): Json<PhpIniSavePayload>) -> Json<serde_json::Value> {
+    match PhpManager::save_ini(&payload.version, &payload.content) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+// ─── Server Status Handlers ─────────────────────────────────
+
+async fn status_metrics_handler() -> Json<serde_json::Value> {
+    match StatusManager::get_metrics() {
+        Ok(metrics) => Json(json!({ "status": "success", "data": metrics })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn status_services_handler() -> Json<serde_json::Value> {
+    match StatusManager::get_services() {
+        Ok(services) => Json(json!({ "status": "success", "data": services })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn status_processes_handler() -> Json<serde_json::Value> {
+    match StatusManager::get_processes() {
+        Ok(procs) => Json(json!({ "status": "success", "data": procs })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct ServiceControlPayload {
+    name: String,
+    action: String, // start, stop, restart
+}
+
+async fn status_service_control_handler(Json(payload): Json<ServiceControlPayload>) -> Json<serde_json::Value> {
+    match StatusManager::control_service(&payload.name, &payload.action) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+// ─── VHost / Sites Handlers ──────────────────────────────────────────────────
+
+#[derive(Deserialize, Default)]
+struct VhostListQuery {
+    search: Option<String>,
+    php: Option<String>,
+    page: Option<usize>,
+    per_page: Option<usize>,
+}
+
+async fn vhost_list_handler(
+    axum::extract::Query(query): axum::extract::Query<VhostListQuery>,
+) -> Json<serde_json::Value> {
+    use crate::services::nitro::NitroEngine;
+    use std::cmp::min;
+    match NitroEngine::list_vhosts() {
+        Ok(mut sites) => {
+            if query.search.is_none() && query.php.is_none() && query.page.is_none() && query.per_page.is_none() {
+                return Json(json!({ "status": "success", "data": sites }));
+            }
+
+            if let Some(search) = query.search.as_ref() {
+                let needle = search.to_lowercase();
+                sites.retain(|s| {
+                    let domain = s.get("domain").and_then(|x| x.as_str()).unwrap_or_default().to_lowercase();
+                    domain.contains(&needle)
+                });
+            }
+
+            if let Some(php) = query.php.as_ref() {
+                let php = php.to_lowercase();
+                sites.retain(|s| {
+                    let value = s
+                        .get("php")
+                        .or_else(|| s.get("php_version"))
+                        .and_then(|x| x.as_str())
+                        .unwrap_or_default()
+                        .to_lowercase();
+                    value == php
+                });
+            }
+
+            let total = sites.len();
+            let page = query.page.unwrap_or(1).max(1);
+            let per_page = query.per_page.unwrap_or(20).clamp(1, 200);
+            let start = (page - 1).saturating_mul(per_page);
+            let end = min(start + per_page, total);
+            let data = if start >= total { Vec::new() } else { sites[start..end].to_vec() };
+
+            Json(json!({
+                "status": "success",
+                "data": data,
+                "pagination": {
+                    "page": page,
+                    "per_page": per_page,
+                    "total": total,
+                    "total_pages": if total == 0 { 0 } else { (total + per_page - 1) / per_page },
+                }
+            }))
+        }
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct DomainPayload {
+    domain: String,
+}
+
+#[derive(Deserialize)]
+struct UpdateVhostPayload {
+    domain: String,
+    owner: Option<String>,
+    #[serde(alias = "php")]
+    php_version: Option<String>,
+    package: Option<String>,
+    email: Option<String>,
+}
+
+async fn vhost_delete_handler(Json(payload): Json<DomainPayload>) -> Json<serde_json::Value> {
+    use crate::services::nitro::NitroEngine;
+    match NitroEngine::delete_vhost(&payload.domain) {
+        Ok(msg) => {
+            let mut warnings: Vec<String> = Vec::new();
+
+            let pdns = PowerDnsManager::new();
+            if let Err(e) = pdns.delete_zone(&payload.domain) {
+                warnings.push(format!("DNS zone cleanup warning: {}", e));
+            }
+            if let Err(e) = WebsitesManager::cleanup_for_domain(&payload.domain) {
+                warnings.push(format!("Website workflow cleanup warning: {}", e));
+            }
+
+            Json(json!({
+                "status": "success",
+                "message": msg,
+                "warnings": warnings,
+            }))
+        }
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn vhost_suspend_handler(Json(payload): Json<DomainPayload>) -> Json<serde_json::Value> {
+    use crate::services::nitro::NitroEngine;
+    match NitroEngine::suspend_vhost(&payload.domain) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn vhost_unsuspend_handler(Json(payload): Json<DomainPayload>) -> Json<serde_json::Value> {
+    use crate::services::nitro::NitroEngine;
+    match NitroEngine::unsuspend_vhost(&payload.domain) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn vhost_update_handler(Json(payload): Json<UpdateVhostPayload>) -> Json<serde_json::Value> {
+    let domain = payload.domain.clone();
+    let req = VHostUpdateConfig {
+        domain: domain.clone(),
+        owner: payload.owner,
+        php_version: payload.php_version,
+        package: payload.package,
+        email: payload.email,
+    };
+
+    match NitroEngine::update_vhost(&req) {
+        Ok(data) => {
+            let mut warnings: Vec<String> = Vec::new();
+            let pdns = PowerDnsManager::new();
+            match resolve_dns_server_ip(None) {
+                Ok(ip) => {
+                    if ip == "127.0.0.1" {
+                        warnings.push("DNS reconcile 127.0.0.1 fallback ile calisti.".to_string());
+                    }
+                    if let Err(e) = pdns.reconcile_zone_defaults(&domain, &ip) {
+                        warnings.push(format!("DNS reconcile warning: {}", e));
+                    }
+                }
+                Err(e) => warnings.push(format!("DNS reconcile warning: {}", e)),
+            }
+
+            Json(json!({
+                "status": "success",
+                "message": format!("{} website guncellendi.", data.domain),
+                "data": data,
+                "warnings": warnings,
+            }))
+        }
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct SubdomainListQuery {
+    domain: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SubdomainDeleteQuery {
+    fqdn: String,
+    delete_docroot: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct DbLinksListQuery {
+    domain: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DbLinkDeleteQuery {
+    domain: String,
+    engine: String,
+    db_name: String,
+}
+
+#[derive(Deserialize)]
+struct DbLinkVerifyPayload {
+    domain: String,
+    engine: String,
+    db_name: String,
+    db_user: String,
+}
+
+#[derive(Deserialize)]
+struct ConvertSubdomainPayload {
+    fqdn: String,
+    owner: Option<String>,
+    php_version: Option<String>,
+    package: Option<String>,
+    email: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AliasListQuery {
+    domain: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AliasDeleteQuery {
+    domain: String,
+    alias: String,
+}
+
+#[derive(Deserialize)]
+struct AdvancedConfigQuery {
+    domain: String,
+}
+
+#[derive(Deserialize)]
+struct CustomSslQuery {
+    domain: String,
+}
+
+async fn websites_subdomains_list_handler(
+    axum::extract::Query(query): axum::extract::Query<SubdomainListQuery>,
+) -> Json<serde_json::Value> {
+    match WebsitesManager::list_subdomains(query.domain.as_deref()) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_subdomains_create_handler(
+    Json(payload): Json<CreateSubdomainRequest>,
+) -> Json<serde_json::Value> {
+    match WebsitesManager::create_subdomain(&payload) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_subdomains_delete_handler(
+    axum::extract::Query(query): axum::extract::Query<SubdomainDeleteQuery>,
+) -> Json<serde_json::Value> {
+    let delete_docroot = query.delete_docroot.unwrap_or(false);
+    match WebsitesManager::delete_subdomain_with_options(&query.fqdn, delete_docroot) {
+        Ok(removed_docroots) => Json(json!({
+            "status": "success",
+            "message": if delete_docroot {
+                "Subdomain ve secili docrootlar silindi."
+            } else {
+                "Subdomain silindi."
+            },
+            "data": {
+                "docroot_deleted": delete_docroot,
+                "removed_paths": removed_docroots,
+            }
+        })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_subdomains_php_update_handler(
+    Json(payload): Json<SubdomainPhpUpdateRequest>,
+) -> Json<serde_json::Value> {
+    match WebsitesManager::update_subdomain_php(&payload) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_subdomains_convert_handler(
+    Json(payload): Json<ConvertSubdomainPayload>,
+) -> Json<serde_json::Value> {
+    let consume_req = ConvertSubdomainRequest {
+        fqdn: payload.fqdn.clone(),
+    };
+
+    let subdomain = match WebsitesManager::consume_subdomain_for_conversion(&consume_req) {
+        Ok(item) => item,
+        Err(e) => return Json(json!({ "status": "error", "message": e })),
+    };
+
+    let owner = payload.owner.unwrap_or_else(|| "aura".to_string());
+    let php_version = payload
+        .php_version
+        .unwrap_or_else(|| subdomain.php_version.clone());
+
+    let create_cfg = VHostConfig {
+        domain: subdomain.fqdn.clone(),
+        user: owner.clone(),
+        php_version: php_version.clone(),
+    };
+
+    if let Err(e) = NitroEngine::create_vhost(&create_cfg) {
+        let rollback = CreateSubdomainRequest {
+            parent_domain: subdomain.parent_domain,
+            subdomain: subdomain.subdomain,
+            php_version: subdomain.php_version,
+        };
+        let _ = WebsitesManager::create_subdomain(&rollback);
+        return Json(json!({
+            "status": "error",
+            "message": format!("Subdomain website'e donusturulemedi: {}", e),
+        }));
+    }
+
+    let update_req = VHostUpdateConfig {
+        domain: create_cfg.domain.clone(),
+        owner: Some(owner),
+        php_version: Some(php_version),
+        package: payload.package,
+        email: payload.email,
+    };
+
+    let update_data = match NitroEngine::update_vhost(&update_req) {
+        Ok(data) => data,
+        Err(e) => {
+            return Json(json!({
+                "status": "error",
+                "message": format!("Website olusturuldu ama metadata guncellenemedi: {}", e),
+            }))
+        }
+    };
+
+    Json(json!({
+        "status": "success",
+        "message": format!("{} full website olarak donusturuldu.", update_data.domain),
+        "data": update_data,
+    }))
+}
+
+async fn websites_db_links_list_handler(
+    axum::extract::Query(query): axum::extract::Query<DbLinksListQuery>,
+) -> Json<serde_json::Value> {
+    match WebsitesManager::list_db_links(query.domain.as_deref()) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_db_links_create_handler(
+    Json(payload): Json<WebsiteDbLinkRequest>,
+) -> Json<serde_json::Value> {
+    match WebsitesManager::attach_db(&payload) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_db_links_delete_handler(
+    axum::extract::Query(query): axum::extract::Query<DbLinkDeleteQuery>,
+) -> Json<serde_json::Value> {
+    match WebsitesManager::detach_db(&query.domain, &query.engine, &query.db_name) {
+        Ok(_) => Json(json!({ "status": "success", "message": "DB baglantisi kaldirildi." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_db_links_verify_handler(
+    Json(payload): Json<DbLinkVerifyPayload>,
+) -> Json<serde_json::Value> {
+    let linked = match WebsitesManager::list_db_links(Some(&payload.domain)) {
+        Ok(links) => links.into_iter().any(|x| {
+            x.domain == payload.domain
+                && x.engine == payload.engine
+                && x.db_name == payload.db_name
+                && x.db_user == payload.db_user
+        }),
+        Err(e) => {
+            return Json(json!({ "status": "error", "message": e }));
+        }
+    };
+
+    match check_connection_readiness(&payload.engine, &payload.db_name, &payload.db_user) {
+        Ok(result) => Json(json!({
+            "status": "success",
+            "data": {
+                "linked": linked,
+                "connection": result,
+                "ready": linked && result.ready,
+            }
+        })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_aliases_list_handler(
+    axum::extract::Query(query): axum::extract::Query<AliasListQuery>,
+) -> Json<serde_json::Value> {
+    match WebsitesManager::list_aliases(query.domain.as_deref()) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_aliases_create_handler(
+    Json(payload): Json<WebsiteAliasRequest>,
+) -> Json<serde_json::Value> {
+    match WebsitesManager::add_alias(&payload) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_aliases_delete_handler(
+    axum::extract::Query(query): axum::extract::Query<AliasDeleteQuery>,
+) -> Json<serde_json::Value> {
+    match WebsitesManager::delete_alias(&query.domain, &query.alias) {
+        Ok(_) => Json(json!({ "status": "success", "message": "Alias silindi." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_advanced_config_get_handler(
+    axum::extract::Query(query): axum::extract::Query<AdvancedConfigQuery>,
+) -> Json<serde_json::Value> {
+    match WebsitesManager::get_advanced_config(&query.domain) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_open_basedir_set_handler(
+    Json(payload): Json<WebsiteOpenBasedirRequest>,
+) -> Json<serde_json::Value> {
+    match WebsitesManager::set_open_basedir(&payload) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_rewrite_save_handler(
+    Json(payload): Json<WebsiteRewriteRequest>,
+) -> Json<serde_json::Value> {
+    match WebsitesManager::save_rewrite_rules(&payload) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_vhost_config_save_handler(
+    Json(payload): Json<WebsiteVhostConfigRequest>,
+) -> Json<serde_json::Value> {
+    match WebsitesManager::save_vhost_config(&payload) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_custom_ssl_get_handler(
+    axum::extract::Query(query): axum::extract::Query<CustomSslQuery>,
+) -> Json<serde_json::Value> {
+    match WebsitesManager::get_custom_ssl(&query.domain) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn websites_custom_ssl_save_handler(
+    Json(payload): Json<WebsiteCustomSslRequest>,
+) -> Json<serde_json::Value> {
+    match WebsitesManager::save_custom_ssl(&payload) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+// ─── DNS Zones List Handler ───────────────────────────────────────────────────
+
+async fn dns_zones_list_handler() -> Json<serde_json::Value> {
+    let pdns = PowerDnsManager::new();
+    let zones = pdns.list_zones();
+    Json(json!({ "status": "success", "data": zones }))
+}
+
+async fn delete_dns_zone_handler(axum::extract::Path(domain): axum::extract::Path<String>) -> Json<serde_json::Value> {
+    let pdns = PowerDnsManager::new();
+    match pdns.delete_zone(&domain) {
+        Ok(_) => Json(json!({ "status": "success", "message": format!("DNS Zone {} deleted.", domain) })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn get_dns_records_handler(axum::extract::Path(domain): axum::extract::Path<String>) -> Json<serde_json::Value> {
+    let pdns = PowerDnsManager::new();
+    let records = pdns.get_records(&domain);
+    Json(json!({ "status": "success", "data": records }))
+}
+
+#[derive(Deserialize)]
+struct DnsRecordPayload {
+    name: String,
+    record_type: String,
+    content: String,
+    ttl: u32,
+}
+
+#[derive(Deserialize)]
+struct DnsReconcilePayload {
+    domain: String,
+    server_ip: Option<String>,
+}
+
+async fn add_dns_record_handler(
+    axum::extract::Path(domain): axum::extract::Path<String>,
+    Json(payload): Json<DnsRecordPayload>,
+) -> Json<serde_json::Value> {
+    let pdns = PowerDnsManager::new();
+    use crate::services::dns::DnsRecord;
+    let record = DnsRecord {
+        name: payload.name,
+        record_type: payload.record_type,
+        content: payload.content,
+        ttl: payload.ttl,
+    };
+    match pdns.add_record(&domain, record).await {
+        Ok(_) => Json(json!({ "status": "success", "message": "Record added." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn dns_reconcile_handler(
+    Json(payload): Json<DnsReconcilePayload>,
+) -> Json<serde_json::Value> {
+    let domain = payload.domain.trim().to_lowercase();
+    if domain.is_empty() {
+        return Json(json!({
+            "status": "error",
+            "message": "domain zorunludur.",
+        }));
+    }
+
+    let server_ip = match resolve_dns_server_ip(payload.server_ip) {
+        Ok(ip) => ip,
+        Err(e) => {
+            return Json(json!({
+                "status": "error",
+                "message": e,
+            }))
+        }
+    };
+
+    let pdns = PowerDnsManager::new();
+    match pdns.reconcile_zone_defaults(&domain, &server_ip) {
+        Ok(result) => Json(json!({
+            "status": "success",
+            "message": format!("{} zone mutabakati tamamlandi.", domain),
+            "data": result,
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
+#[derive(Deserialize)]
+struct DeleteRecordQuery {
+    record_type: String,
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct DnsSecPayload {
+    enabled: bool,
+}
+
+#[derive(Deserialize)]
+struct DefaultNsWizardPayload {
+    base_domain: String,
+}
+
+async fn delete_dns_record_handler(
+    axum::extract::Path(domain): axum::extract::Path<String>,
+    axum::extract::Query(query): axum::extract::Query<DeleteRecordQuery>,
+) -> Json<serde_json::Value> {
+    let pdns = PowerDnsManager::new();
+    match pdns.delete_record(&domain, &query.record_type, &query.name) {
+        Ok(_) => Json(json!({ "status": "success", "message": "Record deleted." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn set_dnssec_handler(
+    axum::extract::Path(domain): axum::extract::Path<String>,
+    Json(payload): Json<DnsSecPayload>,
+) -> Json<serde_json::Value> {
+    let pdns = PowerDnsManager::new();
+    match pdns.set_dnssec_enabled(&domain, payload.enabled) {
+        Ok(zone) => Json(json!({
+            "status": "success",
+            "message": format!("{} icin DNSSEC {}.", domain, if payload.enabled { "etkin" } else { "devre disi" }),
+            "data": zone,
+        })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn get_default_ns_handler() -> Json<serde_json::Value> {
+    let pdns = PowerDnsManager::new();
+    let ns = pdns.get_default_nameservers();
+    Json(json!({ "status": "success", "data": ns }))
+}
+
+use crate::services::dns::DefaultNameservers;
+async fn set_default_ns_handler(Json(payload): Json<DefaultNameservers>) -> Json<serde_json::Value> {
+    let pdns = PowerDnsManager::new();
+    match pdns.set_default_nameservers(payload) {
+        Ok(_) => Json(json!({ "status": "success", "message": "Default nameservers updated." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn default_ns_wizard_handler(
+    Json(payload): Json<DefaultNsWizardPayload>,
+) -> Json<serde_json::Value> {
+    let pdns = PowerDnsManager::new();
+    match pdns.suggest_default_nameservers(&payload.base_domain) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn default_ns_reset_handler() -> Json<serde_json::Value> {
+    let pdns = PowerDnsManager::new();
+    match pdns.reset_default_nameservers() {
+        Ok(data) => Json(json!({
+            "status": "success",
+            "message": "Default nameservers resetlendi.",
+            "data": data
+        })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+// ─── Mail List/Delete Handlers ────────────────────────────────────────────────
+
+async fn mail_list_handler() -> Json<serde_json::Value> {
+    let mailboxes = MailManager::list_mailboxes();
+    Json(json!({ "status": "success", "data": mailboxes }))
+}
+
+#[derive(Deserialize)]
+struct MailDeletePayload {
+    address: String,
+}
+
+#[derive(Deserialize)]
+struct MailForwardsListQuery {
+    domain: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct MailCatchAllQuery {
+    domain: String,
+}
+
+#[derive(Deserialize)]
+struct MailDkimRotatePayload {
+    domain: String,
+}
+
+#[derive(Deserialize)]
+struct MailRoutingListQuery {
+    domain: Option<String>,
+}
+
+async fn mail_delete_handler(Json(payload): Json<MailDeletePayload>) -> Json<serde_json::Value> {
+    match MailManager::delete_mailbox(&payload.address).await {
+        Ok(_) => Json(json!({ "status": "success", "message": format!("{} basariyla silindi.", payload.address) })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn mail_forwards_list_handler(
+    axum::extract::Query(query): axum::extract::Query<MailForwardsListQuery>,
+) -> Json<serde_json::Value> {
+    match MailManager::list_forwards(query.domain.as_deref()) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn mail_forwards_create_handler(
+    Json(payload): Json<MailForwardConfig>,
+) -> Json<serde_json::Value> {
+    match MailManager::add_forward(&payload) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn mail_forwards_delete_handler(
+    Json(payload): Json<MailForwardDeleteRequest>,
+) -> Json<serde_json::Value> {
+    match MailManager::delete_forward(&payload) {
+        Ok(_) => Json(json!({ "status": "success", "message": "Forward rule deleted." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn mail_catch_all_get_handler(
+    axum::extract::Query(query): axum::extract::Query<MailCatchAllQuery>,
+) -> Json<serde_json::Value> {
+    match MailManager::get_catch_all(&query.domain) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn mail_catch_all_set_handler(
+    Json(payload): Json<MailCatchAllConfig>,
+) -> Json<serde_json::Value> {
+    match MailManager::set_catch_all(&payload) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn mail_routing_list_handler(
+    axum::extract::Query(query): axum::extract::Query<MailRoutingListQuery>,
+) -> Json<serde_json::Value> {
+    match MailManager::list_routing_rules(query.domain.as_deref()) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn mail_routing_create_handler(
+    Json(payload): Json<MailRoutingConfig>,
+) -> Json<serde_json::Value> {
+    match MailManager::add_routing_rule(&payload) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn mail_routing_delete_handler(
+    Json(payload): Json<MailRoutingDeleteRequest>,
+) -> Json<serde_json::Value> {
+    match MailManager::delete_routing_rule(&payload) {
+        Ok(_) => Json(json!({ "status": "success", "message": "Routing rule deleted." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn mail_dkim_get_handler(
+    axum::extract::Query(query): axum::extract::Query<MailCatchAllQuery>,
+) -> Json<serde_json::Value> {
+    match MailManager::get_dkim(&query.domain) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn mail_dkim_rotate_handler(
+    Json(payload): Json<MailDkimRotatePayload>,
+) -> Json<serde_json::Value> {
+    match MailManager::rotate_dkim(&payload.domain) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn mail_webmail_sso_handler(
+    Json(payload): Json<MailWebmailSsoRequest>,
+) -> Json<serde_json::Value> {
+    match MailManager::generate_webmail_sso_link(&payload) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+// ─── Users Handlers ───────────────────────────────────────────────────────────
+
+async fn users_list_handler() -> Json<serde_json::Value> {
+    match UserManager::list_users() {
+        Ok(users) => Json(json!({ "status": "success", "data": users })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn users_create_handler(Json(payload): Json<CreateUserRequest>) -> Json<serde_json::Value> {
+    match UserManager::create_user(&payload) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct UsernamePayload {
+    username: String,
+}
+
+async fn users_delete_handler(Json(payload): Json<UsernamePayload>) -> Json<serde_json::Value> {
+    match UserManager::delete_user(&payload.username) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+// ─── Packages Handlers ────────────────────────────────────────────────────────
+
+async fn packages_list_handler() -> Json<serde_json::Value> {
+    match PackageManager::list_packages() {
+        Ok(packages) => Json(json!({ "status": "success", "data": packages })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn packages_create_handler(Json(payload): Json<CreatePackageRequest>) -> Json<serde_json::Value> {
+    match PackageManager::create_package(&payload) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct PackageIdPayload {
+    id: u64,
+}
+
+async fn packages_delete_handler(Json(payload): Json<PackageIdPayload>) -> Json<serde_json::Value> {
+    match PackageManager::delete_package(payload.id) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::routes;
+    use axum::body::Body;
+    use axum::http::{Method, Request, StatusCode};
+    use tower::util::ServiceExt;
+
+    #[tokio::test]
+    async fn health_route_is_reachable() {
+        let app = routes();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/health")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn status_services_route_is_reachable() {
+        let app = routes();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/status/services")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+}
+

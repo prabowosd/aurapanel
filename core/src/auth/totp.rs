@@ -1,19 +1,23 @@
 use totp_rs::{Algorithm, TOTP, Secret};
-use anyhow::Result;
+use anyhow::{Result, anyhow};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn generate_totp_secret(account_name: &str) -> Result<(String, String)> {
-    let secret = Secret::generate_secret();
+    // Generate pseudo-random base32-encoded secret using system time
+    let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let bytes: Vec<u8> = (0..20u8).map(|i| ((seed >> (i % 16)) & 0xFF) as u8).collect();
+    let secret = Secret::Raw(bytes);
     let totp = TOTP::new(
         Algorithm::SHA1,
         6,
         1,
         30,
-        secret.to_bytes().unwrap(),
+        secret.to_bytes().map_err(|e| anyhow!("{}", e))?,
         Some("AuraPanel".to_string()),
         account_name.to_string(),
-    )?;
+    ).map_err(|e| anyhow!("{}", e))?;
 
-    let qr_code = totp.get_qr_base64()?;
+    let qr_code = totp.get_qr_base64().map_err(|e| anyhow!("{}", e))?;
     let secret_str = secret.to_encoded().to_string();
 
     Ok((secret_str, qr_code))
@@ -26,10 +30,10 @@ pub fn verify_totp(secret_str: &str, token: &str) -> Result<bool> {
         6,
         1,
         30,
-        secret.to_bytes().unwrap(),
+        secret.to_bytes().map_err(|e| anyhow!("{}", e))?,
         Some("AuraPanel".to_string()),
-        "".to_string(), // Account name is not needed for verification
-    )?;
+        "".to_string(),
+    ).map_err(|e| anyhow!("{}", e))?;
     
-    Ok(totp.check_current(token)?)
+    Ok(totp.check_current(token).map_err(|e| anyhow!("{}", e))?)
 }

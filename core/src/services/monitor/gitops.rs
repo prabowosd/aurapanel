@@ -70,8 +70,8 @@ impl GitOpsManager {
     }
 
     /// Webhook secret doğrulaması (HMAC-SHA256)
-    pub fn verify_signature(payload: &[u8], signature: &str, secret: &str) -> bool {
-        use std::io::Write;
+    pub fn verify_signature(_payload: &[u8], signature: &str, secret: &str) -> bool {
+        
         // Basitleştirilmiş: Gerçekte hmac-sha256 kullanılır
         // let key = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
         // hmac::verify(&key, payload, &hex::decode(signature).unwrap()).is_ok()

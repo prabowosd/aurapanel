@@ -1,71 +1,1184 @@
-<template>
+﻿<template>
   <div class="space-y-6">
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-bold text-white">{{ t('websites.title', 'Websites') }}</h1>
-        <p class="text-gray-400 mt-1">Manage your domains, SSL, and PHP settings.</p>
+        <h1 class="text-2xl font-bold text-white">{{ t('websites.title') }}</h1>
+        <p class="text-gray-400 mt-1">{{ t('websites.subtitle', 'Domain, subdomain ve veritabani baglantilarini yonetin.') }}</p>
       </div>
-      <button class="btn-primary">
+      <button class="btn-primary" @click="showAddSiteModal = true">
         <Plus class="w-5 h-5" />
-        {{ t('websites.add_new', 'Add Website') }}
+        {{ t('websites.add_new') }}
       </button>
     </div>
 
-    <!-- Search & Filter -->
-    <div class="flex flex-wrap gap-4 items-center bg-panel-card p-4 rounded-xl border border-panel-border">
-      <div class="relative flex-1 min-w-[200px]">
-        <Search class="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-        <input type="text" class="aura-input pl-10" placeholder="Search domains..." />
-      </div>
-      <select class="aura-input w-auto min-w-[150px]">
-        <option>All PHP Versions</option>
-        <option>PHP 8.3</option>
-        <option>PHP 8.2</option>
-      </select>
+    <div class="border-b border-panel-border">
+      <nav class="flex flex-wrap gap-5">
+        <button
+          class="pb-3 text-sm font-medium transition"
+          :class="activeTab === 'sites' ? 'text-brand-400 border-b-2 border-brand-400' : 'text-gray-400 hover:text-white'"
+          @click="activeTab = 'sites'"
+        >
+          Siteler
+        </button>
+        <button
+          class="pb-3 text-sm font-medium transition"
+          :class="activeTab === 'subdomains' ? 'text-brand-400 border-b-2 border-brand-400' : 'text-gray-400 hover:text-white'"
+          @click="activeTab = 'subdomains'"
+        >
+          Subdomainler
+        </button>
+        <button
+          class="pb-3 text-sm font-medium transition"
+          :class="activeTab === 'dbLinks' ? 'text-brand-400 border-b-2 border-brand-400' : 'text-gray-400 hover:text-white'"
+          @click="activeTab = 'dbLinks'"
+        >
+          DB Baglantilari
+        </button>
+        <button
+          class="pb-3 text-sm font-medium transition"
+          :class="activeTab === 'advanced' ? 'text-brand-400 border-b-2 border-brand-400' : 'text-gray-400 hover:text-white'"
+          @click="activeTab = 'advanced'"
+        >
+          Gelismis
+        </button>
+      </nav>
     </div>
 
-    <!-- Website List -->
-    <div class="space-y-4">
-      <div v-for="site in sites" :key="site.domain" class="aura-card flex flex-col sm:flex-row gap-6 justify-between items-start sm:items-center">
-        
-        <div class="flex items-center gap-4">
-          <div class="w-12 h-12 rounded-lg bg-panel-dark flex items-center justify-center border border-panel-border">
-            <Globe class="w-6 h-6 text-brand-500" />
-          </div>
-          <div>
-            <h3 class="text-lg font-bold text-white flex items-center gap-2">
-              {{ site.domain }}
-              <span v-if="site.ssl" class="px-2 py-0.5 rounded text-xs font-semibold bg-brand-500/10 text-brand-400 border border-brand-500/20">SSL Active</span>
-            </h3>
-            <div class="text-sm text-gray-400 mt-1 flex items-center gap-4">
-              <span class="flex items-center gap-1"><HardDrive class="w-4 h-4" /> {{ site.diskUsage }} / {{ site.quota }}</span>
-              <span class="flex items-center gap-1"><Cpu class="w-4 h-4" /> PHP {{ site.php }}</span>
+    <div v-if="error" class="aura-card border-red-500/30 bg-red-500/5 text-red-400">
+      {{ error }}
+    </div>
+
+    <div v-if="activeTab === 'sites'" class="space-y-4">
+      <div class="flex flex-wrap gap-4 items-center bg-panel-card p-4 rounded-xl border border-panel-border">
+        <div class="relative flex-1 min-w-[220px]">
+          <Search class="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input v-model="search" type="text" class="aura-input pl-10" :placeholder="t('common.search')" />
+        </div>
+        <select v-model="phpFilter" class="aura-input w-auto min-w-[150px]">
+          <option value="">{{ t('websites.all_php') }}</option>
+          <option v-for="v in phpVersions" :key="v" :value="v">PHP {{ v }}</option>
+        </select>
+        <select v-model.number="sitesPagination.per_page" class="aura-input w-auto min-w-[120px]">
+          <option :value="10">10 / sayfa</option>
+          <option :value="20">20 / sayfa</option>
+          <option :value="50">50 / sayfa</option>
+        </select>
+        <button class="btn-secondary" @click="applySiteFilters">Filtrele</button>
+        <button class="btn-secondary" @click="refreshAll">Yenile</button>
+      </div>
+
+      <div v-if="loading" class="aura-card text-center py-12">
+        <Loader2 class="w-8 h-8 text-brand-500 animate-spin mx-auto mb-3" />
+        <p class="text-gray-400">{{ t('common.loading') }}</p>
+      </div>
+
+      <div v-else-if="filteredSites.length === 0" class="aura-card text-center py-12">
+        <Globe class="w-14 h-14 text-gray-600 mx-auto mb-3" />
+        <p class="text-gray-300">Henuz site bulunmuyor.</p>
+      </div>
+
+      <div v-else class="space-y-4">
+        <div
+          v-for="site in filteredSites"
+          :key="site.domain"
+          class="aura-card flex flex-col sm:flex-row gap-6 justify-between items-start sm:items-center"
+        >
+          <div class="flex items-center gap-4">
+            <div class="w-12 h-12 rounded-lg bg-panel-dark flex items-center justify-center border border-panel-border">
+              <Globe class="w-6 h-6 text-brand-500" />
+            </div>
+            <div>
+              <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                {{ site.domain }}
+                <span
+                  :class="isSuspended(site)
+                    ? 'px-2 py-0.5 rounded text-xs font-semibold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
+                    : 'px-2 py-0.5 rounded text-xs font-semibold bg-brand-500/10 text-brand-400 border border-brand-500/20'"
+                >{{ isSuspended(site) ? 'Suspend' : 'Active' }}</span>
+                <span
+                  v-if="site.ssl"
+                  class="px-2 py-0.5 rounded text-xs font-semibold bg-brand-500/10 text-brand-400 border border-brand-500/20"
+                >SSL Aktif</span>
+                <span
+                  v-else
+                  class="px-2 py-0.5 rounded text-xs font-semibold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
+                >SSL Yok</span>
+              </h3>
+              <div class="text-sm text-gray-400 mt-1 flex flex-wrap items-center gap-4">
+                <span class="flex items-center gap-1"><HardDrive class="w-4 h-4" /> {{ site.disk_usage }} / {{ site.quota }}</span>
+                <span class="flex items-center gap-1"><Cpu class="w-4 h-4" /> PHP {{ site.php }}</span>
+                <span class="flex items-center gap-1"><User class="w-4 h-4" /> {{ site.user || 'aura' }}</span>
+                <span class="flex items-center gap-1">Paket: {{ site.package || 'default' }}</span>
+                <span class="flex items-center gap-1">Email: {{ site.email || `webmaster@${site.domain}` }}</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div class="flex items-center gap-2 w-full sm:w-auto">
-          <button class="btn-secondary px-3 py-1.5 text-sm flex-1 sm:flex-none">Manage</button>
-          <button class="btn-secondary px-3 py-1.5 text-sm">Cache</button>
-          <button class="btn-danger px-2 py-1.5" title="Delete">
-            <Trash2 class="w-4 h-4" />
-          </button>
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <button class="btn-secondary px-3 py-1.5 text-sm flex-1 sm:flex-none" @click="issueSSL(site)">
+              <ShieldCheck class="w-4 h-4 mr-1 inline" />SSL
+            </button>
+            <button class="btn-secondary px-3 py-1.5 text-sm flex-1 sm:flex-none" @click="toggleSuspend(site)">
+              <span class="inline-flex items-center gap-1">
+                <PauseCircle v-if="!isSuspended(site)" class="w-4 h-4" />
+                <PlayCircle v-else class="w-4 h-4" />
+                {{ isSuspended(site) ? 'Unsuspend' : 'Suspend' }}
+              </span>
+            </button>
+            <button class="btn-secondary px-3 py-1.5 text-sm flex-1 sm:flex-none" @click="openEditSiteModal(site)">
+              <Pencil class="w-4 h-4 mr-1 inline" />Duzenle
+            </button>
+            <button class="btn-secondary px-3 py-1.5 text-sm flex-1 sm:flex-none" @click="openManagePage(site)">
+              Manage
+            </button>
+            <button class="btn-secondary px-3 py-1.5 text-sm flex-1 sm:flex-none" @click="openSiteLogs(site, 'access')">
+              Logs
+            </button>
+            <button class="btn-danger px-2 py-1.5" title="Siteyi sil" @click="deleteSite(site)">
+              <Trash2 class="w-4 h-4" />
+            </button>
+          </div>
         </div>
+      </div>
 
+      <div class="flex items-center justify-between text-sm text-gray-400 bg-panel-card p-3 rounded-xl border border-panel-border">
+        <span>Toplam: {{ sitesPagination.total }} site</span>
+        <div class="flex items-center gap-2">
+          <button class="btn-secondary px-3 py-1" :disabled="sitesPagination.page <= 1" @click="changeSitesPage(-1)">Geri</button>
+          <span>Sayfa {{ sitesPagination.page }} / {{ Math.max(1, sitesPagination.total_pages || 1) }}</span>
+          <button class="btn-secondary px-3 py-1" :disabled="sitesPagination.page >= Math.max(1, sitesPagination.total_pages || 1)" @click="changeSitesPage(1)">Ileri</button>
+        </div>
       </div>
     </div>
+
+    <div v-if="activeTab === 'subdomains'" class="space-y-4">
+      <div class="flex items-center justify-between bg-panel-card p-4 rounded-xl border border-panel-border">
+        <div>
+          <h2 class="text-lg font-semibold text-white">Subdomain Yonetimi</h2>
+          <p class="text-sm text-gray-400">Site bazli subdomain olusturabilir veya silebilirsiniz.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn-secondary" @click="loadSubdomains">Yenile</button>
+          <button class="btn-primary" @click="showSubdomainModal = true">Subdomain Ekle</button>
+        </div>
+      </div>
+
+      <div class="aura-card overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-panel-border text-gray-400">
+              <th class="text-left py-3 px-2">FQDN</th>
+              <th class="text-left py-3 px-2">Parent Domain</th>
+              <th class="text-left py-3 px-2">PHP</th>
+              <th class="text-left py-3 px-2">SSL</th>
+              <th class="text-left py-3 px-2">Olusturma</th>
+              <th class="text-right py-3 px-2">Islem</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="s in subdomains" :key="s.fqdn" class="border-b border-panel-border/40 hover:bg-white/[0.02]">
+              <td class="py-3 px-2 text-white font-medium">{{ s.fqdn }}</td>
+              <td class="py-3 px-2 text-gray-300">{{ s.parent_domain }}</td>
+              <td class="py-3 px-2">
+                <select v-model="s.php_version" class="aura-input text-xs py-1 px-2" @change="updateSubdomainPhp(s)">
+                  <option v-for="v in phpVersions" :key="v" :value="v">{{ v }}</option>
+                </select>
+              </td>
+              <td class="py-3 px-2">
+                <span :class="s.ssl_enabled ? 'text-brand-400' : 'text-yellow-400'">{{ s.ssl_enabled ? 'Aktif' : 'Yok' }}</span>
+              </td>
+              <td class="py-3 px-2 text-gray-400">{{ formatUnix(s.created_at) }}</td>
+              <td class="py-3 px-2 text-right">
+                <div class="flex justify-end gap-2">
+                  <button class="btn-secondary px-2 py-1" @click="convertSubdomain(s)">
+                    Siteye Cevir
+                  </button>
+                  <button class="btn-danger px-2 py-1" @click="deleteSubdomain(s.fqdn)">
+                    <Trash2 class="w-4 h-4" />
+                  </button>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="subdomains.length === 0">
+              <td colspan="6" class="text-center py-10 text-gray-500">Subdomain kaydi bulunmuyor.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div v-if="activeTab === 'dbLinks'" class="space-y-4">
+      <div class="flex items-center justify-between bg-panel-card p-4 rounded-xl border border-panel-border">
+        <div>
+          <h2 class="text-lg font-semibold text-white">Veritabani Baglantilari</h2>
+          <p class="text-sm text-gray-400">Olusturulan veritabanlarini web sitelerine baglayin.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn-secondary" @click="loadDbLinks">Yenile</button>
+          <button class="btn-primary" @click="showDbLinkModal = true">DB Bagla</button>
+        </div>
+      </div>
+
+      <div class="aura-card overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-panel-border text-gray-400">
+              <th class="text-left py-3 px-2">Website</th>
+              <th class="text-left py-3 px-2">Engine</th>
+              <th class="text-left py-3 px-2">DB Name</th>
+              <th class="text-left py-3 px-2">DB User</th>
+              <th class="text-left py-3 px-2">Baglanti Zamani</th>
+              <th class="text-right py-3 px-2">Islem</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="l in dbLinks" :key="`${l.domain}-${l.engine}-${l.db_name}`" class="border-b border-panel-border/40 hover:bg-white/[0.02]">
+              <td class="py-3 px-2 text-white font-medium">{{ l.domain }}</td>
+              <td class="py-3 px-2">
+                <span :class="l.engine === 'mariadb' ? 'text-orange-400' : 'text-blue-400'">{{ l.engine }}</span>
+              </td>
+              <td class="py-3 px-2 text-gray-300">{{ l.db_name }}</td>
+              <td class="py-3 px-2 text-gray-300">{{ l.db_user }}</td>
+              <td class="py-3 px-2 text-gray-400">{{ formatUnix(l.linked_at) }}</td>
+              <td class="py-3 px-2 text-right">
+                <div class="flex justify-end gap-2">
+                  <button class="btn-secondary px-2 py-1" @click="openAuraDbForLink(l)">
+                    AuraDB
+                  </button>
+                  <button class="btn-danger px-2 py-1" @click="detachDbLink(l)">
+                    <Trash2 class="w-4 h-4" />
+                  </button>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="dbLinks.length === 0">
+              <td colspan="6" class="text-center py-10 text-gray-500">Henuz website-db baglantisi yok.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div v-if="activeTab === 'advanced'" class="space-y-4">
+      <div class="bg-panel-card p-4 rounded-xl border border-panel-border space-y-3">
+        <div class="flex flex-wrap items-center gap-3">
+          <label class="text-sm text-gray-400">Website</label>
+          <select v-model="advancedDomain" class="aura-input w-auto min-w-[220px]" @change="refreshAdvanced">
+            <option disabled value="">Website secin</option>
+            <option v-for="d in parentDomains" :key="d" :value="d">{{ d }}</option>
+          </select>
+          <button class="btn-secondary" @click="refreshAdvanced">Yenile</button>
+        </div>
+        <p class="text-xs text-gray-500">Domain alias, OpenBasedir, rewrite ve vhost config ayarlari.</p>
+      </div>
+
+      <div v-if="!advancedDomain" class="aura-card text-gray-400 text-sm">
+        Gelismis ayarlar icin bir website secin.
+      </div>
+
+      <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="aura-card space-y-3">
+          <h3 class="text-white font-semibold">Domain Alias</h3>
+          <div class="flex gap-2">
+            <input v-model="aliasForm.alias" type="text" class="aura-input flex-1" placeholder="alias.example.com" />
+            <button class="btn-primary" @click="addAlias">Ekle</button>
+          </div>
+          <div class="space-y-2 max-h-48 overflow-auto">
+            <div v-for="a in domainAliases" :key="`${a.domain}-${a.alias}`" class="flex items-center justify-between rounded-lg border border-panel-border px-3 py-2 text-sm">
+              <span class="text-gray-200">{{ a.alias }}</span>
+              <button class="btn-danger px-2 py-1" @click="deleteAlias(a.alias)">
+                <Trash2 class="w-4 h-4" />
+              </button>
+            </div>
+            <p v-if="domainAliases.length === 0" class="text-xs text-gray-500">Bu domain icin alias kaydi yok.</p>
+          </div>
+        </div>
+
+        <div class="aura-card space-y-3">
+          <h3 class="text-white font-semibold">OpenBasedir</h3>
+          <label class="inline-flex items-center gap-3 text-sm text-gray-300">
+            <input v-model="advancedConfig.open_basedir" type="checkbox" class="w-4 h-4 rounded border-panel-border bg-panel-hover" />
+            OpenBasedir izolasyonunu etkinlestir
+          </label>
+          <div>
+            <button class="btn-primary" @click="saveOpenBasedir">Kaydet</button>
+          </div>
+        </div>
+
+        <div class="aura-card lg:col-span-2 space-y-3">
+          <h3 class="text-white font-semibold">Rewrite Kurallari</h3>
+          <textarea v-model="advancedConfig.rewrite_rules" rows="8" class="aura-input w-full font-mono text-xs" placeholder="RewriteEngine On"></textarea>
+          <div>
+            <button class="btn-primary" @click="saveRewrite">Rewrite Kaydet</button>
+          </div>
+        </div>
+
+        <div class="aura-card lg:col-span-2 space-y-3">
+          <h3 class="text-white font-semibold">VHost Config Editor</h3>
+          <textarea v-model="advancedConfig.vhost_config" rows="12" class="aura-input w-full font-mono text-xs" placeholder="vhDomain example.com"></textarea>
+          <div>
+            <button class="btn-primary" @click="saveVhostConfig">VHost Config Kaydet</button>
+          </div>
+        </div>
+
+        <div class="aura-card lg:col-span-2 space-y-3">
+          <h3 class="text-white font-semibold">Custom SSL (Cert/Key)</h3>
+          <textarea v-model="customSslForm.cert_pem" rows="8" class="aura-input w-full font-mono text-xs" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+          <textarea v-model="customSslForm.key_pem" rows="8" class="aura-input w-full font-mono text-xs" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+          <div>
+            <button class="btn-primary" @click="saveCustomSsl">Custom SSL Kaydet</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <Teleport to="body">
+      <div v-if="showAddSiteModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div class="bg-panel-card border border-panel-border rounded-2xl p-8 w-full max-w-md shadow-2xl">
+          <h2 class="text-xl font-bold text-white mb-6">{{ t('websites.add_modal_title') }}</h2>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">{{ t('websites.domain') }}</label>
+              <input v-model="siteForm.domain" type="text" class="aura-input w-full" placeholder="example.com" />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Sahip Kullanici</label>
+              <select v-model="siteForm.user" class="aura-input w-full">
+                <option v-for="u in owners" :key="u" :value="u">{{ u }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">{{ t('websites.php_version') }}</label>
+              <select v-model="siteForm.php_version" class="aura-input w-full">
+                <option v-for="v in phpVersions" :key="v" :value="v">PHP {{ v }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Paket</label>
+              <input v-model="siteForm.package" type="text" class="aura-input w-full" placeholder="default" />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Admin Email</label>
+              <input v-model="siteForm.email" type="email" class="aura-input w-full" placeholder="admin@example.com" />
+            </div>
+            <label class="inline-flex items-center gap-2 text-sm text-gray-300">
+              <input v-model="siteForm.mail_domain" type="checkbox" class="w-4 h-4 rounded border-panel-border bg-panel-hover" />
+              Mail domain acilisi yap
+            </label>
+            <label class="inline-flex items-center gap-2 text-sm text-gray-300">
+              <input v-model="siteForm.apache_backend" type="checkbox" class="w-4 h-4 rounded border-panel-border bg-panel-hover" />
+              Apache backend kullan
+            </label>
+          </div>
+          <div class="flex gap-3 mt-8">
+            <button class="btn-secondary flex-1" @click="showAddSiteModal = false">{{ t('common.cancel') }}</button>
+            <button class="btn-primary flex-1" :disabled="siteActionLoading" @click="addSite">
+              <Loader2 v-if="siteActionLoading" class="w-4 h-4 animate-spin mr-2 inline" />
+              {{ t('common.create') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div v-if="showEditSiteModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div class="bg-panel-card border border-panel-border rounded-2xl p-8 w-full max-w-md shadow-2xl">
+          <h2 class="text-xl font-bold text-white mb-6">Website Duzenle</h2>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Domain</label>
+              <input :value="editSiteForm.domain" type="text" class="aura-input w-full opacity-70" disabled />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Sahip Kullanici</label>
+              <input v-model="editSiteForm.owner" type="text" class="aura-input w-full" placeholder="aura" />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">PHP Version</label>
+              <select v-model="editSiteForm.php_version" class="aura-input w-full">
+                <option v-for="v in phpVersions" :key="v" :value="v">PHP {{ v }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Paket</label>
+              <input v-model="editSiteForm.package" type="text" class="aura-input w-full" placeholder="default" />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Admin Email</label>
+              <input v-model="editSiteForm.email" type="email" class="aura-input w-full" placeholder="webmaster@example.com" />
+            </div>
+          </div>
+          <div class="flex gap-3 mt-8">
+            <button class="btn-secondary flex-1" @click="showEditSiteModal = false">{{ t('common.cancel') }}</button>
+            <button class="btn-primary flex-1" :disabled="editSiteActionLoading" @click="updateSite">
+              <Loader2 v-if="editSiteActionLoading" class="w-4 h-4 animate-spin mr-2 inline" />
+              Guncelle
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div v-if="showSiteLogsModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div class="bg-panel-card border border-panel-border rounded-2xl p-6 w-full max-w-4xl shadow-2xl">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-bold text-white">Site Loglari - {{ siteLogsDomain }}</h2>
+            <button class="btn-secondary px-3 py-1" @click="showSiteLogsModal = false">Kapat</button>
+          </div>
+          <div class="flex items-center gap-2 mb-4">
+            <button class="btn-secondary px-3 py-1" :class="siteLogsKind === 'access' ? 'border-brand-500 text-brand-300' : ''" @click="switchSiteLogKind('access')">Access</button>
+            <button class="btn-secondary px-3 py-1" :class="siteLogsKind === 'error' ? 'border-brand-500 text-brand-300' : ''" @click="switchSiteLogKind('error')">Error</button>
+            <button class="btn-secondary px-3 py-1 ml-auto" @click="loadSiteLogs">Yenile</button>
+          </div>
+          <div class="rounded-xl border border-panel-border bg-panel-dark p-4 h-[420px] overflow-auto">
+            <div v-if="siteLogsLoading" class="text-gray-400 text-sm">Loglar yukleniyor...</div>
+            <pre v-else class="text-xs text-gray-200 whitespace-pre-wrap">{{ siteLogsLines.join('\n') || 'Log kaydi bulunamadi.' }}</pre>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div v-if="showSubdomainModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div class="bg-panel-card border border-panel-border rounded-2xl p-8 w-full max-w-md shadow-2xl">
+          <h2 class="text-xl font-bold text-white mb-6">Subdomain Ekle</h2>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Parent Domain</label>
+              <select v-model="subdomainForm.parent_domain" class="aura-input w-full">
+                <option disabled value="">Domain secin</option>
+                <option v-for="d in parentDomains" :key="d" :value="d">{{ d }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Subdomain Label</label>
+              <input v-model="subdomainForm.subdomain" type="text" class="aura-input w-full" placeholder="blog" />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">PHP Version</label>
+              <select v-model="subdomainForm.php_version" class="aura-input w-full">
+                <option v-for="v in phpVersions" :key="v" :value="v">PHP {{ v }}</option>
+              </select>
+            </div>
+          </div>
+          <div class="flex gap-3 mt-8">
+            <button class="btn-secondary flex-1" @click="showSubdomainModal = false">{{ t('common.cancel') }}</button>
+            <button class="btn-primary flex-1" :disabled="subdomainActionLoading" @click="createSubdomain">
+              <Loader2 v-if="subdomainActionLoading" class="w-4 h-4 animate-spin mr-2 inline" />
+              {{ t('common.create') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div v-if="showDbLinkModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div class="bg-panel-card border border-panel-border rounded-2xl p-8 w-full max-w-md shadow-2xl">
+          <h2 class="text-xl font-bold text-white mb-6">Website DB Baglantisi</h2>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Website</label>
+              <select v-model="dbLinkForm.domain" class="aura-input w-full">
+                <option disabled value="">Website secin</option>
+                <option v-for="d in parentDomains" :key="d" :value="d">{{ d }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">Engine</label>
+              <select v-model="dbLinkForm.engine" class="aura-input w-full">
+                <option value="mariadb">MariaDB</option>
+                <option value="postgresql">PostgreSQL</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">DB Name</label>
+              <select v-model="dbLinkForm.db_name" class="aura-input w-full">
+                <option disabled value="">Veritabani secin</option>
+                <option v-for="d in currentDbNames" :key="d" :value="d">{{ d }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">DB User</label>
+              <select v-model="dbLinkForm.db_user" class="aura-input w-full">
+                <option disabled value="">Kullanici secin</option>
+                <option v-for="u in currentDbUsers" :key="u" :value="u">{{ u }}</option>
+              </select>
+            </div>
+          </div>
+          <div class="flex gap-3 mt-8">
+            <button class="btn-secondary flex-1" @click="showDbLinkModal = false">{{ t('common.cancel') }}</button>
+            <button class="btn-primary flex-1" :disabled="dbLinkActionLoading" @click="attachDbLink">
+              <Loader2 v-if="dbLinkActionLoading" class="w-4 h-4 animate-spin mr-2 inline" />
+              Bagla
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
+import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, Search, Globe, HardDrive, Cpu, Trash2 } from 'lucide-vue-next'
+import { Plus, Search, Globe, HardDrive, Cpu, Trash2, Loader2, ShieldCheck, User, PauseCircle, PlayCircle, Pencil } from 'lucide-vue-next'
+import { useRoute, useRouter } from 'vue-router'
+import api from '../services/api'
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 
-const sites = [
-  { domain: 'aurapanel.com', ssl: true, diskUsage: '1.2 GB', quota: '5 GB', php: '8.3' },
-  { domain: 'example.net', ssl: false, diskUsage: '350 MB', quota: '1 GB', php: '8.2' },
-  { domain: 'myshop.store', ssl: true, diskUsage: '4.5 GB', quota: '10 GB', php: '8.3' },
-]
+const loading = ref(true)
+const error = ref('')
+const activeTab = ref('sites')
+const sitesPagination = ref({ page: 1, per_page: 20, total: 0, total_pages: 0 })
+
+const sites = ref([])
+const users = ref([])
+const subdomains = ref([])
+const dbLinks = ref([])
+
+const mariadbDatabases = ref([])
+const postgresDatabases = ref([])
+const mariadbUsers = ref([])
+const postgresUsers = ref([])
+
+const search = ref('')
+const phpFilter = ref('')
+const phpVersions = ['8.4', '8.3', '8.2', '8.1', '8.0', '7.4']
+
+const showAddSiteModal = ref(false)
+const showEditSiteModal = ref(false)
+const showSiteLogsModal = ref(false)
+const showSubdomainModal = ref(false)
+const showDbLinkModal = ref(false)
+
+const siteActionLoading = ref(false)
+const editSiteActionLoading = ref(false)
+const subdomainActionLoading = ref(false)
+const dbLinkActionLoading = ref(false)
+const siteLogsLoading = ref(false)
+
+const siteForm = ref({
+  domain: '',
+  user: 'aura',
+  php_version: '8.3',
+  package: 'default',
+  email: '',
+  mail_domain: false,
+  apache_backend: false,
+})
+const editSiteForm = ref({
+  domain: '',
+  owner: 'aura',
+  php_version: '8.3',
+  package: 'default',
+  email: '',
+})
+const subdomainForm = ref({ parent_domain: '', subdomain: '', php_version: '8.3' })
+const dbLinkForm = ref({ domain: '', engine: 'mariadb', db_name: '', db_user: '' })
+const aliases = ref([])
+const advancedDomain = ref('')
+const advancedConfig = ref({
+  open_basedir: false,
+  rewrite_rules: '',
+  vhost_config: '',
+})
+const aliasForm = ref({ alias: '' })
+const customSslForm = ref({
+  cert_pem: '',
+  key_pem: '',
+})
+const siteLogsDomain = ref('')
+const siteLogsKind = ref('access')
+const siteLogsLines = ref([])
+
+const filteredSites = computed(() => sites.value)
+
+const owners = computed(() => {
+  const names = users.value
+    .map(u => u.username)
+    .filter(Boolean)
+  if (!names.includes('aura')) names.unshift('aura')
+  return names
+})
+
+const parentDomains = computed(() =>
+  sites.value.map(s => s.domain).filter(Boolean)
+)
+
+const currentDbNames = computed(() => {
+  const source = dbLinkForm.value.engine === 'mariadb' ? mariadbDatabases.value : postgresDatabases.value
+  return source.map(x => x.name).filter(Boolean)
+})
+
+const currentDbUsers = computed(() => {
+  const source = dbLinkForm.value.engine === 'mariadb' ? mariadbUsers.value : postgresUsers.value
+  return source.map(x => x.username).filter(Boolean)
+})
+
+const domainAliases = computed(() =>
+  aliases.value.filter(a => a.domain === advancedDomain.value)
+)
+
+watch(() => dbLinkForm.value.engine, () => {
+  dbLinkForm.value.db_name = currentDbNames.value[0] || ''
+  dbLinkForm.value.db_user = currentDbUsers.value[0] || ''
+})
+
+watch(showSubdomainModal, (open) => {
+  if (open && !subdomainForm.value.parent_domain) {
+    subdomainForm.value.parent_domain = parentDomains.value[0] || ''
+  }
+})
+
+watch(showDbLinkModal, (open) => {
+  if (!open) return
+  if (!dbLinkForm.value.domain) dbLinkForm.value.domain = parentDomains.value[0] || ''
+  if (!dbLinkForm.value.db_name) dbLinkForm.value.db_name = currentDbNames.value[0] || ''
+  if (!dbLinkForm.value.db_user) dbLinkForm.value.db_user = currentDbUsers.value[0] || ''
+})
+
+watch(parentDomains, (domains) => {
+  if (!domains.includes(advancedDomain.value)) {
+    advancedDomain.value = domains[0] || ''
+  }
+})
+
+watch(() => sitesPagination.value.per_page, async () => {
+  if (!loading.value) {
+    await applySiteFilters()
+  }
+})
+
+function apiErrorMessage(err, fallback) {
+  return err?.response?.data?.message || err?.message || fallback
+}
+
+function formatUnix(ts) {
+  if (!ts) return '-'
+  try {
+    return new Date(ts * 1000).toLocaleString('tr-TR')
+  } catch {
+    return String(ts)
+  }
+}
+
+function isSuspended(site) {
+  return String(site?.status || 'active').toLowerCase() === 'suspended'
+}
+
+async function loadSites() {
+  try {
+    const res = await api.get('/vhost/list', {
+      params: {
+        search: search.value || undefined,
+        php: phpFilter.value || undefined,
+        page: sitesPagination.value.page,
+        per_page: sitesPagination.value.per_page,
+      },
+    })
+    sites.value = res.data?.data || []
+    const pg = res.data?.pagination || {}
+    sitesPagination.value.total = Number(pg.total || sites.value.length || 0)
+    sitesPagination.value.total_pages = Number(pg.total_pages || 1)
+  } catch (e) {
+    throw new Error(apiErrorMessage(e, 'Site listesi alinamadi'))
+  }
+}
+
+async function loadUsers() {
+  try {
+    const res = await api.get('/users/list')
+    users.value = res.data?.data || []
+  } catch {
+    users.value = []
+  }
+}
+
+async function loadSubdomains() {
+  try {
+    const res = await api.get('/websites/subdomains')
+    subdomains.value = res.data?.data || []
+  } catch {
+    subdomains.value = []
+  }
+}
+
+async function loadDbLinks() {
+  try {
+    const res = await api.get('/websites/db-links')
+    dbLinks.value = res.data?.data || []
+  } catch {
+    dbLinks.value = []
+  }
+}
+
+async function loadAliases() {
+  if (!advancedDomain.value) {
+    aliases.value = []
+    return
+  }
+  try {
+    const res = await api.get('/websites/aliases', { params: { domain: advancedDomain.value } })
+    aliases.value = res.data?.data || []
+  } catch {
+    aliases.value = []
+  }
+}
+
+async function loadAdvancedConfig() {
+  if (!advancedDomain.value) {
+    advancedConfig.value = { open_basedir: false, rewrite_rules: '', vhost_config: '' }
+    return
+  }
+  try {
+    const res = await api.get('/websites/advanced-config', { params: { domain: advancedDomain.value } })
+    const data = res.data?.data || {}
+    advancedConfig.value = {
+      open_basedir: !!data.open_basedir,
+      rewrite_rules: data.rewrite_rules || '',
+      vhost_config: data.vhost_config || '',
+    }
+  } catch {
+    advancedConfig.value = { open_basedir: false, rewrite_rules: '', vhost_config: '' }
+  }
+}
+
+async function loadCustomSsl() {
+  if (!advancedDomain.value) {
+    customSslForm.value = { cert_pem: '', key_pem: '' }
+    return
+  }
+  try {
+    const res = await api.get('/websites/custom-ssl', { params: { domain: advancedDomain.value } })
+    const data = res.data?.data || {}
+    customSslForm.value = {
+      cert_pem: data.cert_pem || '',
+      key_pem: data.key_pem || '',
+    }
+  } catch {
+    customSslForm.value = { cert_pem: '', key_pem: '' }
+  }
+}
+
+async function refreshAdvanced() {
+  if (!advancedDomain.value) return
+  await Promise.all([loadAliases(), loadAdvancedConfig(), loadCustomSsl()])
+}
+
+async function loadDatabases() {
+  try {
+    const [mariaDbRes, mariaUsersRes, pgDbRes, pgUsersRes] = await Promise.all([
+      api.get('/db/mariadb/list').catch(() => ({ data: { data: [] } })),
+      api.get('/db/mariadb/users').catch(() => ({ data: { data: [] } })),
+      api.get('/db/postgres/list').catch(() => ({ data: { data: [] } })),
+      api.get('/db/postgres/users').catch(() => ({ data: { data: [] } })),
+    ])
+
+    mariadbDatabases.value = mariaDbRes.data?.data || []
+    mariadbUsers.value = mariaUsersRes.data?.data || []
+    postgresDatabases.value = pgDbRes.data?.data || []
+    postgresUsers.value = pgUsersRes.data?.data || []
+  } catch {
+    mariadbDatabases.value = []
+    mariadbUsers.value = []
+    postgresDatabases.value = []
+    postgresUsers.value = []
+  }
+}
+
+async function refreshAll() {
+  loading.value = true
+  error.value = ''
+  try {
+    await Promise.all([loadSites(), loadUsers(), loadSubdomains(), loadDbLinks(), loadDatabases()])
+    if (!advancedDomain.value) {
+      advancedDomain.value = parentDomains.value[0] || ''
+    }
+    await refreshAdvanced()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'Veriler alinamadi')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function applySiteFilters() {
+  sitesPagination.value.page = 1
+  await loadSites()
+}
+
+async function changeSitesPage(delta) {
+  const next = sitesPagination.value.page + delta
+  const maxPage = Math.max(1, sitesPagination.value.total_pages || 1)
+  if (next < 1 || next > maxPage) return
+  sitesPagination.value.page = next
+  await loadSites()
+}
+
+async function loadSiteLogs() {
+  if (!siteLogsDomain.value) return
+  siteLogsLoading.value = true
+  error.value = ''
+  try {
+    const res = await api.get('/monitor/logs/site', {
+      params: {
+        domain: siteLogsDomain.value,
+        kind: siteLogsKind.value,
+        lines: 200,
+      },
+    })
+    siteLogsLines.value = res.data?.data || []
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'Site loglari alinamadi')
+    siteLogsLines.value = []
+  } finally {
+    siteLogsLoading.value = false
+  }
+}
+
+async function openSiteLogs(site, kind = 'access') {
+  siteLogsDomain.value = site.domain || ''
+  siteLogsKind.value = kind
+  showSiteLogsModal.value = true
+  await loadSiteLogs()
+}
+
+async function switchSiteLogKind(kind) {
+  siteLogsKind.value = kind
+  await loadSiteLogs()
+}
+
+async function addSite() {
+  if (!siteForm.value.domain) return
+  siteActionLoading.value = true
+  error.value = ''
+  try {
+    await api.post('/vhost', {
+      domain: siteForm.value.domain,
+      user: siteForm.value.user || 'aura',
+      php_version: siteForm.value.php_version,
+      package: siteForm.value.package || 'default',
+      email: siteForm.value.email || undefined,
+      mail_domain: !!siteForm.value.mail_domain,
+      apache_backend: !!siteForm.value.apache_backend,
+    })
+    showAddSiteModal.value = false
+    siteForm.value = {
+      domain: '',
+      user: siteForm.value.user || 'aura',
+      php_version: '8.3',
+      package: siteForm.value.package || 'default',
+      email: '',
+      mail_domain: false,
+      apache_backend: false,
+    }
+    await refreshAll()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'Site olusturulamadi')
+  } finally {
+    siteActionLoading.value = false
+  }
+}
+
+async function deleteSite(site) {
+  if (!confirm(`${site.domain} ${t('common.confirm_delete')}`)) return
+  error.value = ''
+  try {
+    await api.post('/vhost/delete', { domain: site.domain })
+    await refreshAll()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'Site silinemedi')
+  }
+}
+
+async function issueSSL(site) {
+  error.value = ''
+  try {
+    await api.post('/ssl/issue', {
+      domain: site.domain,
+      email: `admin@${site.domain}`,
+      provider: 'letsencrypt',
+    })
+    await refreshAll()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'SSL olusturulamadi')
+  }
+}
+
+async function toggleSuspend(site) {
+  error.value = ''
+  try {
+    const endpoint = isSuspended(site) ? '/vhost/unsuspend' : '/vhost/suspend'
+    await api.post(endpoint, { domain: site.domain })
+    await refreshAll()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'Website durumu guncellenemedi')
+  }
+}
+
+function openEditSiteModal(site) {
+  editSiteForm.value = {
+    domain: site.domain || '',
+    owner: site.owner || site.user || 'aura',
+    php_version: site.php_version || site.php || '8.3',
+    package: site.package || 'default',
+    email: site.email || `webmaster@${site.domain || ''}`,
+  }
+  showEditSiteModal.value = true
+}
+
+function openManagePage(site) {
+  if (!site?.domain) return
+  router.push(`/websites/${site.domain}`)
+}
+
+async function updateSite() {
+  if (!editSiteForm.value.domain || !editSiteForm.value.owner || !editSiteForm.value.php_version || !editSiteForm.value.email) {
+    return
+  }
+
+  editSiteActionLoading.value = true
+  error.value = ''
+  try {
+    await api.post('/vhost/update', {
+      domain: editSiteForm.value.domain,
+      owner: editSiteForm.value.owner,
+      php_version: editSiteForm.value.php_version,
+      package: editSiteForm.value.package || 'default',
+      email: editSiteForm.value.email,
+    })
+    showEditSiteModal.value = false
+    await refreshAll()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'Website guncellenemedi')
+  } finally {
+    editSiteActionLoading.value = false
+  }
+}
+
+async function createSubdomain() {
+  if (!subdomainForm.value.parent_domain || !subdomainForm.value.subdomain) return
+  subdomainActionLoading.value = true
+  error.value = ''
+  try {
+    await api.post('/websites/subdomains', {
+      parent_domain: subdomainForm.value.parent_domain,
+      subdomain: subdomainForm.value.subdomain,
+      php_version: subdomainForm.value.php_version,
+    })
+    showSubdomainModal.value = false
+    subdomainForm.value = {
+      parent_domain: parentDomains.value[0] || '',
+      subdomain: '',
+      php_version: '8.3',
+    }
+    await loadSubdomains()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'Subdomain olusturulamadi')
+  } finally {
+    subdomainActionLoading.value = false
+  }
+}
+
+async function updateSubdomainPhp(subdomain) {
+  error.value = ''
+  try {
+    await api.post('/websites/subdomains/php', {
+      fqdn: subdomain.fqdn,
+      php_version: subdomain.php_version,
+    })
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'Subdomain PHP guncellenemedi')
+  }
+}
+
+async function deleteSubdomain(fqdn) {
+  if (!confirm(`${fqdn} silinsin mi?`)) return
+  const deleteDocroot = confirm('Docroot klasoru de silinsin mi? (Cancel: sadece kayit silinir)')
+  error.value = ''
+  try {
+    await api.delete('/websites/subdomains', { params: { fqdn, delete_docroot: deleteDocroot } })
+    await loadSubdomains()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'Subdomain silinemedi')
+  }
+}
+
+async function convertSubdomain(subdomain) {
+  if (!confirm(`${subdomain.fqdn} full website'e donusturulsun mu?`)) return
+  error.value = ''
+  try {
+    await api.post('/websites/subdomains/convert', {
+      fqdn: subdomain.fqdn,
+      owner: 'aura',
+      php_version: subdomain.php_version,
+    })
+    activeTab.value = 'sites'
+    await refreshAll()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'Subdomain donusumu basarisiz')
+  }
+}
+
+async function addAlias() {
+  if (!advancedDomain.value || !aliasForm.value.alias) return
+  error.value = ''
+  try {
+    await api.post('/websites/aliases', {
+      domain: advancedDomain.value,
+      alias: aliasForm.value.alias,
+    })
+    aliasForm.value.alias = ''
+    await loadAliases()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'Alias eklenemedi')
+  }
+}
+
+async function deleteAlias(alias) {
+  if (!advancedDomain.value) return
+  if (!confirm(`${alias} aliasi silinsin mi?`)) return
+  error.value = ''
+  try {
+    await api.delete('/websites/aliases', {
+      params: {
+        domain: advancedDomain.value,
+        alias,
+      },
+    })
+    await loadAliases()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'Alias silinemedi')
+  }
+}
+
+async function saveOpenBasedir() {
+  if (!advancedDomain.value) return
+  error.value = ''
+  try {
+    await api.post('/websites/open-basedir', {
+      domain: advancedDomain.value,
+      enabled: !!advancedConfig.value.open_basedir,
+    })
+    await loadAdvancedConfig()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'OpenBasedir ayari kaydedilemedi')
+  }
+}
+
+async function saveRewrite() {
+  if (!advancedDomain.value) return
+  error.value = ''
+  try {
+    await api.post('/websites/rewrite', {
+      domain: advancedDomain.value,
+      rules: advancedConfig.value.rewrite_rules || '',
+    })
+    await loadAdvancedConfig()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'Rewrite kurallari kaydedilemedi')
+  }
+}
+
+async function saveVhostConfig() {
+  if (!advancedDomain.value) return
+  error.value = ''
+  try {
+    await api.post('/websites/vhost-config', {
+      domain: advancedDomain.value,
+      content: advancedConfig.value.vhost_config || '',
+    })
+    await loadAdvancedConfig()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'VHost config kaydedilemedi')
+  }
+}
+
+async function saveCustomSsl() {
+  if (!advancedDomain.value) return
+  error.value = ''
+  try {
+    await api.post('/websites/custom-ssl', {
+      domain: advancedDomain.value,
+      cert_pem: customSslForm.value.cert_pem || '',
+      key_pem: customSslForm.value.key_pem || '',
+    })
+    await loadCustomSsl()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'Custom SSL kaydedilemedi')
+  }
+}
+
+async function attachDbLink() {
+  if (!dbLinkForm.value.domain || !dbLinkForm.value.db_name || !dbLinkForm.value.db_user) return
+  dbLinkActionLoading.value = true
+  error.value = ''
+  try {
+    await api.post('/websites/db-links', {
+      domain: dbLinkForm.value.domain,
+      engine: dbLinkForm.value.engine,
+      db_name: dbLinkForm.value.db_name,
+      db_user: dbLinkForm.value.db_user,
+    })
+    showDbLinkModal.value = false
+    await loadDbLinks()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'DB baglantisi olusturulamadi')
+  } finally {
+    dbLinkActionLoading.value = false
+  }
+}
+
+async function detachDbLink(link) {
+  if (!confirm(`${link.domain} - ${link.db_name} baglantisi kaldirilsin mi?`)) return
+  error.value = ''
+  try {
+    await api.delete('/websites/db-links', {
+      params: {
+        domain: link.domain,
+        engine: link.engine,
+        db_name: link.db_name,
+      },
+    })
+    await loadDbLinks()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'DB baglantisi kaldirilamadi')
+  }
+}
+
+async function openAuraDbForLink(link) {
+  error.value = ''
+  try {
+    const res = await api.post('/db/explorer/bridge', {
+      domain: link.domain,
+      engine: link.engine,
+      db_name: link.db_name,
+      db_user: link.db_user,
+    })
+    const url = res.data?.data?.url
+    if (!url) throw new Error('AuraDB bridge URL bulunamadi')
+    router.push(url)
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'AuraDB bridge baslatilamadi')
+  }
+}
+
+onMounted(async () => {
+  const tab = String(route.query.tab || '').toLowerCase()
+  if (tab === 'subdomains') activeTab.value = 'subdomains'
+  if (tab === 'db-links' || tab === 'dblink' || tab === 'db') activeTab.value = 'dbLinks'
+  if (tab === 'advanced' || tab === 'config' || tab === 'settings') activeTab.value = 'advanced'
+
+  if (route.query.engine) dbLinkForm.value.engine = String(route.query.engine)
+  if (route.query.db_name) dbLinkForm.value.db_name = String(route.query.db_name)
+  if (route.query.domain) dbLinkForm.value.domain = String(route.query.domain)
+
+  await refreshAll()
+})
 </script>

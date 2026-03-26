@@ -238,13 +238,9 @@ const refreshContainers = async () => {
   try {
     const { data } = await api.get('/docker/containers')
     containers.value = data.data || []
-  } catch {
-    // Mock data for dev
-    containers.value = [
-      { id: 'abc123', name: 'nginx-proxy', image: 'nginx:latest', status: 'Up 3 days', ports: '0.0.0.0:80->80/tcp', created: '3 gün önce' },
-      { id: 'def456', name: 'mysql-db', image: 'mariadb:11', status: 'Up 3 days', ports: '3306/tcp', created: '3 gün önce' },
-      { id: 'ghi789', name: 'redis-cache', image: 'redis:7-alpine', status: 'Exited (0) 2 hours ago', ports: '6379/tcp', created: '5 gün önce' },
-    ]
+  } catch (e) {
+    showNotif(e.response?.data?.error || 'Konteynerler alınamadı', 'error')
+    containers.value = []
   }
 }
 
@@ -252,12 +248,9 @@ const refreshImages = async () => {
   try {
     const { data } = await api.get('/docker/images')
     images.value = data.data || []
-  } catch {
-    images.value = [
-      { id: 'sha256:abc123def', repository: 'nginx', tag: 'latest', size: '187MB', created: '2 hafta önce' },
-      { id: 'sha256:def456ghi', repository: 'mariadb', tag: '11', size: '405MB', created: '3 hafta önce' },
-      { id: 'sha256:ghi789jkl', repository: 'redis', tag: '7-alpine', size: '32MB', created: '1 ay önce' },
-    ]
+  } catch (e) {
+    showNotif(e.response?.data?.error || 'İmajlar alınamadı', 'error')
+    images.value = []
   }
 }
 
@@ -266,8 +259,8 @@ const containerAction = async (id, action) => {
     await api.post(`/docker/containers/${action}`, { id, action })
     showNotif(`Konteyner ${action} başarılı: ${id}`)
     refreshContainers()
-  } catch {
-    showNotif(`İşlem başarısız: ${action}`, 'error')
+  } catch (e) {
+    showNotif(e.response?.data?.error || `İşlem başarısız: ${action}`, 'error')
   }
 }
 
@@ -279,18 +272,19 @@ const pullImage = async () => {
     showNotif(`İmaj çekildi: ${pullImageName.value}`)
     pullImageName.value = ''
     refreshImages()
-  } catch {
-    showNotif('İmaj çekilemedi', 'error')
+  } catch (e) {
+    showNotif(e.response?.data?.error || 'İmaj çekilemedi', 'error')
   }
 }
 
 const removeImage = async (id) => {
+  if (!confirm('Bu imajı silmek istediğinize emin misiniz?')) return;
   try {
     await api.post('/docker/images/remove', { id })
     showNotif('İmaj silindi')
     refreshImages()
-  } catch {
-    showNotif('Silme başarısız', 'error')
+  } catch (e) {
+    showNotif(e.response?.data?.error || 'Silme başarısız', 'error')
   }
 }
 
@@ -311,8 +305,8 @@ const createContainer = async () => {
     newContainer.value = { name: '', image: '', portsStr: '', envStr: '', volumesStr: '', restart_policy: '', memory_limit: '', cpu_limit: '' }
     activeTab.value = 'containers'
     refreshContainers()
-  } catch {
-    showNotif('Konteyner oluşturulamadı', 'error')
+  } catch (e) {
+    showNotif(e.response?.data?.error || 'Konteyner oluşturulamadı', 'error')
   }
 }
 

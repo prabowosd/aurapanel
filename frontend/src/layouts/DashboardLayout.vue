@@ -35,6 +35,11 @@
           <span>{{ t('menu.databases') }}</span>
         </router-link>
 
+        <router-link to="/auradb" class="sidebar-link" active-class="sidebar-link-active">
+          <Table2 class="w-5 h-5 mr-3" />
+          <span>AuraDB Explorer</span>
+        </router-link>
+
         <router-link to="/emails" class="sidebar-link" active-class="sidebar-link-active">
           <Mail class="w-5 h-5 mr-3" />
           <span>{{ t('menu.emails') }}</span>
@@ -44,6 +49,85 @@
           <Network class="w-5 h-5 mr-3" />
           <span>{{ t('menu.dns') }}</span>
         </router-link>
+
+        <router-link to="/cloudflare" class="sidebar-link" active-class="sidebar-link-active">
+          <Cloud class="w-5 h-5 mr-3" />
+          <span>CloudFlare</span>
+        </router-link>
+
+        <router-link to="/filemanager" class="sidebar-link" active-class="sidebar-link-active">
+          <FolderOpen class="w-5 h-5 mr-3" />
+          <span>File Manager</span>
+        </router-link>
+
+        <router-link to="/php" class="sidebar-link" active-class="sidebar-link-active">
+          <Code class="w-5 h-5 mr-3" />
+          <span>PHP Yönetimi</span>
+        </router-link>
+
+        <router-link to="/server-status" class="sidebar-link" active-class="sidebar-link-active">
+          <Activity class="w-5 h-5 mr-3" />
+          <span>Server Status</span>
+        </router-link>
+
+        <router-link to="/app-runtime" class="sidebar-link" active-class="sidebar-link-active">
+          <TerminalSquare class="w-5 h-5 mr-3" />
+          <span>App Runtime</span>
+        </router-link>
+
+        <router-link to="/minio" class="sidebar-link" active-class="sidebar-link-active">
+          <HardDrive class="w-5 h-5 mr-3" />
+          <span>MinIO</span>
+        </router-link>
+
+        <router-link to="/cron-jobs" class="sidebar-link" active-class="sidebar-link-active">
+          <Clock3 class="w-5 h-5 mr-3" />
+          <span>Cron Jobs</span>
+        </router-link>
+
+        <router-link to="/log-viewer" class="sidebar-link" active-class="sidebar-link-active">
+          <ScrollText class="w-5 h-5 mr-3" />
+          <span>Log Viewer</span>
+        </router-link>
+
+        <router-link to="/federated" class="sidebar-link" active-class="sidebar-link-active">
+          <Network class="w-5 h-5 mr-3" />
+          <span>Federated</span>
+        </router-link>
+
+        <!-- Security Accordion Menu -->
+        <div class="mt-2">
+          <button @click="securityMenuOpen = !securityMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isSecurityRoute }">
+            <div class="flex items-center">
+              <Shield class="w-5 h-5 mr-3" />
+              <span>{{ t('menu.security') }}</span>
+            </div>
+            <ChevronDown class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': securityMenuOpen }" />
+          </button>
+
+          <transition name="accordion">
+            <div v-show="securityMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
+              <router-link :to="{ path: '/security', query: { tab: 'overview' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>Overview</span>
+              </router-link>
+              <router-link :to="{ path: '/security', query: { tab: 'firewall' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>Firewall</span>
+              </router-link>
+              <router-link :to="{ path: '/security', query: { tab: 'waf' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>ML-WAF</span>
+              </router-link>
+              <router-link :to="{ path: '/security', query: { tab: '2fa' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>2FA (TOTP)</span>
+              </router-link>
+              <router-link :to="{ path: '/security', query: { tab: 'ssh' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>SSH Keys</span>
+              </router-link>
+              <router-link :to="{ path: '/security', query: { tab: 'hardening' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>Hardening</span>
+              </router-link>
+            </div>
+          </transition>
+        </div>
 
         <!-- Docker Accordion Menu -->
         <div class="mt-2">
@@ -141,11 +225,36 @@
         </div>
       </div>
     </main>
+
+    <Teleport to="body">
+      <div v-if="commandOpen" class="fixed inset-0 z-[120] bg-black/60 p-4" @click.self="commandOpen = false">
+        <div class="mx-auto max-w-2xl bg-panel-card border border-panel-border rounded-2xl shadow-2xl overflow-hidden">
+          <div class="p-4 border-b border-panel-border">
+            <input
+              v-model="commandQuery"
+              class="aura-input"
+              placeholder="Ctrl+K ile hizli gecis... (orn: dns, security, logs)"
+            />
+          </div>
+          <div class="max-h-96 overflow-auto p-2 space-y-1">
+            <button
+              v-for="item in filteredCommandItems"
+              :key="item.path"
+              class="w-full text-left px-3 py-2 rounded-lg hover:bg-panel-dark transition text-sm flex items-center justify-between"
+              @click="openCommandRoute(item.path)"
+            >
+              <span>{{ item.label }}</span>
+              <span class="text-xs text-gray-500">{{ item.path }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
@@ -161,7 +270,18 @@ import {
   Container,
   Bell, 
   ChevronDown,
-  ShieldAlert
+  ShieldAlert,
+  Cloud,
+  FolderOpen,
+  Code
+  ,
+  Shield,
+  TerminalSquare,
+  HardDrive,
+  Clock3,
+  ScrollText
+  ,
+  Table2
 } from 'lucide-vue-next'
 
 const { t } = useI18n()
@@ -170,18 +290,79 @@ const route = useRoute()
 const authStore = useAuthStore()
 const toggleMenu = ref(false)
 const dockerMenuOpen = ref(false)
+const securityMenuOpen = ref(false)
+const commandOpen = ref(false)
+const commandQuery = ref('')
+
+const commandItems = [
+  { label: 'Dashboard', path: '/' },
+  { label: 'Websites', path: '/websites' },
+  { label: 'Users', path: '/users' },
+  { label: 'Packages', path: '/packages' },
+  { label: 'Databases', path: '/databases' },
+  { label: 'AuraDB Explorer', path: '/auradb' },
+  { label: 'Emails', path: '/emails' },
+  { label: 'DNS', path: '/dns' },
+  { label: 'Security', path: '/security' },
+  { label: 'App Runtime', path: '/app-runtime' },
+  { label: 'MinIO', path: '/minio' },
+  { label: 'Cron Jobs', path: '/cron-jobs' },
+  { label: 'Log Viewer', path: '/log-viewer' },
+  { label: 'Federated', path: '/federated' },
+  { label: 'File Manager', path: '/filemanager' },
+  { label: 'PHP', path: '/php' },
+  { label: 'Server Status', path: '/server-status' },
+  { label: 'Docker Images', path: '/docker/images' },
+  { label: 'Docker Containers', path: '/docker/containers' },
+  { label: 'Docker App Store', path: '/docker/apps' }
+]
 
 const isDockerRoute = computed(() => route.path.startsWith('/docker'))
+const isSecurityRoute = computed(() => route.path.startsWith('/security'))
+const filteredCommandItems = computed(() => {
+  const q = commandQuery.value.trim().toLowerCase()
+  if (!q) return commandItems
+  return commandItems.filter(i => i.label.toLowerCase().includes(q) || i.path.toLowerCase().includes(q))
+})
 
 // Auto-open docker menu if on a docker route
 if (route.path.startsWith('/docker')) {
   dockerMenuOpen.value = true
 }
 
+// Auto-open security menu if on a security route
+if (route.path.startsWith('/security')) {
+  securityMenuOpen.value = true
+}
+
 const handleLogout = () => {
   authStore.logout()
   router.push('/login')
 }
+
+const onKeydown = (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault()
+    commandOpen.value = !commandOpen.value
+    return
+  }
+  if (e.key === 'Escape' && commandOpen.value) {
+    commandOpen.value = false
+  }
+}
+
+const openCommandRoute = (path) => {
+  commandOpen.value = false
+  router.push(path)
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+})
 </script>
 
 <style scoped>

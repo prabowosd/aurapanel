@@ -1,7 +1,5 @@
-use serde::{Deserialize, Serialize};
+﻿use serde::{Deserialize, Serialize};
 use std::process::Command;
-
-// ─── Veri Yapıları ───────────────────────────────────────────
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ContainerInfo {
@@ -26,12 +24,12 @@ pub struct ImageInfo {
 pub struct CreateContainerConfig {
     pub name: String,
     pub image: String,
-    pub ports: Vec<String>,     // ["80:80", "443:443"]
-    pub env: Vec<String>,       // ["KEY=VALUE", ...]
-    pub volumes: Vec<String>,   // ["/host:/container", ...]
-    pub restart_policy: Option<String>, // "always", "unless-stopped", "on-failure"
-    pub memory_limit: Option<String>,   // "512m", "1g"
-    pub cpu_limit: Option<String>,      // "0.5", "1.0"
+    pub ports: Vec<String>,
+    pub env: Vec<String>,
+    pub volumes: Vec<String>,
+    pub restart_policy: Option<String>,
+    pub memory_limit: Option<String>,
+    pub cpu_limit: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -40,16 +38,23 @@ pub struct PullImageConfig {
     pub tag: Option<String>,
 }
 
-// ─── Docker Yöneticisi ──────────────────────────────────────
-
 pub struct DockerManager;
 
 impl DockerManager {
-    // ─── Konteyner İşlemleri ────────────────────────────────
+    fn simulation_enabled() -> bool {
+        crate::runtime::simulation_enabled()
+    }
 
-    /// Çalışan ve durdurulmuş tüm konteynerleri listeler
+    fn docker_unavailable_error() -> String {
+        "docker is not available on this host. Install docker or enable AURAPANEL_DEV_SIMULATION=1.".to_string()
+    }
+
     pub fn list_containers() -> Result<Vec<ContainerInfo>, String> {
         if !Self::is_docker_available() {
+            if !Self::simulation_enabled() {
+                return Err(Self::docker_unavailable_error());
+            }
+
             return Ok(vec![
                 ContainerInfo {
                     id: "abc123def456".into(),
@@ -81,16 +86,16 @@ impl DockerManager {
         let output = Command::new("docker")
             .args(["ps", "-a", "--format", "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.Ports}}|{{.CreatedAt}}"])
             .output()
-            .map_err(|e| format!("docker ps hatası: {}", e))?;
+            .map_err(|e| format!("docker ps failed: {}", e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let containers: Vec<ContainerInfo> = stdout
+        let containers = stdout
             .lines()
-            .filter(|l| !l.is_empty())
+            .filter(|line| !line.is_empty())
             .map(|line| {
                 let parts: Vec<&str> = line.splitn(6, '|').collect();
                 ContainerInfo {
-                    id: parts.get(0).unwrap_or(&"").to_string(),
+                    id: parts.first().unwrap_or(&"").to_string(),
                     name: parts.get(1).unwrap_or(&"").to_string(),
                     image: parts.get(2).unwrap_or(&"").to_string(),
                     status: parts.get(3).unwrap_or(&"").to_string(),
@@ -103,54 +108,45 @@ impl DockerManager {
         Ok(containers)
     }
 
-    /// Yeni bir konteyner oluşturur ve başlatır
     pub fn create_container(config: &CreateContainerConfig) -> Result<String, String> {
         println!("[DOCKER] Creating container: {} from image: {}", config.name, config.image);
 
         if !Self::is_docker_available() {
-            println!("[DEV MODE] Docker not available. Simulating container creation.");
-            return Ok(format!("simulated-container-id-{}", config.name));
+            if Self::simulation_enabled() {
+                println!("[DEV MODE] Docker not available. Simulating container creation.");
+                return Ok(format!("simulated-container-id-{}", config.name));
+            }
+            return Err(Self::docker_unavailable_error());
         }
 
-        let mut args = vec![
-            "run".to_string(),
-            "-d".to_string(),
-            "--name".to_string(),
-            config.name.clone(),
-        ];
+        let mut args = vec!["run".to_string(), "-d".to_string(), "--name".to_string(), config.name.clone()];
 
-        // Port mappings
         for port in &config.ports {
             args.push("-p".to_string());
             args.push(port.clone());
         }
 
-        // Environment variables
         for env in &config.env {
             args.push("-e".to_string());
             args.push(env.clone());
         }
 
-        // Volume mounts
-        for vol in &config.volumes {
+        for volume in &config.volumes {
             args.push("-v".to_string());
-            args.push(vol.clone());
+            args.push(volume.clone());
         }
 
-        // Restart policy
-        if let Some(ref policy) = config.restart_policy {
+        if let Some(policy) = &config.restart_policy {
             args.push("--restart".to_string());
             args.push(policy.clone());
         }
 
-        // Memory limit
-        if let Some(ref mem) = config.memory_limit {
+        if let Some(memory) = &config.memory_limit {
             args.push("--memory".to_string());
-            args.push(mem.clone());
+            args.push(memory.clone());
         }
 
-        // CPU limit
-        if let Some(ref cpu) = config.cpu_limit {
+        if let Some(cpu) = &config.cpu_limit {
             args.push("--cpus".to_string());
             args.push(cpu.clone());
         }
@@ -160,31 +156,30 @@ impl DockerManager {
         let output = Command::new("docker")
             .args(&args)
             .output()
-            .map_err(|e| format!("docker run hatası: {}", e))?;
+            .map_err(|e| format!("docker run failed: {}", e))?;
 
         if !output.status.success() {
-            return Err(format!("Container oluşturulamadı: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(format!(
+                "container create failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
-    /// Konteyneri başlatır
     pub fn start_container(id: &str) -> Result<(), String> {
         Self::docker_cmd(&["start", id])
     }
 
-    /// Konteyneri durdurur
     pub fn stop_container(id: &str) -> Result<(), String> {
         Self::docker_cmd(&["stop", id])
     }
 
-    /// Konteyneri yeniden başlatır
     pub fn restart_container(id: &str) -> Result<(), String> {
         Self::docker_cmd(&["restart", id])
     }
 
-    /// Konteyneri siler
     pub fn remove_container(id: &str, force: bool) -> Result<(), String> {
         if force {
             Self::docker_cmd(&["rm", "-f", id])
@@ -193,26 +188,29 @@ impl DockerManager {
         }
     }
 
-    /// Konteyner loglarını getirir
     pub fn container_logs(id: &str, tail: u32) -> Result<String, String> {
         if !Self::is_docker_available() {
-            return Ok(format!("[DEV MODE] Simulated logs for container {}", id));
+            if Self::simulation_enabled() {
+                return Ok(format!("[DEV MODE] Simulated logs for container {}", id));
+            }
+            return Err(Self::docker_unavailable_error());
         }
 
         let output = Command::new("docker")
             .args(["logs", "--tail", &tail.to_string(), id])
             .output()
-            .map_err(|e| format!("docker logs hatası: {}", e))?;
+            .map_err(|e| format!("docker logs failed: {}", e))?;
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string()
             + &String::from_utf8_lossy(&output.stderr).to_string())
     }
 
-    // ─── İmaj İşlemleri ─────────────────────────────────────
-
-    /// Mevcut Docker image'lerini listeler
     pub fn list_images() -> Result<Vec<ImageInfo>, String> {
         if !Self::is_docker_available() {
+            if !Self::simulation_enabled() {
+                return Err(Self::docker_unavailable_error());
+            }
+
             return Ok(vec![
                 ImageInfo {
                     id: "sha256:abc123".into(),
@@ -241,16 +239,16 @@ impl DockerManager {
         let output = Command::new("docker")
             .args(["images", "--format", "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}|{{.CreatedAt}}"])
             .output()
-            .map_err(|e| format!("docker images hatası: {}", e))?;
+            .map_err(|e| format!("docker images failed: {}", e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let images: Vec<ImageInfo> = stdout
+        let images = stdout
             .lines()
-            .filter(|l| !l.is_empty())
+            .filter(|line| !line.is_empty())
             .map(|line| {
                 let parts: Vec<&str> = line.splitn(5, '|').collect();
                 ImageInfo {
-                    id: parts.get(0).unwrap_or(&"").to_string(),
+                    id: parts.first().unwrap_or(&"").to_string(),
                     repository: parts.get(1).unwrap_or(&"").to_string(),
                     tag: parts.get(2).unwrap_or(&"").to_string(),
                     size: parts.get(3).unwrap_or(&"").to_string(),
@@ -262,7 +260,6 @@ impl DockerManager {
         Ok(images)
     }
 
-    /// Docker Hub'dan image çeker
     pub fn pull_image(config: &PullImageConfig) -> Result<(), String> {
         let full_image = match &config.tag {
             Some(tag) => format!("{}:{}", config.image, tag),
@@ -272,23 +269,25 @@ impl DockerManager {
         println!("[DOCKER] Pulling image: {}", full_image);
 
         if !Self::is_docker_available() {
-            println!("[DEV MODE] Docker pull simulated for {}", full_image);
-            return Ok(());
+            if Self::simulation_enabled() {
+                println!("[DEV MODE] Docker pull simulated for {}", full_image);
+                return Ok(());
+            }
+            return Err(Self::docker_unavailable_error());
         }
 
         let output = Command::new("docker")
             .args(["pull", &full_image])
             .output()
-            .map_err(|e| format!("docker pull hatası: {}", e))?;
+            .map_err(|e| format!("docker pull failed: {}", e))?;
 
         if !output.status.success() {
-            return Err(format!("Image çekilemedi: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(format!("image pull failed: {}", String::from_utf8_lossy(&output.stderr)));
         }
 
         Ok(())
     }
 
-    /// Image siler
     pub fn remove_image(id: &str, force: bool) -> Result<(), String> {
         if force {
             Self::docker_cmd(&["rmi", "-f", id])
@@ -296,8 +295,6 @@ impl DockerManager {
             Self::docker_cmd(&["rmi", id])
         }
     }
-
-    // ─── Yardımcılar ────────────────────────────────────────
 
     fn is_docker_available() -> bool {
         Command::new("docker")
@@ -309,14 +306,17 @@ impl DockerManager {
 
     fn docker_cmd(args: &[&str]) -> Result<(), String> {
         if !Self::is_docker_available() {
-            println!("[DEV MODE] docker {} simulated.", args.join(" "));
-            return Ok(());
+            if Self::simulation_enabled() {
+                println!("[DEV MODE] docker {} simulated.", args.join(" "));
+                return Ok(());
+            }
+            return Err(Self::docker_unavailable_error());
         }
 
         let output = Command::new("docker")
             .args(args)
             .output()
-            .map_err(|e| format!("docker komutu hatası: {}", e))?;
+            .map_err(|e| format!("docker command failed: {}", e))?;
 
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).to_string());

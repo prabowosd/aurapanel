@@ -13,5 +13,9 @@ pub mod monitor;
 pub mod users;
 pub mod federated;
 pub mod docker;
-
-pub use manager::ServiceManager;
+pub mod cloudflare;
+pub mod filemanager;
+pub mod php;
+pub mod status;
+pub mod packages;
+pub mod websites;

@@ -17,58 +17,77 @@ type Response struct {
 }
 
 func main() {
-	mux := http.NewServeMux()
+	if err := middleware.RequireSecurityConfig(); err != nil {
+		log.Fatalf("security configuration error: %v", err)
+	}
+
+	coreProxy, err := controllers.NewCoreProxy()
+	if err != nil {
+		log.Fatalf("failed to initialize core proxy: %v", err)
+	}
+
+	publicMux := http.NewServeMux()
+	protectedMux := http.NewServeMux()
 
 	// Public routes
-	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+	publicMux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(Response{
+		_ = json.NewEncoder(w).Encode(Response{
 			Message: "AuraPanel API Gateway is operational.",
 			Status:  "ok",
 		})
 	})
-	
-	// Auth Routes
-	mux.HandleFunc("/api/auth/login", controllers.Login)
+	publicMux.HandleFunc("/api/auth/login", controllers.Login)
+	publicMux.HandleFunc("/api/v1/auth/login", controllers.Login)
 
-	// Protected routes Wrapper
-	protectedMux := http.NewServeMux()
-	
-	// System API
+	// Protected auth/me routes
+	protectedMux.HandleFunc("/api/auth/me", controllers.Me)
+	protectedMux.HandleFunc("/api/v1/auth/me", controllers.Me)
+
+	// Legacy compatibility routes
 	protectedMux.HandleFunc("/api/system/status", handlers.GetSystemStatus)
 	protectedMux.HandleFunc("/api/system/env", handlers.GetEnv)
-
-	// Auth User Details
-	protectedMux.HandleFunc("/api/auth/me", controllers.Me)
-
-	// Websites API
 	protectedMux.HandleFunc("/api/websites", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			controllers.ListWebsites(w, r)
-		} else if r.Method == http.MethodPost {
-			controllers.CreateWebsite(w, r)
-		} else {
-			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+			return
 		}
+		if r.Method == http.MethodPost {
+			controllers.CreateWebsite(w, r)
+			return
+		}
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	})
 
-	// Combine Middlewares For Public Endpoints
-	publicHandler := middleware.CorsMiddleware(middleware.Logger(mux))
+	// Main proxy surface for frontend/core communication
+	protectedMux.Handle("/api/v1/", coreProxy)
 
-	// Combine Middlewares For Protected Endpoints
-	protectedHandler := middleware.CorsMiddleware(middleware.Logger(middleware.AuthMiddleware(protectedMux)))
+	publicHandler := middleware.RequestIDMiddleware(
+		middleware.CorsMiddleware(
+			middleware.Logger(publicMux),
+		),
+	)
+	protectedHandler := middleware.RequestIDMiddleware(
+		middleware.CorsMiddleware(
+			middleware.Logger(
+				middleware.AuthMiddleware(protectedMux),
+			),
+		),
+	)
 
-	// Main Router
 	mainRouter := http.NewServeMux()
-	
-	// Map public
+
+	// Public
 	mainRouter.Handle("/api/health", publicHandler)
 	mainRouter.Handle("/api/auth/login", publicHandler)
-	
-	// Map protected by mapping their prefixes
-	mainRouter.Handle("/api/system/", protectedHandler)
+	mainRouter.Handle("/api/v1/auth/login", publicHandler)
+
+	// Protected
 	mainRouter.Handle("/api/auth/me", protectedHandler)
+	mainRouter.Handle("/api/v1/auth/me", protectedHandler)
+	mainRouter.Handle("/api/system/", protectedHandler)
 	mainRouter.Handle("/api/websites", protectedHandler)
+	mainRouter.Handle("/api/v1/", protectedHandler)
 
 	fmt.Println("API Gateway listening on :8080")
 	log.Fatal(http.ListenAndServe(":8080", mainRouter))
