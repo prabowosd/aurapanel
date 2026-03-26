@@ -13,9 +13,14 @@ use crate::services::db::{DbManager, DbConfig};
 use crate::services::mail::{MailManager, MailboxConfig};
 use crate::services::perf::{PerfManager, RedisConfig};
 use crate::services::security::{SecurityManager, FirewallRule};
+use crate::services::security::waf::{MlWaf, HttpRequest as WafHttpRequest};
 use crate::services::monitor::MonitorManager;
 use crate::services::apps::{AppManager, CmsInstallConfig};
 use crate::services::federated::{FederatedManager, WireguardConfig};
+use crate::services::ssl::{SslManager, SslConfig};
+use crate::services::secure_connect::{SecureConnectManager, SftpUserConfig};
+use crate::services::storage::{BackupManager, BackupConfig};
+use crate::services::monitor::gitops::{GitOpsManager, GitOpsConfig};
 
 #[derive(Serialize)]
 struct StatusResponse {
@@ -33,9 +38,14 @@ pub fn routes() -> Router {
         .route("/mail/create", post(create_mailbox_handler))
         .route("/perf/redis", post(create_redis_handler))
         .route("/security/firewall", post(firewall_rule_handler))
+        .route("/security/waf", post(waf_inspect_handler))
         .route("/monitor/sre", get(sre_metrics_handler))
         .route("/apps/install", post(install_cms_handler))
         .route("/federated/join", post(cluster_join_handler))
+        .route("/ssl/issue", post(issue_ssl_handler))
+        .route("/sftp/create", post(create_sftp_handler))
+        .route("/backup/create", post(create_backup_handler))
+        .route("/gitops/deploy", post(gitops_deploy_handler))
 }
 
 async fn health_check() -> Json<StatusResponse> {
@@ -188,3 +198,81 @@ async fn create_vhost_handler(
         })),
     }
 }
+
+// Handler for issuing SSL certificate
+async fn issue_ssl_handler(
+    Json(payload): Json<SslConfig>,
+) -> Json<serde_json::Value> {
+    match SslManager::issue_certificate(&payload).await {
+        Ok(_) => Json(json!({
+            "status": "success",
+            "message": format!("SSL certificate for {} issued successfully.", payload.domain),
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
+// Handler for creating SFTP user
+async fn create_sftp_handler(
+    Json(payload): Json<SftpUserConfig>,
+) -> Json<serde_json::Value> {
+    match SecureConnectManager::create_sftp_user(&payload).await {
+        Ok(_) => Json(json!({
+            "status": "success",
+            "message": format!("SFTP user {} created.", payload.username),
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
+// Handler for creating backup
+async fn create_backup_handler(
+    Json(payload): Json<BackupConfig>,
+) -> Json<serde_json::Value> {
+    match BackupManager::create_backup(&payload).await {
+        Ok(snapshot) => Json(json!({
+            "status": "success",
+            "message": format!("Backup created for {}.", payload.domain),
+            "snapshot_id": snapshot,
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
+// Handler for WAF inspection
+async fn waf_inspect_handler(
+    Json(payload): Json<WafHttpRequest>,
+) -> Json<serde_json::Value> {
+    let verdict = MlWaf::inspect(&payload);
+    Json(json!({
+        "allowed": verdict.allowed,
+        "score": verdict.score,
+        "reason": verdict.reason,
+    }))
+}
+
+// Handler for GitOps deploy
+async fn gitops_deploy_handler(
+    Json(payload): Json<GitOpsConfig>,
+) -> Json<serde_json::Value> {
+    match GitOpsManager::deploy(&payload).await {
+        Ok(_) => Json(json!({
+            "status": "success",
+            "message": format!("Deployed {} to {}.", payload.repo_url, payload.deploy_path),
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
