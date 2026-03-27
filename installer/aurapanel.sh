@@ -568,6 +568,77 @@ ensure_openlitespeed_admin_php() {
   fi
 }
 
+ensure_ioncube_loader() {
+  if [ "${AURAPANEL_INSTALL_IONCUBE:-1}" != "1" ]; then
+    warn "ionCube loader install skipped (AURAPANEL_INSTALL_IONCUBE!=1)."
+    return
+  fi
+
+  local lsphp_bin="/usr/local/lsws/lsphp83/bin/lsphp"
+  local ioncube_url="https://downloads.ioncube.com/loader_downloads/ioncube_loaders_lin_x86-64.tar.gz"
+  local ext_dir ini_file tmpdir archive src_loader dst_loader
+
+  if [ ! -x "${lsphp_bin}" ]; then
+    warn "lsphp83 binary not found; ionCube install skipped."
+    return
+  fi
+
+  if "${lsphp_bin}" -i 2>/dev/null | grep -qi "with the ionCube PHP Loader"; then
+    ok "ionCube loader already active for lsphp83."
+    return
+  fi
+
+  ext_dir="$("${lsphp_bin}" -i 2>/dev/null | awk -F'=> ' '/^extension_dir =>/{print $2; exit}' | awk '{print $1}')"
+  if [ -z "${ext_dir}" ]; then
+    warn "Unable to detect lsphp83 extension_dir; ionCube install skipped."
+    return
+  fi
+
+  ini_file="/usr/local/lsws/lsphp83/etc/php/8.3/mods-available/00-ioncube.ini"
+  tmpdir="$(mktemp -d /tmp/ioncube.XXXXXX)"
+  archive="${tmpdir}/ioncube_loaders_lin_x86-64.tar.gz"
+  src_loader="${tmpdir}/ioncube/ioncube_loader_lin_8.3.so"
+  dst_loader="${ext_dir}/ioncube_loader_lin_8.3.so"
+
+  if ! download_file "${ioncube_url}" "${archive}"; then
+    warn "ionCube archive download failed; continuing without ionCube."
+    rm -rf "${tmpdir}"
+    return
+  fi
+
+  if ! tar -xzf "${archive}" -C "${tmpdir}"; then
+    warn "ionCube archive extract failed; continuing without ionCube."
+    rm -rf "${tmpdir}"
+    return
+  fi
+
+  if [ ! -f "${src_loader}" ]; then
+    warn "ionCube loader for PHP 8.3 not found in archive."
+    rm -rf "${tmpdir}"
+    return
+  fi
+
+  mkdir -p "${ext_dir}" "$(dirname "${ini_file}")"
+  install -m 755 "${src_loader}" "${dst_loader}"
+  cat <<EOF > "${ini_file}"
+; ionCube Loader
+zend_extension=${dst_loader}
+EOF
+  chmod 644 "${ini_file}"
+
+  if systemctl restart lshttpd >/dev/null 2>&1; then
+    if "${lsphp_bin}" -i 2>/dev/null | grep -qi "with the ionCube PHP Loader"; then
+      ok "ionCube loader installed and activated for lsphp83."
+    else
+      warn "ionCube files installed, but loader activation could not be verified."
+    fi
+  else
+    warn "lshttpd restart failed after ionCube install. Check OpenLiteSpeed logs."
+  fi
+
+  rm -rf "${tmpdir}"
+}
+
 ensure_certbot() {
   if command -v certbot >/dev/null 2>&1; then
     ok "Certbot already installed: $(certbot --version 2>/dev/null | head -n1)"
@@ -1028,6 +1099,7 @@ main() {
   ensure_openlitespeed
   ensure_ols_public_listeners
   ensure_openlitespeed_admin_php
+  ensure_ioncube_loader
   ensure_certbot
   configure_ols_admin_credentials
   configure_pureftpd

@@ -3164,16 +3164,39 @@ fn sanitize_upload_filename(name: &str) -> String {
     }
 }
 
-async fn migration_upload_handler(mut multipart: Multipart) -> Json<serde_json::Value> {
+fn migration_error_status(message: &str) -> StatusCode {
+    let msg = message.to_ascii_lowercase();
+    if msg.contains("bulunamadi") {
+        return StatusCode::NOT_FOUND;
+    }
+    if msg.contains("zorunlu")
+        || msg.contains("gecersiz")
+        || msg.contains("desteklenen")
+        || msg.contains("dogrulanamadi")
+        || msg.contains("okunamadi")
+        || msg.contains("multipart")
+    {
+        return StatusCode::BAD_REQUEST;
+    }
+    if msg.contains("olusturulamadi") || msg.contains("yazilamadi") || msg.contains("kaydedilemedi")
+    {
+        return StatusCode::INTERNAL_SERVER_ERROR;
+    }
+    StatusCode::UNPROCESSABLE_ENTITY
+}
+
+fn migration_error_response(message: String) -> (StatusCode, Json<serde_json::Value>) {
+    let status = migration_error_status(&message);
+    (status, Json(json!({ "status": "error", "message": message })))
+}
+
+async fn migration_upload_handler(mut multipart: Multipart) -> impl IntoResponse {
     let mut saved_path: Option<String> = None;
     loop {
         let next = match multipart.next_field().await {
             Ok(v) => v,
             Err(e) => {
-                return Json(json!({
-                    "status": "error",
-                    "message": format!("Multipart okunamadi: {}", e),
-                }))
+                return migration_error_response(format!("Multipart okunamadi: {}", e))
             }
         };
 
@@ -3185,19 +3208,13 @@ async fn migration_upload_handler(mut multipart: Multipart) -> Json<serde_json::
 
         let upload_dir = MigrationManager::upload_dir();
         if let Err(e) = std::fs::create_dir_all(&upload_dir) {
-            return Json(json!({
-                "status": "error",
-                "message": format!("Upload dizini olusturulamadi: {}", e),
-            }));
+            return migration_error_response(format!("Upload dizini olusturulamadi: {}", e));
         }
         let path = upload_dir.join(file_name);
         let mut out = match tokio::fs::File::create(&path).await {
             Ok(file) => file,
             Err(e) => {
-                return Json(json!({
-                    "status": "error",
-                    "message": format!("Dosya kaydedilemedi: {}", e),
-                }))
+                return migration_error_response(format!("Dosya kaydedilemedi: {}", e))
             }
         };
 
@@ -3206,51 +3223,51 @@ async fn migration_upload_handler(mut multipart: Multipart) -> Json<serde_json::
             let chunk = match field.chunk().await {
                 Ok(c) => c,
                 Err(e) => {
-                    return Json(json!({
-                        "status": "error",
-                        "message": format!("Dosya okunamadi: {}", e),
-                    }))
+                    return migration_error_response(format!("Dosya okunamadi: {}", e))
                 }
             };
 
             let Some(bytes) = chunk else { break };
             if let Err(e) = out.write_all(&bytes).await {
-                return Json(json!({
-                    "status": "error",
-                    "message": format!("Dosya kaydedilemedi: {}", e),
-                }));
+                return migration_error_response(format!("Dosya kaydedilemedi: {}", e));
             }
         }
         if let Err(e) = out.flush().await {
-            return Json(json!({
-                "status": "error",
-                "message": format!("Dosya kaydedilemedi: {}", e),
-            }));
+            return migration_error_response(format!("Dosya kaydedilemedi: {}", e));
         }
         saved_path = Some(path.to_string_lossy().to_string());
     }
 
     match saved_path {
-        Some(path) => Json(json!({ "status": "success", "data": { "archive_path": path } })),
-        None => Json(json!({ "status": "error", "message": "Yuklenecek dosya bulunamadi." })),
+        Some(path) => (
+            StatusCode::OK,
+            Json(json!({ "status": "success", "data": { "archive_path": path } })),
+        ),
+        None => migration_error_response("Yuklenecek dosya bulunamadi.".to_string()),
     }
 }
 
 async fn migration_analyze_handler(
     Json(payload): Json<MigrationAnalyzeRequest>,
-) -> Json<serde_json::Value> {
+) -> impl IntoResponse {
     match MigrationManager::analyze_backup(&payload) {
-        Ok(data) => Json(json!({ "status": "success", "data": data })),
-        Err(e) => Json(json!({ "status": "error", "message": e })),
+        Ok(data) => (
+            StatusCode::OK,
+            Json(json!({ "status": "success", "data": data })),
+        ),
+        Err(e) => migration_error_response(e),
     }
 }
 
 async fn migration_import_start_handler(
     Json(payload): Json<MigrationImportRequest>,
-) -> Json<serde_json::Value> {
+) -> impl IntoResponse {
     match MigrationManager::start_import(payload).await {
-        Ok(job) => Json(json!({ "status": "success", "data": job })),
-        Err(e) => Json(json!({ "status": "error", "message": e })),
+        Ok(job) => (
+            StatusCode::OK,
+            Json(json!({ "status": "success", "data": job })),
+        ),
+        Err(e) => migration_error_response(e),
     }
 }
 
@@ -3261,10 +3278,13 @@ struct MigrationStatusQuery {
 
 async fn migration_import_status_handler(
     axum::extract::Query(query): axum::extract::Query<MigrationStatusQuery>,
-) -> Json<serde_json::Value> {
+) -> impl IntoResponse {
     match MigrationManager::get_import_job(&query.id) {
-        Ok(job) => Json(json!({ "status": "success", "data": job })),
-        Err(e) => Json(json!({ "status": "error", "message": e })),
+        Ok(job) => (
+            StatusCode::OK,
+            Json(json!({ "status": "success", "data": job })),
+        ),
+        Err(e) => migration_error_response(e),
     }
 }
 
