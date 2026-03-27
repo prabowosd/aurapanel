@@ -1,10 +1,10 @@
-use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String, // username or user_id
+    pub sub: String,  // username or user_id
     pub role: String, // admin, reseller, user
     pub exp: usize,
     #[serde(default)]
@@ -66,8 +66,12 @@ pub fn create_token(user_id: &str, role: &str) -> Result<String, String> {
     };
 
     let secret = secret_key()?;
-    encode(&Header::default(), &claims, &EncodingKey::from_secret(&secret))
-        .map_err(|e| e.to_string())
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(&secret),
+    )
+    .map_err(|e| e.to_string())
 }
 
 pub fn verify_token(token: &str) -> Result<Claims, String> {

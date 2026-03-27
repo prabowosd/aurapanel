@@ -144,10 +144,9 @@ impl WebsitesManager {
             return Ok(WebsiteWorkflowStore::default());
         }
 
-        let raw = fs::read_to_string(&path)
-            .map_err(|e| format!("Workflow kaydi okunamadi: {}", e))?;
-        serde_json::from_str(&raw)
-            .map_err(|e| format!("Workflow kaydi parse edilemedi: {}", e))
+        let raw =
+            fs::read_to_string(&path).map_err(|e| format!("Workflow kaydi okunamadi: {}", e))?;
+        serde_json::from_str(&raw).map_err(|e| format!("Workflow kaydi parse edilemedi: {}", e))
     }
 
     fn save_store(store: &WebsiteWorkflowStore) -> Result<(), String> {
@@ -232,8 +231,15 @@ impl WebsitesManager {
             .join("vhconf.conf")
     }
 
-    fn find_or_default_advanced_config<'a>(store: &'a mut WebsiteWorkflowStore, domain: &str) -> &'a mut WebsiteAdvancedConfig {
-        if let Some(idx) = store.advanced_configs.iter().position(|x| x.domain == domain) {
+    fn find_or_default_advanced_config<'a>(
+        store: &'a mut WebsiteWorkflowStore,
+        domain: &str,
+    ) -> &'a mut WebsiteAdvancedConfig {
+        if let Some(idx) = store
+            .advanced_configs
+            .iter()
+            .position(|x| x.domain == domain)
+        {
             return &mut store.advanced_configs[idx];
         }
 
@@ -299,7 +305,10 @@ impl WebsitesManager {
         Self::delete_subdomain_with_options(fqdn, false).map(|_| ())
     }
 
-    pub fn delete_subdomain_with_options(fqdn: &str, delete_docroot: bool) -> Result<Vec<String>, String> {
+    pub fn delete_subdomain_with_options(
+        fqdn: &str,
+        delete_docroot: bool,
+    ) -> Result<Vec<String>, String> {
         let fqdn = Self::sanitize_domain(fqdn);
         if fqdn.is_empty() {
             return Err("Subdomain FQDN bos olamaz".to_string());
@@ -345,7 +354,9 @@ impl WebsitesManager {
         Ok(updated)
     }
 
-    pub fn consume_subdomain_for_conversion(req: &ConvertSubdomainRequest) -> Result<SubdomainEntry, String> {
+    pub fn consume_subdomain_for_conversion(
+        req: &ConvertSubdomainRequest,
+    ) -> Result<SubdomainEntry, String> {
         let fqdn = Self::sanitize_domain(&req.fqdn);
         if fqdn.is_empty() {
             return Err("Subdomain FQDN bos olamaz".to_string());
@@ -463,7 +474,11 @@ impl WebsitesManager {
 
         let mut store = Self::load_store()?;
 
-        if store.aliases.iter().any(|x| x.alias == alias && x.domain != domain) {
+        if store
+            .aliases
+            .iter()
+            .any(|x| x.alias == alias && x.domain != domain)
+        {
             return Err("Alias baska bir domaine atanmis".to_string());
         }
 
@@ -496,7 +511,9 @@ impl WebsitesManager {
 
         let mut store = Self::load_store()?;
         let before = store.aliases.len();
-        store.aliases.retain(|x| !(x.domain == domain && x.alias == alias));
+        store
+            .aliases
+            .retain(|x| !(x.domain == domain && x.alias == alias));
 
         if before == store.aliases.len() {
             return Err("Alias kaydi bulunamadi".to_string());
@@ -533,14 +550,20 @@ impl WebsitesManager {
             }
         }
 
-        if let Some(target) = store.advanced_configs.iter_mut().find(|x| x.domain == domain) {
+        if let Some(target) = store
+            .advanced_configs
+            .iter_mut()
+            .find(|x| x.domain == domain)
+        {
             *target = entry.clone();
         }
         Self::save_store(&store)?;
         Ok(entry)
     }
 
-    pub fn set_open_basedir(req: &WebsiteOpenBasedirRequest) -> Result<WebsiteAdvancedConfig, String> {
+    pub fn set_open_basedir(
+        req: &WebsiteOpenBasedirRequest,
+    ) -> Result<WebsiteAdvancedConfig, String> {
         let domain = Self::sanitize_domain(&req.domain);
         if domain.is_empty() {
             return Err("Domain bos olamaz".to_string());
@@ -563,7 +586,8 @@ impl WebsitesManager {
                         break;
                     }
                 }
-                let new_marker = format!("{}{}", marker_prefix, if req.enabled { "1" } else { "0" });
+                let new_marker =
+                    format!("{}{}", marker_prefix, if req.enabled { "1" } else { "0" });
                 if let Some(i) = marker_idx {
                     lines[i] = new_marker;
                 } else {
@@ -582,7 +606,9 @@ impl WebsitesManager {
         Ok(updated)
     }
 
-    pub fn save_rewrite_rules(req: &WebsiteRewriteRequest) -> Result<WebsiteAdvancedConfig, String> {
+    pub fn save_rewrite_rules(
+        req: &WebsiteRewriteRequest,
+    ) -> Result<WebsiteAdvancedConfig, String> {
         let domain = Self::sanitize_domain(&req.domain);
         if domain.is_empty() {
             return Err("Domain bos olamaz".to_string());
@@ -603,7 +629,9 @@ impl WebsitesManager {
         Ok(updated)
     }
 
-    pub fn save_vhost_config(req: &WebsiteVhostConfigRequest) -> Result<WebsiteAdvancedConfig, String> {
+    pub fn save_vhost_config(
+        req: &WebsiteVhostConfigRequest,
+    ) -> Result<WebsiteAdvancedConfig, String> {
         let domain = Self::sanitize_domain(&req.domain);
         if domain.is_empty() {
             return Err("Domain bos olamaz".to_string());
@@ -685,7 +713,9 @@ impl WebsitesManager {
         store
             .subdomains
             .retain(|x| x.parent_domain != domain && x.fqdn != domain);
-        store.aliases.retain(|x| x.domain != domain && x.alias != domain);
+        store
+            .aliases
+            .retain(|x| x.domain != domain && x.alias != domain);
         store.advanced_configs.retain(|x| x.domain != domain);
         store.custom_ssl.retain(|x| x.domain != domain);
         Self::save_store(&store)

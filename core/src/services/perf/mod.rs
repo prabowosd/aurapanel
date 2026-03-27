@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -27,7 +27,8 @@ impl PerfManager {
         let db_file = format!("dump-{}.rdb", domain);
 
         fs::create_dir_all(conf_dir).map_err(|e| format!("redis conf dir create failed: {}", e))?;
-        fs::create_dir_all(socket_dir).map_err(|e| format!("redis socket dir create failed: {}", e))?;
+        fs::create_dir_all(socket_dir)
+            .map_err(|e| format!("redis socket dir create failed: {}", e))?;
 
         let conf = format!(
             "port 0\nunixsocket {}\nunixsocketperm 770\nmaxmemory {}mb\nmaxmemory-policy allkeys-lru\ndaemonize yes\npidfile {}\ndir /var/lib/redis\ndbfilename {}\n",

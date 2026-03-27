@@ -193,7 +193,11 @@ impl MailManager {
         if source.contains('@') {
             source.to_ascii_lowercase()
         } else {
-            format!("{}@{}", Self::sanitize_local_part(source), Self::normalize_domain(domain))
+            format!(
+                "{}@{}",
+                Self::sanitize_local_part(source),
+                Self::normalize_domain(domain)
+            )
         }
     }
 
@@ -287,7 +291,12 @@ impl MailManager {
         config_quota.clamp(64, 102400)
     }
 
-    fn dovecot_user_record(address: &str, pass_hash: &str, mail_root: &Path, quota_mb: u32) -> String {
+    fn dovecot_user_record(
+        address: &str,
+        pass_hash: &str,
+        mail_root: &Path,
+        quota_mb: u32,
+    ) -> String {
         format!(
             "{}:{}:{}:{}::{}::userdb_mail=maildir:{}/Maildir userdb_quota_rule=*:storage={}M",
             address,
@@ -347,7 +356,10 @@ impl MailManager {
             }
         }
 
-        if let Ok(output) = Command::new("openssl").args(["passwd", "-6", password]).output() {
+        if let Ok(output) = Command::new("openssl")
+            .args(["passwd", "-6", password])
+            .output()
+        {
             if output.status.success() {
                 let hashed = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !hashed.is_empty() {
@@ -486,7 +498,11 @@ impl MailManager {
         Ok(())
     }
 
-    fn apply_vmail_mailbox_password_reset(address: &str, new_password: &str, quota_mb: u32) -> Result<(), String> {
+    fn apply_vmail_mailbox_password_reset(
+        address: &str,
+        new_password: &str,
+        quota_mb: u32,
+    ) -> Result<(), String> {
         let dovecot_users = Self::dovecot_users_file();
         Self::ensure_file(&dovecot_users)?;
 
@@ -754,7 +770,9 @@ impl MailManager {
         let source = Self::normalize_address(&domain, &config.source);
         let mut state = Self::load_state()?;
         let before = state.forwards.len();
-        state.forwards.retain(|x| !(x.domain == domain && x.source == source));
+        state
+            .forwards
+            .retain(|x| !(x.domain == domain && x.source == source));
         if before == state.forwards.len() {
             return Err("Forward rule not found.".to_string());
         }
@@ -870,7 +888,9 @@ impl MailManager {
         let id = config.id.trim().to_string();
         let mut state = Self::load_state()?;
         let before = state.routing.len();
-        state.routing.retain(|x| !(x.domain == domain && x.id == id));
+        state
+            .routing
+            .retain(|x| !(x.domain == domain && x.id == id));
         if before == state.routing.len() {
             return Err("Routing rule not found.".to_string());
         }
@@ -901,7 +921,10 @@ impl MailManager {
         let now = Self::now_ts();
         let selector = format!("s{}", now);
         let public_key = format!("v=DKIM1; k=rsa; p={:x}", now.saturating_mul(17));
-        let private_key = format!("-----BEGIN PRIVATE KEY-----\n{:x}\n-----END PRIVATE KEY-----", now.saturating_mul(31));
+        let private_key = format!(
+            "-----BEGIN PRIVATE KEY-----\n{:x}\n-----END PRIVATE KEY-----",
+            now.saturating_mul(31)
+        );
 
         let mut state = Self::load_state()?;
         if let Some(existing) = state.dkim.iter_mut().find(|x| x.domain == domain) {
@@ -926,7 +949,9 @@ impl MailManager {
         Ok(entry)
     }
 
-    pub fn generate_webmail_sso_link(req: &MailWebmailSsoRequest) -> Result<MailWebmailSsoLink, String> {
+    pub fn generate_webmail_sso_link(
+        req: &MailWebmailSsoRequest,
+    ) -> Result<MailWebmailSsoLink, String> {
         let address = req.address.trim().to_ascii_lowercase();
         if address.is_empty() || !address.contains('@') {
             return Err("valid address is required.".to_string());
@@ -934,7 +959,8 @@ impl MailManager {
 
         let ttl = req.ttl_seconds.unwrap_or(300).clamp(60, 1800);
         let expires_at = Self::now_ts().saturating_add(ttl);
-        let secret = std::env::var("AURAPANEL_JWT_SECRET").unwrap_or_else(|_| "aurapanel-mail-sso".to_string());
+        let secret = std::env::var("AURAPANEL_JWT_SECRET")
+            .unwrap_or_else(|_| "aurapanel-mail-sso".to_string());
         let payload = format!("{}:{}", address, expires_at);
         let mut hasher = DefaultHasher::new();
         payload.hash(&mut hasher);

@@ -1,4 +1,4 @@
-﻿pub mod waf;
+pub mod waf;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -329,7 +329,10 @@ impl SecurityManager {
         Ok(())
     }
 
-    pub fn setup_totp_for_user(username: &str, account_name: &str) -> Result<(String, String), String> {
+    pub fn setup_totp_for_user(
+        username: &str,
+        account_name: &str,
+    ) -> Result<(String, String), String> {
         let (secret, qr) = totp::generate_totp_secret(account_name).map_err(|e| e.to_string())?;
         crate::services::users::UserManager::set_totp_secret(username, &secret)?;
         Ok((secret, qr))
@@ -436,7 +439,8 @@ impl SecurityManager {
                     let lines = String::from_utf8_lossy(&out.stdout);
                     for line in lines.lines() {
                         let lower = line.to_ascii_lowercase();
-                        if lower.contains("ebpf") || lower.contains("bpf") || lower.contains("xdp") {
+                        if lower.contains("ebpf") || lower.contains("bpf") || lower.contains("xdp")
+                        {
                             collected.push(line.trim().to_string());
                         }
                     }
@@ -451,7 +455,8 @@ impl SecurityManager {
                     let lines = String::from_utf8_lossy(&out.stdout);
                     for line in lines.lines() {
                         let lower = line.to_ascii_lowercase();
-                        if lower.contains("ebpf") || lower.contains("bpf") || lower.contains("xdp") {
+                        if lower.contains("ebpf") || lower.contains("bpf") || lower.contains("xdp")
+                        {
                             collected.push(line.trim().to_string());
                         }
                     }
@@ -480,10 +485,11 @@ impl SecurityManager {
             .map_err(|e| format!("Failed to execute eBPF precheck: {}", e))?;
 
         if !output.status.success() {
-            return Err("bpftool is required for eBPF operations but is not installed.".to_string());
+            return Err(
+                "bpftool is required for eBPF operations but is not installed.".to_string(),
+            );
         }
 
         Ok(())
     }
 }
-

@@ -121,7 +121,11 @@ impl AnalyticsManager {
                 bandwidth_bytes,
             })
             .collect::<Vec<_>>();
-        top_paths.sort_by(|a, b| b.hits.cmp(&a.hits).then(b.bandwidth_bytes.cmp(&a.bandwidth_bytes)));
+        top_paths.sort_by(|a, b| {
+            b.hits
+                .cmp(&a.hits)
+                .then(b.bandwidth_bytes.cmp(&a.bandwidth_bytes))
+        });
         top_paths.truncate(12);
 
         Ok(TrafficResponse {

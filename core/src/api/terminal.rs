@@ -1,16 +1,19 @@
+use crate::auth::jwt;
+use axum::http::StatusCode;
 use axum::{
-    Json,
-    extract::{ws::{Message, WebSocket, WebSocketUpgrade}, Query},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        Query,
+    },
     response::IntoResponse,
+    Json,
 };
 use futures_util::{SinkExt, StreamExt};
-use axum::http::StatusCode;
-use serde_json::json;
 use serde::Deserialize;
+use serde_json::json;
 use std::process::Stdio;
-use tokio::process::Command;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use crate::auth::jwt;
+use tokio::process::Command;
 
 #[derive(Deserialize)]
 pub struct TerminalQuery {
@@ -81,7 +84,9 @@ async fn handle_socket(mut socket: WebSocket, username: String) {
     let mut child = match cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
-            let _ = socket.send(Message::Text(format!("Error spawning shell: {}", e))).await;
+            let _ = socket
+                .send(Message::Text(format!("Error spawning shell: {}", e)))
+                .await;
             return;
         }
     };
@@ -89,7 +94,11 @@ async fn handle_socket(mut socket: WebSocket, username: String) {
     let mut stdin = match child.stdin.take() {
         Some(stdin) => stdin,
         None => {
-            let _ = socket.send(Message::Text("Error: terminal stdin unavailable.".to_string())).await;
+            let _ = socket
+                .send(Message::Text(
+                    "Error: terminal stdin unavailable.".to_string(),
+                ))
+                .await;
             let _ = child.kill().await;
             return;
         }
@@ -97,7 +106,11 @@ async fn handle_socket(mut socket: WebSocket, username: String) {
     let mut stdout = match child.stdout.take() {
         Some(stdout) => stdout,
         None => {
-            let _ = socket.send(Message::Text("Error: terminal stdout unavailable.".to_string())).await;
+            let _ = socket
+                .send(Message::Text(
+                    "Error: terminal stdout unavailable.".to_string(),
+                ))
+                .await;
             let _ = child.kill().await;
             return;
         }
@@ -105,7 +118,11 @@ async fn handle_socket(mut socket: WebSocket, username: String) {
     let mut stderr = match child.stderr.take() {
         Some(stderr) => stderr,
         None => {
-            let _ = socket.send(Message::Text("Error: terminal stderr unavailable.".to_string())).await;
+            let _ = socket
+                .send(Message::Text(
+                    "Error: terminal stderr unavailable.".to_string(),
+                ))
+                .await;
             let _ = child.kill().await;
             return;
         }
@@ -161,7 +178,7 @@ async fn handle_socket(mut socket: WebSocket, username: String) {
             }
         }
     }
-    
+
     let _ = child.kill().await;
 }
 
@@ -171,7 +188,10 @@ mod tests {
 
     #[test]
     fn sanitize_user_allows_safe_tokens() {
-        assert_eq!(sanitize_user("Admin_User-01"), Some("admin_user-01".to_string()));
+        assert_eq!(
+            sanitize_user("Admin_User-01"),
+            Some("admin_user-01".to_string())
+        );
     }
 
     #[test]

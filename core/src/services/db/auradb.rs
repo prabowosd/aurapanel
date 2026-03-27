@@ -45,7 +45,11 @@ fn now_ts() -> u64 {
 }
 
 fn sanitize_domain(value: &str) -> String {
-    value.trim().to_ascii_lowercase().trim_matches('.').to_string()
+    value
+        .trim()
+        .to_ascii_lowercase()
+        .trim_matches('.')
+        .to_string()
 }
 
 fn sanitize_name(value: &str) -> String {
@@ -66,19 +70,28 @@ fn bridge_secret() -> Result<String> {
         .map_err(|_| anyhow!("AURAPANEL_JWT_SECRET is required for secure DB bridge."))?;
     let secret = secret.trim().to_string();
     if secret.is_empty() {
-        return Err(anyhow!("AURAPANEL_JWT_SECRET cannot be empty for secure DB bridge."));
+        return Err(anyhow!(
+            "AURAPANEL_JWT_SECRET cannot be empty for secure DB bridge."
+        ));
     }
     Ok(secret)
 }
 
-fn build_profile(domain: &str, engine: &str, db_name: &str, db_user: &str) -> Result<DbBridgeProfile> {
+fn build_profile(
+    domain: &str,
+    engine: &str,
+    db_name: &str,
+    db_user: &str,
+) -> Result<DbBridgeProfile> {
     let domain = sanitize_domain(domain);
     let engine = normalize_engine(engine).ok_or_else(|| anyhow!("Unsupported database engine."))?;
     let db_name = sanitize_name(db_name);
     let db_user = sanitize_name(db_user);
 
     if domain.is_empty() || db_name.is_empty() || db_user.is_empty() {
-        return Err(anyhow!("domain, db_name and db_user are required for bridge creation."));
+        return Err(anyhow!(
+            "domain, db_name and db_user are required for bridge creation."
+        ));
     }
 
     Ok(DbBridgeProfile {
@@ -89,9 +102,14 @@ fn build_profile(domain: &str, engine: &str, db_name: &str, db_user: &str) -> Re
     })
 }
 
-fn issue_bridge_ticket(profile: DbBridgeProfile, ttl_seconds: Option<u64>) -> Result<DbBridgeTicket> {
+fn issue_bridge_ticket(
+    profile: DbBridgeProfile,
+    ttl_seconds: Option<u64>,
+) -> Result<DbBridgeTicket> {
     let now = now_ts();
-    let ttl = ttl_seconds.unwrap_or(DEFAULT_TTL_SECONDS).clamp(60, MAX_TTL_SECONDS);
+    let ttl = ttl_seconds
+        .unwrap_or(DEFAULT_TTL_SECONDS)
+        .clamp(60, MAX_TTL_SECONDS);
     let exp = now.saturating_add(ttl);
 
     let claims = DbBridgeClaims {
@@ -141,7 +159,12 @@ fn resolve_bridge_ticket(token: &str) -> Result<DbBridgeProfile> {
         return Err(anyhow!("Invalid bridge token subject."));
     }
 
-    build_profile(&claims.domain, &claims.engine, &claims.db_name, &claims.db_user)
+    build_profile(
+        &claims.domain,
+        &claims.engine,
+        &claims.db_name,
+        &claims.db_user,
+    )
 }
 
 pub struct DbExplorerManager;
@@ -166,7 +189,12 @@ impl DbExplorerManager {
         resolve_bridge_ticket(token)
     }
 
-    pub fn execute_query(&self, db_type: &str, connection_string: &str, query: &str) -> Result<String> {
+    pub fn execute_query(
+        &self,
+        db_type: &str,
+        connection_string: &str,
+        query: &str,
+    ) -> Result<String> {
         let db_name = parse_db_name(connection_string)
             .ok_or_else(|| anyhow!("Invalid bridge connection string."))?;
         let sql = query.trim();
@@ -222,13 +250,23 @@ impl DbExplorerManager {
     }
 
     pub fn list_tables(&self, db_type: &str, connection_string: &str) -> Result<Vec<String>> {
-        let engine = normalize_engine(db_type).ok_or_else(|| anyhow!("Unsupported database engine."))?;
+        let engine =
+            normalize_engine(db_type).ok_or_else(|| anyhow!("Unsupported database engine."))?;
         let db_name = parse_db_name(connection_string)
             .ok_or_else(|| anyhow!("Invalid bridge connection string."))?;
 
         let output = if engine == "mariadb" {
             Command::new("mysql")
-                .args(["-u", "root", "-D", &db_name, "-e", "SHOW TABLES;", "--batch", "--raw"])
+                .args([
+                    "-u",
+                    "root",
+                    "-D",
+                    &db_name,
+                    "-e",
+                    "SHOW TABLES;",
+                    "--batch",
+                    "--raw",
+                ])
                 .output()
                 .map_err(|e| anyhow!("mysql list tables failed: {}", e))?
         } else {
@@ -277,7 +315,10 @@ impl DbExplorerManager {
     }
 
     pub fn create_database(&self, db_name: &str, user: &str, pass: &str) -> Result<bool> {
-        println!("Creating database {} for user {} with password {}", db_name, user, pass);
+        println!(
+            "Creating database {} for user {} with password {}",
+            db_name, user, pass
+        );
         Ok(true)
     }
 }
@@ -305,7 +346,10 @@ fn parse_tsv_payload(stdout: &str, db_type: &str) -> Value {
         });
     };
 
-    let columns: Vec<String> = header_line.split('\t').map(|x| x.trim().to_string()).collect();
+    let columns: Vec<String> = header_line
+        .split('\t')
+        .map(|x| x.trim().to_string())
+        .collect();
     let mut rows: Vec<Value> = Vec::new();
 
     for line in lines {
@@ -315,7 +359,12 @@ fn parse_tsv_payload(stdout: &str, db_type: &str) -> Value {
         }
         let mut row = Map::new();
         for (idx, column) in columns.iter().enumerate() {
-            let value = values.get(idx).copied().unwrap_or_default().trim().to_string();
+            let value = values
+                .get(idx)
+                .copied()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
             row.insert(column.clone(), Value::String(value));
         }
         rows.push(Value::Object(row));

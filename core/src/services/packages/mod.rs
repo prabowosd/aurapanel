@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -55,10 +55,9 @@ impl PackageManager {
             return Ok(Vec::new());
         }
 
-        let json_str = fs::read_to_string(path)
-            .map_err(|e| format!("Paket listesi okunamadi: {}", e))?;
-        serde_json::from_str(&json_str)
-            .map_err(|e| format!("Paket listesi parse edilemedi: {}", e))
+        let json_str =
+            fs::read_to_string(path).map_err(|e| format!("Paket listesi okunamadi: {}", e))?;
+        serde_json::from_str(&json_str).map_err(|e| format!("Paket listesi parse edilemedi: {}", e))
     }
 
     pub fn create_package(req: &CreatePackageRequest) -> Result<String, String> {
@@ -68,7 +67,10 @@ impl PackageManager {
 
         let plan_type = normalize_plan_type(&req.plan_type);
         let mut packages = Self::list_packages()?;
-        if packages.iter().any(|p| p.name.eq_ignore_ascii_case(req.name.trim())) {
+        if packages
+            .iter()
+            .any(|p| p.name.eq_ignore_ascii_case(req.name.trim()))
+        {
             return Err(format!("Paket '{}' zaten mevcut.", req.name.trim()));
         }
 
@@ -88,7 +90,10 @@ impl PackageManager {
         });
 
         save_packages(&packages)?;
-        Ok(format!("Paket '{}' basariyla olusturuldu.", req.name.trim()))
+        Ok(format!(
+            "Paket '{}' basariyla olusturuldu.",
+            req.name.trim()
+        ))
     }
 
     pub fn delete_package(id: u64) -> Result<String, String> {
@@ -112,7 +117,10 @@ impl PackageManager {
             if name.is_empty() {
                 return Err("Paket adi bos olamaz.".to_string());
             }
-            if packages.iter().any(|p| p.id != req.id && p.name.eq_ignore_ascii_case(name)) {
+            if packages
+                .iter()
+                .any(|p| p.id != req.id && p.name.eq_ignore_ascii_case(name))
+            {
                 return Err(format!("Paket adi '{}' zaten kullaniliyor.", name));
             }
         }
@@ -161,7 +169,9 @@ impl PackageManager {
 
     pub fn get_package_by_name(name: &str) -> Result<Option<HostingPackage>, String> {
         let packages = Self::list_packages()?;
-        Ok(packages.into_iter().find(|p| p.name.eq_ignore_ascii_case(name)))
+        Ok(packages
+            .into_iter()
+            .find(|p| p.name.eq_ignore_ascii_case(name)))
     }
 }
 
@@ -188,14 +198,11 @@ fn packages_db_path() -> PathBuf {
 fn save_packages(packages: &[HostingPackage]) -> Result<(), String> {
     let path = packages_db_path();
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Dizin olusturulamadi: {}", e))?;
+        fs::create_dir_all(parent).map_err(|e| format!("Dizin olusturulamadi: {}", e))?;
     }
 
-    let json = serde_json::to_string_pretty(packages)
-        .map_err(|e| format!("JSON hatasi: {}", e))?;
-    fs::write(path, json)
-        .map_err(|e| format!("Dosya yazilamadi: {}", e))
+    let json = serde_json::to_string_pretty(packages).map_err(|e| format!("JSON hatasi: {}", e))?;
+    fs::write(path, json).map_err(|e| format!("Dosya yazilamadi: {}", e))
 }
 
 fn normalize_plan_type(value: &str) -> String {

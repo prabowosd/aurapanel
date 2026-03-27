@@ -95,7 +95,10 @@ impl SslManager {
             return Err("domain and email are required.".to_string());
         }
 
-        let webroot = config.webroot.as_deref().unwrap_or("/usr/local/lsws/Example/html");
+        let webroot = config
+            .webroot
+            .as_deref()
+            .unwrap_or("/usr/local/lsws/Example/html");
         println!(
             "[ACME] Issuing SSL for {} via Let's Encrypt (email: {})",
             domain, email
@@ -211,7 +214,10 @@ impl SslManager {
             Self::bind_ssl_to_ols(&domain)?;
             Self::reload_ols()?;
             let _ = Self::ensure_renewal_cron();
-            return Ok(format!("*.{} icin wildcard sertifika basariyla alindi.", domain));
+            return Ok(format!(
+                "*.{} icin wildcard sertifika basariyla alindi.",
+                domain
+            ));
         }
 
         if Path::new(pdns_credentials).exists() {
@@ -240,7 +246,10 @@ impl SslManager {
             Self::bind_ssl_to_ols(&domain)?;
             Self::reload_ols()?;
             let _ = Self::ensure_renewal_cron();
-            return Ok(format!("*.{} icin wildcard sertifika basariyla alindi.", domain));
+            return Ok(format!(
+                "*.{} icin wildcard sertifika basariyla alindi.",
+                domain
+            ));
         }
 
         // No DNS plugin: return manual instructions
@@ -351,7 +360,11 @@ impl SslManager {
             None
         };
         let status = if let Some(days) = days_remaining {
-            if days < 0 { "expired" } else { "active" }
+            if days < 0 {
+                "expired"
+            } else {
+                "active"
+            }
         } else {
             "active"
         };
@@ -475,10 +488,17 @@ vhssl {{
         if postfix_main_cf.exists() {
             let mut content = fs::read_to_string(&postfix_main_cf)
                 .map_err(|e| format!("postfix main.cf read failed: {}", e))?;
-            content = Self::upsert_kv_line(&content, "smtpd_tls_cert_file", &cert_file.to_string_lossy());
-            content = Self::upsert_kv_line(&content, "smtpd_tls_key_file", &key_file.to_string_lossy());
-            content = Self::upsert_kv_line(&content, "smtp_tls_cert_file", &cert_file.to_string_lossy());
-            content = Self::upsert_kv_line(&content, "smtp_tls_key_file", &key_file.to_string_lossy());
+            content = Self::upsert_kv_line(
+                &content,
+                "smtpd_tls_cert_file",
+                &cert_file.to_string_lossy(),
+            );
+            content =
+                Self::upsert_kv_line(&content, "smtpd_tls_key_file", &key_file.to_string_lossy());
+            content =
+                Self::upsert_kv_line(&content, "smtp_tls_cert_file", &cert_file.to_string_lossy());
+            content =
+                Self::upsert_kv_line(&content, "smtp_tls_key_file", &key_file.to_string_lossy());
             fs::write(&postfix_main_cf, content)
                 .map_err(|e| format!("postfix main.cf write failed: {}", e))?;
         }
@@ -505,8 +525,12 @@ vhssl {{
                 .map_err(|e| format!("dovecot ssl conf write failed: {}", e))?;
         }
 
-        let _ = Command::new("systemctl").args(["reload", "postfix"]).output();
-        let _ = Command::new("systemctl").args(["restart", "dovecot"]).output();
+        let _ = Command::new("systemctl")
+            .args(["reload", "postfix"])
+            .output();
+        let _ = Command::new("systemctl")
+            .args(["restart", "dovecot"])
+            .output();
         Ok(())
     }
 

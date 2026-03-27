@@ -109,11 +109,7 @@ impl DbBackupManager {
                 if !Path::new("/usr/bin/pg_dump").exists() {
                     return Err("pg_dump bulunamadi.".to_string());
                 }
-                let script = format!(
-                    "pg_dump {} | gzip > {}",
-                    safe_name,
-                    filepath.display()
-                );
+                let script = format!("pg_dump {} | gzip > {}", safe_name, filepath.display());
                 let output = Command::new("sh")
                     .arg("-c")
                     .arg(&script)
@@ -161,8 +157,7 @@ impl DbBackupManager {
         let entry = entries.remove(pos);
         let filepath = Self::backup_dir().join(&entry.filename);
         if filepath.exists() {
-            fs::remove_file(&filepath)
-                .map_err(|e| format!("Backup dosyasi silinemedi: {}", e))?;
+            fs::remove_file(&filepath).map_err(|e| format!("Backup dosyasi silinemedi: {}", e))?;
         }
         Self::save_index(&entries)
     }
@@ -187,8 +182,7 @@ impl DbBackupManager {
 
         match entry.engine.as_str() {
             "mariadb" | "mysql" => {
-                let script =
-                    format!("zcat {} | mysql {}", filepath.display(), safe_name);
+                let script = format!("zcat {} | mysql {}", filepath.display(), safe_name);
                 let output = Command::new("sh")
                     .arg("-c")
                     .arg(&script)
@@ -200,8 +194,7 @@ impl DbBackupManager {
                 }
             }
             "postgres" | "postgresql" => {
-                let script =
-                    format!("zcat {} | psql {}", filepath.display(), safe_name);
+                let script = format!("zcat {} | psql {}", filepath.display(), safe_name);
                 let output = Command::new("sh")
                     .arg("-c")
                     .arg(&script)
@@ -215,7 +208,10 @@ impl DbBackupManager {
             other => return Err(format!("Desteklenmeyen engine: {}", other)),
         }
 
-        Ok(format!("'{}' veritabani basariyla geri yuklendi.", entry.db_name))
+        Ok(format!(
+            "'{}' veritabani basariyla geri yuklendi.",
+            entry.db_name
+        ))
     }
 
     pub fn backup_file_path(backup_id: &str) -> Result<PathBuf, String> {

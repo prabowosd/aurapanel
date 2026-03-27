@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -44,7 +44,10 @@ impl FederatedManager {
         std::env::var("AURAPANEL_FEDERATION_PRIMARY")
             .map(|v| {
                 let normalized = v.trim().to_ascii_lowercase();
-                normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on"
+                normalized == "1"
+                    || normalized == "true"
+                    || normalized == "yes"
+                    || normalized == "on"
             })
             .unwrap_or(true)
     }
@@ -54,7 +57,11 @@ impl FederatedManager {
         FederatedModeStatus {
             mode: mode.clone(),
             primary: Self::primary(),
-            max_peers: if mode == "active-passive" { 1 } else { usize::MAX },
+            max_peers: if mode == "active-passive" {
+                1
+            } else {
+                usize::MAX
+            },
         }
     }
 
@@ -76,10 +83,16 @@ impl FederatedManager {
             && guard.nodes.iter().all(|n| n.node_name != config.node_name)
             && !guard.nodes.is_empty()
         {
-            return Err("Active-passive mode allows a single standby peer for this node.".to_string());
+            return Err(
+                "Active-passive mode allows a single standby peer for this node.".to_string(),
+            );
         }
 
-        if let Some(existing) = guard.nodes.iter_mut().find(|n| n.node_name == config.node_name) {
+        if let Some(existing) = guard
+            .nodes
+            .iter_mut()
+            .find(|n| n.node_name == config.node_name)
+        {
             existing.ip_address = config.ip_address.clone();
             existing.pub_key = config.pub_key.clone();
         } else {

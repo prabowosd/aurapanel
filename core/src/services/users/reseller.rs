@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -67,7 +67,11 @@ impl ResellerManager {
         quota.updated_at = now_ts();
 
         let mut state = load_state()?;
-        if let Some(existing) = state.quotas.iter_mut().find(|x| x.username == quota.username) {
+        if let Some(existing) = state
+            .quotas
+            .iter_mut()
+            .find(|x| x.username == quota.username)
+        {
             *existing = quota.clone();
         } else {
             state.quotas.push(quota.clone());
@@ -91,7 +95,11 @@ impl ResellerManager {
         wl.updated_at = now_ts();
 
         let mut state = load_state()?;
-        if let Some(existing) = state.white_labels.iter_mut().find(|x| x.username == wl.username) {
+        if let Some(existing) = state
+            .white_labels
+            .iter_mut()
+            .find(|x| x.username == wl.username)
+        {
             *existing = wl.clone();
         } else {
             state.white_labels.push(wl.clone());
@@ -117,7 +125,10 @@ impl ResellerManager {
         }
 
         if policy.id.trim().is_empty() {
-            policy.id = format!("pol_{}", short_hash(&format!("{}:{}", policy.name, now_ts())));
+            policy.id = format!(
+                "pol_{}",
+                short_hash(&format!("{}:{}", policy.name, now_ts()))
+            );
         }
         policy.updated_at = now_ts();
 
@@ -182,8 +193,8 @@ impl ResellerManager {
     }
 
     pub fn remove_assignment(username: &str) -> Result<(), String> {
-        let username = normalize_username(username)
-            .ok_or_else(|| "valid username is required".to_string())?;
+        let username =
+            normalize_username(username).ok_or_else(|| "valid username is required".to_string())?;
 
         let mut state = load_state()?;
         let before = state.assignments.len();
@@ -195,8 +206,8 @@ impl ResellerManager {
     }
 
     pub fn effective_permissions(username: &str) -> Result<Vec<String>, String> {
-        let username = normalize_username(username)
-            .ok_or_else(|| "valid username is required".to_string())?;
+        let username =
+            normalize_username(username).ok_or_else(|| "valid username is required".to_string())?;
 
         let state = load_state()?;
         let mut permission_set = BTreeSet::new();

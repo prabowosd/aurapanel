@@ -1,105 +1,78 @@
 use axum::{
     extract::{Multipart, Request},
+    http::{header, HeaderMap, Method, StatusCode},
     middleware::{from_fn, Next},
-    routing::{get, post},
-    Extension,
     response::{IntoResponse, Response},
-    http::{header, HeaderMap, StatusCode},
-    Router,
-    Json,
+    routing::{get, post},
+    Extension, Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::api::terminal::terminal_ws_handler;
 use crate::auth::jwt;
-use crate::services::nitro::{NitroEngine, VHostConfig, VHostUpdateConfig};
-use crate::services::dns::{PowerDnsManager, DnsZoneConfig};
-use crate::services::db::{DbConfig, MariaDbManager, PostgresManager, auradb::DbExplorerManager};
+use crate::services::analytics::{AnalyticsManager, TrafficQuery};
+use crate::services::apps::{AppManager, CmsInstallConfig, NodeAppRequest, PythonAppRequest};
+use crate::services::audit::AuditLogger;
+use crate::services::cloudflare::cloudflare::*;
+use crate::services::cloudflare::CloudFlareManager;
+use crate::services::db::backup::{DbBackupManager, DbBackupRequest, DbRestoreRequest};
 use crate::services::db::ops::{
-    DbPasswordChangeRequest,
-    RemoteAccessGrantRequest,
-    change_password_mariadb,
-    change_password_postgres,
-    list_remote_access_mariadb,
-    list_remote_access_postgres,
-    allow_remote_access_mariadb,
-    allow_remote_access_postgres,
-    check_connection_readiness,
+    allow_remote_access_mariadb, allow_remote_access_postgres, change_password_mariadb,
+    change_password_postgres, check_connection_readiness, list_remote_access_mariadb,
+    list_remote_access_postgres, DbPasswordChangeRequest, RemoteAccessGrantRequest,
 };
+use crate::services::db::{auradb::DbExplorerManager, DbConfig, MariaDbManager, PostgresManager};
+use crate::services::dns::{DnsZoneConfig, PowerDnsManager};
+use crate::services::docker::{
+    apps::{CreateDockerAppRequest, DockerAppsManager},
+    docker::{CreateContainerConfig, PullImageConfig},
+    DockerManager,
+};
+use crate::services::federated::{FederatedManager, WireguardConfig};
+use crate::services::filemanager::FileManager;
 use crate::services::mail::{
-    MailManager,
-    MailboxConfig,
-    MailForwardConfig,
-    MailForwardDeleteRequest,
-    MailCatchAllConfig,
-    MailRoutingConfig,
-    MailRoutingDeleteRequest,
-    MailWebmailSsoRequest,
+    MailCatchAllConfig, MailForwardConfig, MailForwardDeleteRequest, MailManager,
+    MailRoutingConfig, MailRoutingDeleteRequest, MailWebmailSsoRequest, MailboxConfig,
     MailboxPasswordResetRequest,
 };
-use crate::services::perf::{PerfManager, RedisConfig};
-use crate::services::security::{SecurityManager, FirewallRule, HardeningRequest};
-use crate::services::security::waf::{MlWaf, HttpRequest as WafHttpRequest};
 use crate::services::malware::{
-    MalwareScanner,
-    MalwareScanStartRequest,
-    MalwareQuarantineRequest,
-    MalwareRestoreRequest,
+    MalwareQuarantineRequest, MalwareRestoreRequest, MalwareScanStartRequest, MalwareScanner,
 };
+use crate::services::migration::{
+    MigrationAnalyzeRequest, MigrationImportRequest, MigrationManager,
+};
+use crate::services::monitor::gitops::{GitOpsConfig, GitOpsManager};
 use crate::services::monitor::MonitorManager;
-use crate::services::apps::{AppManager, CmsInstallConfig, NodeAppRequest, PythonAppRequest};
-use crate::services::federated::{FederatedManager, WireguardConfig};
-use crate::services::ssl::{SslManager, SslConfig};
-use crate::services::secure_connect::{
-    SecureConnectManager,
-    SftpUserConfig,
-    SftpPasswordResetRequest,
-    FtpUserConfig,
-    FtpPasswordResetRequest,
-};
-use crate::services::storage::{
-    BackupManager,
-    BackupConfig,
-    BackupDestination,
-    BackupSchedule,
-    StorageManager,
-    MinioBucketRequest,
-    MinioCredentialsRequest,
-};
-use crate::services::monitor::gitops::{GitOpsManager, GitOpsConfig};
-use crate::services::docker::{DockerManager, docker::{CreateContainerConfig, PullImageConfig}, apps::{DockerAppsManager, CreateDockerAppRequest}};
-use crate::services::cloudflare::CloudFlareManager;
-use crate::services::cloudflare::cloudflare::*;
-use crate::services::filemanager::FileManager;
+use crate::services::nitro::{NitroEngine, VHostConfig, VHostUpdateConfig};
 use crate::services::ols_tuning::{OlsTuningConfig, OlsTuningManager};
+use crate::services::packages::{CreatePackageRequest, PackageManager, UpdatePackageRequest};
+use crate::services::perf::{PerfManager, RedisConfig};
 use crate::services::php::PhpManager;
-use crate::services::status::StatusManager;
-use crate::services::users::{UserManager, PanelUser, CreateUserRequest, ChangePasswordRequest};
-use crate::services::users::reseller::{AclAssignment, AclPolicy, ResellerManager, ResellerQuota, WhiteLabelConfig};
-use crate::services::audit::AuditLogger;
-use crate::services::db::backup::{DbBackupManager, DbBackupRequest, DbRestoreRequest};
-use crate::services::packages::{PackageManager, CreatePackageRequest, UpdatePackageRequest};
-use crate::services::wordpress::{
-    WordPressManager,
-    WordPressExtensionActionRequest,
-    WordPressBackupRequest,
-    WordPressBackupRestoreRequest,
-    WordPressStagingRequest,
+use crate::services::secure_connect::{
+    FtpPasswordResetRequest, FtpUserConfig, SecureConnectManager, SftpPasswordResetRequest,
+    SftpUserConfig,
 };
-use crate::services::migration::{MigrationAnalyzeRequest, MigrationImportRequest, MigrationManager};
-use crate::services::analytics::{AnalyticsManager, TrafficQuery};
+use crate::services::security::waf::{HttpRequest as WafHttpRequest, MlWaf};
+use crate::services::security::{FirewallRule, HardeningRequest, SecurityManager};
+use crate::services::ssl::{SslConfig, SslManager};
+use crate::services::status::StatusManager;
+use crate::services::storage::{
+    BackupConfig, BackupDestination, BackupManager, BackupSchedule, MinioBucketRequest,
+    MinioCredentialsRequest, StorageManager,
+};
+use crate::services::users::reseller::{
+    AclAssignment, AclPolicy, ResellerManager, ResellerQuota, WhiteLabelConfig,
+};
+use crate::services::users::{ChangePasswordRequest, CreateUserRequest, PanelUser, UserManager};
 use crate::services::websites::{
-    WebsitesManager,
-    CreateSubdomainRequest,
-    ConvertSubdomainRequest,
-    SubdomainPhpUpdateRequest,
-    WebsiteDbLinkRequest,
-    WebsiteAliasRequest,
-    WebsiteOpenBasedirRequest,
-    WebsiteRewriteRequest,
-    WebsiteVhostConfigRequest,
-    WebsiteCustomSslRequest,
+    ConvertSubdomainRequest, CreateSubdomainRequest, SubdomainPhpUpdateRequest,
+    WebsiteAliasRequest, WebsiteCustomSslRequest, WebsiteDbLinkRequest, WebsiteOpenBasedirRequest,
+    WebsiteRewriteRequest, WebsiteVhostConfigRequest, WebsitesManager,
+};
+use crate::services::wordpress::{
+    WordPressBackupRequest, WordPressBackupRestoreRequest, WordPressExtensionActionRequest,
+    WordPressManager, WordPressStagingRequest,
 };
 
 #[derive(Serialize)]
@@ -114,6 +87,10 @@ struct AuthContext {
     username: String,
     role: String,
 }
+
+const ROLE_ADMIN: &str = "admin";
+const ROLE_RESELLER: &str = "reseller";
+const ROLE_USER: &str = "user";
 
 #[derive(Deserialize)]
 struct LoginRequest {
@@ -150,6 +127,158 @@ fn bearer_token(headers: &HeaderMap) -> Result<&str, String> {
         .ok_or_else(|| "Bearer token gerekli.".to_string())
 }
 
+fn normalize_role(role: &str) -> String {
+    match role.trim().to_ascii_lowercase().as_str() {
+        ROLE_ADMIN => ROLE_ADMIN.to_string(),
+        ROLE_RESELLER => ROLE_RESELLER.to_string(),
+        _ => ROLE_USER.to_string(),
+    }
+}
+
+fn path_matches_prefix(path: &str, prefix: &str) -> bool {
+    path == prefix || path.starts_with(&format!("{}/", prefix.trim_end_matches('/')))
+}
+
+fn reseller_can_access(path: &str) -> bool {
+    // Operational surfaces for reseller role.
+    const RESELLER_PREFIXES: [&str; 27] = [
+        "/auth/me",
+        "/vhost",
+        "/websites",
+        "/dns",
+        "/db",
+        "/mail",
+        "/ftp",
+        "/sftp",
+        "/backup",
+        "/apps",
+        "/wordpress",
+        "/files",
+        "/php",
+        "/ssl",
+        "/monitor/cron",
+        "/monitor/logs/site",
+        "/security/status",
+        "/security/firewall",
+        "/security/ssh-keys",
+        "/security/2fa",
+        "/security/immutable/status",
+        "/security/ebpf/events",
+        "/security/malware",
+        "/status/metrics",
+        "/status/services",
+        "/status/processes",
+        "/analytics/website-traffic",
+    ];
+
+    RESELLER_PREFIXES
+        .iter()
+        .any(|prefix| path_matches_prefix(path, prefix))
+}
+
+fn user_can_access(method: &Method, path: &str) -> bool {
+    if path == "/auth/me" || path == "/status/metrics" || path == "/status/services" {
+        return true;
+    }
+
+    // Personal-security actions are allowed for end users.
+    if path_matches_prefix(path, "/security/2fa")
+        || path_matches_prefix(path, "/security/ssh-keys")
+        || path_matches_prefix(path, "/security/status")
+        || path_matches_prefix(path, "/security/immutable/status")
+        || path_matches_prefix(path, "/security/ebpf/events")
+    {
+        return true;
+    }
+
+    // File manager needs POST/DELETE based APIs.
+    if path_matches_prefix(path, "/files") {
+        return true;
+    }
+
+    // Tenant read-only surfaces.
+    if method == Method::GET {
+        return path_matches_prefix(path, "/vhost/list")
+            || path_matches_prefix(path, "/websites/aliases")
+            || path_matches_prefix(path, "/websites/advanced-config")
+            || path_matches_prefix(path, "/websites/custom-ssl")
+            || path_matches_prefix(path, "/monitor/logs/site")
+            || path_matches_prefix(path, "/analytics/website-traffic");
+    }
+
+    false
+}
+
+fn is_authorized_for_path(role: &str, method: &Method, path: &str) -> bool {
+    match normalize_role(role).as_str() {
+        ROLE_ADMIN => true,
+        ROLE_RESELLER => reseller_can_access(path),
+        ROLE_USER => user_can_access(method, path),
+        _ => false,
+    }
+}
+
+fn env_admin_fallback_enabled() -> bool {
+    std::env::var("AURAPANEL_ENV_ADMIN_FALLBACK")
+        .ok()
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(true)
+}
+
+fn env_admin_credentials() -> Option<(String, String)> {
+    let email = std::env::var("AURAPANEL_ADMIN_EMAIL")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "admin@server.com".to_string());
+
+    let direct_password = std::env::var("AURAPANEL_ADMIN_PASSWORD")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+    let file_password = std::fs::read_to_string("/opt/aurapanel/logs/initial_password.txt")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+
+    direct_password
+        .or(file_password)
+        .map(|password| (email, password))
+}
+
+fn env_admin_user_if_valid(identity: &str, password: &str) -> Option<PanelUser> {
+    if !env_admin_fallback_enabled() {
+        return None;
+    }
+
+    let (email, configured_password) = env_admin_credentials()?;
+    let normalized_identity = identity.trim().to_ascii_lowercase();
+    if normalized_identity != email.to_ascii_lowercase() && normalized_identity != "admin" {
+        return None;
+    }
+    if password != configured_password {
+        return None;
+    }
+
+    Some(PanelUser {
+        id: 1,
+        username: "admin".to_string(),
+        email,
+        role: ROLE_ADMIN.to_string(),
+        package: "default".to_string(),
+        sites: 0,
+        active: true,
+        password_hash: String::new(),
+        totp_enabled: false,
+        totp_secret: None,
+    })
+}
+
 async fn auth_middleware(mut request: Request, next: Next) -> Response {
     // Check header first, fallback to query for websockets
     let token = match bearer_token(request.headers()) {
@@ -157,13 +286,22 @@ async fn auth_middleware(mut request: Request, next: Next) -> Response {
         Err(_) => {
             // Check query string
             let query = request.uri().query().unwrap_or("");
-            let token_opt = query.split('&').find(|p| p.starts_with("token=")).map(|p| p.trim_start_matches("token="));
+            let token_opt = query
+                .split('&')
+                .find(|p| p.starts_with("token="))
+                .map(|p| p.trim_start_matches("token="));
             match token_opt {
                 Some(t) if !t.is_empty() => t.to_string(),
-                _ => return (StatusCode::UNAUTHORIZED, Json(json!({
-                    "status": "error",
-                    "message": "Authorization header or token query parameter gerekli.",
-                }))).into_response(),
+                _ => {
+                    return (
+                        StatusCode::UNAUTHORIZED,
+                        Json(json!({
+                            "status": "error",
+                            "message": "Authorization header or token query parameter gerekli.",
+                        })),
+                    )
+                        .into_response()
+                }
             }
         }
     };
@@ -171,23 +309,33 @@ async fn auth_middleware(mut request: Request, next: Next) -> Response {
     let claims = match jwt::verify_token(&token) {
         Ok(claims) => claims,
         Err(message) => {
-            return (StatusCode::UNAUTHORIZED, Json(json!({
-                "status": "error",
-                "message": message,
-            }))).into_response()
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({
+                    "status": "error",
+                    "message": message,
+                })),
+            )
+                .into_response()
         }
     };
 
-    if !claims.role.eq_ignore_ascii_case("admin") {
-        return (StatusCode::FORBIDDEN, Json(json!({
-            "status": "error",
-            "message": "Bu panel surumunde yalnizca admin hesaplari yetkilidir.",
-        }))).into_response()
+    let normalized_role = normalize_role(&claims.role);
+    let request_path = request.uri().path().to_string();
+    if !is_authorized_for_path(&normalized_role, request.method(), &request_path) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "status": "error",
+                "message": "Bu role bu endpoint icin yetki verilmedi.",
+            })),
+        )
+            .into_response();
     }
 
     request.extensions_mut().insert(AuthContext {
         username: claims.sub,
-        role: claims.role,
+        role: normalized_role,
     });
 
     next.run(request).await
@@ -202,20 +350,23 @@ async fn auth_login_handler(Json(payload): Json<LoginRequest>) -> impl IntoRespo
                 "status": "error",
                 "message": "email/kullanici adi ve sifre zorunludur.",
             })),
-        )
+        );
     }
 
     let user = match UserManager::find_by_identity(identity) {
         Ok(Some(user)) => user,
-        Ok(None) => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({
-                    "status": "error",
-                    "message": "Giris basarisiz. Bilgilerinizi kontrol edin.",
-                })),
-            )
-        }
+        Ok(None) => match env_admin_user_if_valid(identity, payload.password.trim()) {
+            Some(fallback_user) => fallback_user,
+            None => {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({
+                        "status": "error",
+                        "message": "Giris basarisiz. Bilgilerinizi kontrol edin.",
+                    })),
+                )
+            }
+        },
         Err(message) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -234,29 +385,39 @@ async fn auth_login_handler(Json(payload): Json<LoginRequest>) -> impl IntoRespo
                 "status": "error",
                 "message": "Bu hesap pasif durumda.",
             })),
-        )
+        );
     }
 
-    if !user.role.eq_ignore_ascii_case("admin") {
+    let normalized_role = normalize_role(&user.role);
+    if normalized_role != ROLE_ADMIN
+        && normalized_role != ROLE_RESELLER
+        && normalized_role != ROLE_USER
+    {
         return (
             StatusCode::FORBIDDEN,
             Json(json!({
                 "status": "error",
-                "message": "Bu panel surumunde yalnizca admin hesaplari giris yapabilir.",
+                "message": "Bu hesap role olarak desteklenmiyor.",
             })),
-        )
+        );
     }
 
-    let password_ok = match UserManager::verify_password(&user.username, &payload.password) {
-        Ok(valid) => valid,
-        Err(message) => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({
-                    "status": "error",
-                    "message": message,
-                })),
-            )
+    let is_env_fallback_admin =
+        user.username == "admin" && user.password_hash.is_empty() && user.email.contains('@');
+    let password_ok = if is_env_fallback_admin {
+        true
+    } else {
+        match UserManager::verify_password(&user.username, &payload.password) {
+            Ok(valid) => valid,
+            Err(message) => {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({
+                        "status": "error",
+                        "message": message,
+                    })),
+                )
+            }
         }
     };
 
@@ -267,11 +428,16 @@ async fn auth_login_handler(Json(payload): Json<LoginRequest>) -> impl IntoRespo
                 "status": "error",
                 "message": "Giris basarisiz. Bilgilerinizi kontrol edin.",
             })),
-        )
+        );
     }
 
     if user.totp_enabled {
-        let token = payload.totp_token.as_deref().unwrap_or("").trim().to_string();
+        let token = payload
+            .totp_token
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .to_string();
         if token.is_empty() {
             return (
                 StatusCode::UNAUTHORIZED,
@@ -280,7 +446,7 @@ async fn auth_login_handler(Json(payload): Json<LoginRequest>) -> impl IntoRespo
                     "message": "2FA kodu gerekli.",
                     "requires_2fa": true,
                 })),
-            )
+            );
         }
 
         let secret = user.totp_secret.clone().unwrap_or_default();
@@ -306,11 +472,11 @@ async fn auth_login_handler(Json(payload): Json<LoginRequest>) -> impl IntoRespo
                     "message": "2FA kodu gecersiz.",
                     "requires_2fa": true,
                 })),
-            )
+            );
         }
     }
 
-    let token = match jwt::create_token(&user.username, &user.role) {
+    let token = match jwt::create_token(&user.username, &normalized_role) {
         Ok(token) => token,
         Err(message) => {
             return (
@@ -343,54 +509,120 @@ pub fn routes() -> Router {
         .route("/vhost/suspend", post(vhost_suspend_handler))
         .route("/vhost/unsuspend", post(vhost_unsuspend_handler))
         .route("/vhost/update", post(vhost_update_handler))
-        .route("/websites/subdomains", get(websites_subdomains_list_handler))
-        .route("/websites/subdomains", post(websites_subdomains_create_handler))
-        .route("/websites/subdomains", axum::routing::delete(websites_subdomains_delete_handler))
-        .route("/websites/subdomains/php", post(websites_subdomains_php_update_handler))
-        .route("/websites/subdomains/convert", post(websites_subdomains_convert_handler))
+        .route(
+            "/websites/subdomains",
+            get(websites_subdomains_list_handler),
+        )
+        .route(
+            "/websites/subdomains",
+            post(websites_subdomains_create_handler),
+        )
+        .route(
+            "/websites/subdomains",
+            axum::routing::delete(websites_subdomains_delete_handler),
+        )
+        .route(
+            "/websites/subdomains/php",
+            post(websites_subdomains_php_update_handler),
+        )
+        .route(
+            "/websites/subdomains/convert",
+            post(websites_subdomains_convert_handler),
+        )
         .route("/websites/db-links", get(websites_db_links_list_handler))
         .route("/websites/db-links", post(websites_db_links_create_handler))
-        .route("/websites/db-links", axum::routing::delete(websites_db_links_delete_handler))
-        .route("/websites/db-links/verify", post(websites_db_links_verify_handler))
+        .route(
+            "/websites/db-links",
+            axum::routing::delete(websites_db_links_delete_handler),
+        )
+        .route(
+            "/websites/db-links/verify",
+            post(websites_db_links_verify_handler),
+        )
         .route("/websites/aliases", get(websites_aliases_list_handler))
         .route("/websites/aliases", post(websites_aliases_create_handler))
-        .route("/websites/aliases", axum::routing::delete(websites_aliases_delete_handler))
-        .route("/websites/advanced-config", get(websites_advanced_config_get_handler))
-        .route("/websites/open-basedir", post(websites_open_basedir_set_handler))
+        .route(
+            "/websites/aliases",
+            axum::routing::delete(websites_aliases_delete_handler),
+        )
+        .route(
+            "/websites/advanced-config",
+            get(websites_advanced_config_get_handler),
+        )
+        .route(
+            "/websites/open-basedir",
+            post(websites_open_basedir_set_handler),
+        )
         .route("/websites/rewrite", post(websites_rewrite_save_handler))
-        .route("/websites/vhost-config", post(websites_vhost_config_save_handler))
+        .route(
+            "/websites/vhost-config",
+            post(websites_vhost_config_save_handler),
+        )
         .route("/websites/custom-ssl", get(websites_custom_ssl_get_handler))
-        .route("/websites/custom-ssl", post(websites_custom_ssl_save_handler))
+        .route(
+            "/websites/custom-ssl",
+            post(websites_custom_ssl_save_handler),
+        )
         // DNS
         .route("/dns/zone", post(create_dns_zone_handler))
         .route("/dns/zones", get(dns_zones_list_handler))
-        .route("/dns/zones/:domain", axum::routing::delete(delete_dns_zone_handler))
+        .route(
+            "/dns/zones/:domain",
+            axum::routing::delete(delete_dns_zone_handler),
+        )
         .route("/dns/zones/:domain/records", get(get_dns_records_handler))
         .route("/dns/zones/:domain/records", post(add_dns_record_handler))
-        .route("/dns/zones/:domain/records", axum::routing::delete(delete_dns_record_handler))
+        .route(
+            "/dns/zones/:domain/records",
+            axum::routing::delete(delete_dns_record_handler),
+        )
         .route("/dns/zones/:domain/dnssec", post(set_dnssec_handler))
         .route("/dns/reconcile", post(dns_reconcile_handler))
         .route("/dns/default-nameservers", get(get_default_ns_handler))
         .route("/dns/default-nameservers", post(set_default_ns_handler))
-        .route("/dns/default-nameservers/wizard", post(default_ns_wizard_handler))
-        .route("/dns/default-nameservers/reset", post(default_ns_reset_handler))
+        .route(
+            "/dns/default-nameservers/wizard",
+            post(default_ns_wizard_handler),
+        )
+        .route(
+            "/dns/default-nameservers/reset",
+            post(default_ns_reset_handler),
+        )
         // Databases
         .route("/db/mariadb/list", get(mariadb_list_handler))
         .route("/db/mariadb/create", post(mariadb_create_handler))
         .route("/db/mariadb/drop", post(mariadb_drop_handler))
         .route("/db/mariadb/users", get(mariadb_users_handler))
         .route("/db/mariadb/password", post(mariadb_password_handler))
-        .route("/db/mariadb/remote-access", get(mariadb_remote_access_list_handler))
-        .route("/db/mariadb/remote-access", post(mariadb_remote_access_allow_handler))
+        .route(
+            "/db/mariadb/remote-access",
+            get(mariadb_remote_access_list_handler),
+        )
+        .route(
+            "/db/mariadb/remote-access",
+            post(mariadb_remote_access_allow_handler),
+        )
         .route("/db/postgres/list", get(postgres_list_handler))
         .route("/db/postgres/create", post(postgres_create_handler))
         .route("/db/postgres/drop", post(postgres_drop_handler))
         .route("/db/postgres/users", get(postgres_users_handler))
         .route("/db/postgres/password", post(postgres_password_handler))
-        .route("/db/postgres/remote-access", get(postgres_remote_access_list_handler))
-        .route("/db/postgres/remote-access", post(postgres_remote_access_allow_handler))
-        .route("/db/explorer/bridge", post(db_explorer_bridge_create_handler))
-        .route("/db/explorer/bridge/resolve", get(db_explorer_bridge_resolve_handler))
+        .route(
+            "/db/postgres/remote-access",
+            get(postgres_remote_access_list_handler),
+        )
+        .route(
+            "/db/postgres/remote-access",
+            post(postgres_remote_access_allow_handler),
+        )
+        .route(
+            "/db/explorer/bridge",
+            post(db_explorer_bridge_create_handler),
+        )
+        .route(
+            "/db/explorer/bridge/resolve",
+            get(db_explorer_bridge_resolve_handler),
+        )
         .route("/db/explorer/query", post(db_explorer_query_handler))
         .route("/db/explorer/tables", post(db_explorer_tables_handler))
         .route("/mail/create", post(create_mailbox_handler))
@@ -399,12 +631,18 @@ pub fn routes() -> Router {
         .route("/mail/password", post(mail_password_reset_handler))
         .route("/mail/forwards", get(mail_forwards_list_handler))
         .route("/mail/forwards", post(mail_forwards_create_handler))
-        .route("/mail/forwards", axum::routing::delete(mail_forwards_delete_handler))
+        .route(
+            "/mail/forwards",
+            axum::routing::delete(mail_forwards_delete_handler),
+        )
         .route("/mail/catch-all", get(mail_catch_all_get_handler))
         .route("/mail/catch-all", post(mail_catch_all_set_handler))
         .route("/mail/routing", get(mail_routing_list_handler))
         .route("/mail/routing", post(mail_routing_create_handler))
-        .route("/mail/routing", axum::routing::delete(mail_routing_delete_handler))
+        .route(
+            "/mail/routing",
+            axum::routing::delete(mail_routing_delete_handler),
+        )
         .route("/mail/dkim", get(mail_dkim_get_handler))
         .route("/mail/dkim/rotate", post(mail_dkim_rotate_handler))
         .route("/mail/webmail/sso", post(mail_webmail_sso_handler))
@@ -412,7 +650,10 @@ pub fn routes() -> Router {
         .route("/users/list", get(users_list_handler))
         .route("/users/create", post(users_create_handler))
         .route("/users/delete", post(users_delete_handler))
-        .route("/users/change-password", post(users_change_password_handler))
+        .route(
+            "/users/change-password",
+            post(users_change_password_handler),
+        )
         // Packages
         .route("/packages/list", get(packages_list_handler))
         .route("/packages/create", post(packages_create_handler))
@@ -423,51 +664,114 @@ pub fn routes() -> Router {
         .route("/security/waf", post(waf_inspect_handler))
         .route("/security/status", get(security_status_handler))
         .route("/security/firewall/rules", get(firewall_rules_list_handler))
-        .route("/security/firewall/rules", axum::routing::delete(firewall_rule_delete_handler))
+        .route(
+            "/security/firewall/rules",
+            axum::routing::delete(firewall_rule_delete_handler),
+        )
         .route("/security/ssh-keys", get(ssh_keys_list_handler))
         .route("/security/ssh-keys", post(ssh_keys_add_handler))
-        .route("/security/ssh-keys", axum::routing::delete(ssh_keys_delete_handler))
+        .route(
+            "/security/ssh-keys",
+            axum::routing::delete(ssh_keys_delete_handler),
+        )
         .route("/security/2fa/setup", post(security_2fa_setup_handler))
         .route("/security/2fa/verify", post(security_2fa_verify_handler))
-        .route("/security/hardening/apply", post(security_hardening_apply_handler))
-        .route("/security/immutable/status", get(security_immutable_status_handler))
+        .route(
+            "/security/hardening/apply",
+            post(security_hardening_apply_handler),
+        )
+        .route(
+            "/security/immutable/status",
+            get(security_immutable_status_handler),
+        )
         .route("/security/live-patch", post(security_live_patch_handler))
         .route("/security/ebpf/events", get(security_ebpf_events_handler))
-        .route("/security/ebpf/collect", post(security_ebpf_collect_handler))
-        .route("/security/malware/scan/start", post(security_malware_scan_start_handler))
-        .route("/security/malware/scan/status", get(security_malware_scan_status_handler))
-        .route("/security/malware/scan/jobs", get(security_malware_scan_jobs_handler))
-        .route("/security/malware/quarantine", post(security_malware_quarantine_handler))
-        .route("/security/malware/quarantine", get(security_malware_quarantine_list_handler))
-        .route("/security/malware/quarantine/restore", post(security_malware_restore_handler))
+        .route(
+            "/security/ebpf/collect",
+            post(security_ebpf_collect_handler),
+        )
+        .route(
+            "/security/malware/scan/start",
+            post(security_malware_scan_start_handler),
+        )
+        .route(
+            "/security/malware/scan/status",
+            get(security_malware_scan_status_handler),
+        )
+        .route(
+            "/security/malware/scan/jobs",
+            get(security_malware_scan_jobs_handler),
+        )
+        .route(
+            "/security/malware/quarantine",
+            post(security_malware_quarantine_handler),
+        )
+        .route(
+            "/security/malware/quarantine",
+            get(security_malware_quarantine_list_handler),
+        )
+        .route(
+            "/security/malware/quarantine/restore",
+            post(security_malware_restore_handler),
+        )
         .route("/monitor/sre", get(sre_metrics_handler))
         .route("/monitor/sre/log-query", post(sre_log_query_handler))
         .route("/monitor/sre/optimize", get(sre_optimize_handler))
         .route("/monitor/cron/jobs", get(cron_jobs_list_handler))
         .route("/monitor/cron/jobs", post(cron_jobs_create_handler))
-        .route("/monitor/cron/jobs", axum::routing::delete(cron_jobs_delete_handler))
+        .route(
+            "/monitor/cron/jobs",
+            axum::routing::delete(cron_jobs_delete_handler),
+        )
         .route("/monitor/logs/site", get(site_logs_handler))
         .route("/apps/install", post(install_cms_handler))
         .route("/wordpress/sites", get(wordpress_sites_list_handler))
         .route("/wordpress/scan", post(wordpress_scan_handler))
         .route("/wordpress/plugins", get(wordpress_plugins_list_handler))
-        .route("/wordpress/plugins/update", post(wordpress_plugins_update_handler))
-        .route("/wordpress/plugins", axum::routing::delete(wordpress_plugins_delete_handler))
+        .route(
+            "/wordpress/plugins/update",
+            post(wordpress_plugins_update_handler),
+        )
+        .route(
+            "/wordpress/plugins",
+            axum::routing::delete(wordpress_plugins_delete_handler),
+        )
         .route("/wordpress/themes", get(wordpress_themes_list_handler))
-        .route("/wordpress/themes/update", post(wordpress_themes_update_handler))
-        .route("/wordpress/themes", axum::routing::delete(wordpress_themes_delete_handler))
+        .route(
+            "/wordpress/themes/update",
+            post(wordpress_themes_update_handler),
+        )
+        .route(
+            "/wordpress/themes",
+            axum::routing::delete(wordpress_themes_delete_handler),
+        )
         .route("/wordpress/staging", get(wordpress_staging_list_handler))
         .route("/wordpress/staging", post(wordpress_staging_create_handler))
         .route("/wordpress/backups", get(wordpress_backups_list_handler))
         .route("/wordpress/backups", post(wordpress_backups_create_handler))
-        .route("/wordpress/backups/restore", post(wordpress_backups_restore_handler))
-        .route("/wordpress/backups/download", get(wordpress_backups_download_handler))
+        .route(
+            "/wordpress/backups/restore",
+            post(wordpress_backups_restore_handler),
+        )
+        .route(
+            "/wordpress/backups/download",
+            get(wordpress_backups_download_handler),
+        )
         .route("/apps/runtime/list", get(runtime_apps_list_handler))
-        .route("/apps/runtime/node/install-deps", post(node_install_deps_handler))
+        .route(
+            "/apps/runtime/node/install-deps",
+            post(node_install_deps_handler),
+        )
         .route("/apps/runtime/node/start", post(node_start_handler))
         .route("/apps/runtime/node/stop", post(node_stop_handler))
-        .route("/apps/runtime/python/venv", post(python_create_venv_handler))
-        .route("/apps/runtime/python/install", post(python_install_requirements_handler))
+        .route(
+            "/apps/runtime/python/venv",
+            post(python_create_venv_handler),
+        )
+        .route(
+            "/apps/runtime/python/install",
+            post(python_install_requirements_handler),
+        )
         .route("/apps/runtime/python/start", post(python_start_handler))
         .route("/federated/join", post(cluster_join_handler))
         .route("/federated/nodes", get(cluster_nodes_list_handler))
@@ -488,15 +792,30 @@ pub fn routes() -> Router {
         .route("/backup/create", post(create_backup_handler))
         .route("/backup/restore", post(restore_backup_handler))
         .route("/backup/snapshots", post(backup_snapshots_handler))
-        .route("/backup/destinations", get(backup_destinations_list_handler))
-        .route("/backup/destinations", post(backup_destinations_upsert_handler))
-        .route("/backup/destinations", axum::routing::delete(backup_destinations_delete_handler))
+        .route(
+            "/backup/destinations",
+            get(backup_destinations_list_handler),
+        )
+        .route(
+            "/backup/destinations",
+            post(backup_destinations_upsert_handler),
+        )
+        .route(
+            "/backup/destinations",
+            axum::routing::delete(backup_destinations_delete_handler),
+        )
         .route("/backup/schedules", get(backup_schedules_list_handler))
         .route("/backup/schedules", post(backup_schedules_upsert_handler))
-        .route("/backup/schedules", axum::routing::delete(backup_schedules_delete_handler))
+        .route(
+            "/backup/schedules",
+            axum::routing::delete(backup_schedules_delete_handler),
+        )
         .route("/storage/minio/buckets", get(minio_buckets_list_handler))
         .route("/storage/minio/buckets", post(minio_buckets_create_handler))
-        .route("/storage/minio/credentials", post(minio_credentials_handler))
+        .route(
+            "/storage/minio/credentials",
+            post(minio_credentials_handler),
+        )
         .route("/gitops/deploy", post(gitops_deploy_handler))
         // Docker Manager
         .route("/docker/containers", get(docker_list_containers))
@@ -537,8 +856,14 @@ pub fn routes() -> Router {
         // Migration / Transfer Wizard
         .route("/migration/upload", post(migration_upload_handler))
         .route("/migration/analyze", post(migration_analyze_handler))
-        .route("/migration/import/start", post(migration_import_start_handler))
-        .route("/migration/import/status", get(migration_import_status_handler))
+        .route(
+            "/migration/import/start",
+            post(migration_import_start_handler),
+        )
+        .route(
+            "/migration/import/status",
+            get(migration_import_status_handler),
+        )
         // Website analytics
         .route("/analytics/website-traffic", get(website_traffic_handler))
         // PHP Management API
@@ -552,7 +877,10 @@ pub fn routes() -> Router {
         .route("/status/metrics", get(status_metrics_handler))
         .route("/status/services", get(status_services_handler))
         .route("/status/processes", get(status_processes_handler))
-        .route("/status/service/control", post(status_service_control_handler))
+        .route(
+            "/status/service/control",
+            post(status_service_control_handler),
+        )
         .route("/status/panel-port", get(status_panel_port_handler))
         .route("/status/panel-port", post(status_panel_port_update_handler))
         .route("/ols/tuning", get(ols_tuning_get_handler))
@@ -560,14 +888,26 @@ pub fn routes() -> Router {
         .route("/ols/tuning/apply", post(ols_tuning_apply_handler))
         .route("/reseller/quotas", get(reseller_quotas_list_handler))
         .route("/reseller/quotas", post(reseller_quotas_upsert_handler))
-        .route("/reseller/whitelabel", get(reseller_whitelabel_list_handler))
-        .route("/reseller/whitelabel", post(reseller_whitelabel_upsert_handler))
+        .route(
+            "/reseller/whitelabel",
+            get(reseller_whitelabel_list_handler),
+        )
+        .route(
+            "/reseller/whitelabel",
+            post(reseller_whitelabel_upsert_handler),
+        )
         .route("/acl/policies", get(acl_policies_list_handler))
         .route("/acl/policies", post(acl_policies_upsert_handler))
-        .route("/acl/policies", axum::routing::delete(acl_policies_delete_handler))
+        .route(
+            "/acl/policies",
+            axum::routing::delete(acl_policies_delete_handler),
+        )
         .route("/acl/assignments", get(acl_assignments_list_handler))
         .route("/acl/assignments", post(acl_assignments_upsert_handler))
-        .route("/acl/assignments", axum::routing::delete(acl_assignments_delete_handler))
+        .route(
+            "/acl/assignments",
+            axum::routing::delete(acl_assignments_delete_handler),
+        )
         .route("/acl/effective", get(acl_effective_permissions_handler))
         // Activity / Audit Log
         .route("/activity/log", get(activity_log_handler))
@@ -601,21 +941,29 @@ async fn health_check() -> Json<StatusResponse> {
 async fn auth_me_handler(Extension(auth): Extension<AuthContext>) -> impl IntoResponse {
     let user = match UserManager::find_by_identity(&auth.username) {
         Ok(Some(u)) => u,
-        _ => return (StatusCode::UNAUTHORIZED, Json(json!({ "status": "error", "message": "Unauthorized" }))).into_response(),
+        _ => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({ "status": "error", "message": "Unauthorized" })),
+            )
+                .into_response()
+        }
     };
 
-    (StatusCode::OK, Json(json!({
-        "id": user.id,
-        "name": user.username,
-        "email": user.email,
-        "role": user.role
-    }))).into_response()
+    (
+        StatusCode::OK,
+        Json(json!({
+            "id": user.id,
+            "name": user.username,
+            "email": user.email,
+            "role": user.role
+        })),
+    )
+        .into_response()
 }
 
 // Handler for Federated Join Node
-async fn cluster_join_handler(
-    Json(payload): Json<WireguardConfig>,
-) -> Json<serde_json::Value> {
+async fn cluster_join_handler(Json(payload): Json<WireguardConfig>) -> Json<serde_json::Value> {
     match FederatedManager::add_cluster_node(&payload).await {
         Ok(_) => Json(json!({
             "status": "success",
@@ -669,9 +1017,7 @@ struct SreLogQueryPayload {
 }
 
 // Handler for AI-SRE natural language log query
-async fn sre_log_query_handler(
-    Json(payload): Json<SreLogQueryPayload>,
-) -> Json<serde_json::Value> {
+async fn sre_log_query_handler(Json(payload): Json<SreLogQueryPayload>) -> Json<serde_json::Value> {
     match MonitorManager::analyze_log_query(&payload.query).await {
         Ok(result) => Json(json!({
             "status": "success",
@@ -717,7 +1063,9 @@ async fn cron_jobs_list_handler() -> Json<serde_json::Value> {
     }
 }
 
-async fn cron_jobs_create_handler(Json(payload): Json<CronCreatePayload>) -> Json<serde_json::Value> {
+async fn cron_jobs_create_handler(
+    Json(payload): Json<CronCreatePayload>,
+) -> Json<serde_json::Value> {
     match MonitorManager::add_cron_job(&payload.user, &payload.schedule, &payload.command) {
         Ok(job) => Json(json!({ "status": "success", "data": job })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -743,16 +1091,18 @@ struct SiteLogsQuery {
 async fn site_logs_handler(
     axum::extract::Query(query): axum::extract::Query<SiteLogsQuery>,
 ) -> Json<serde_json::Value> {
-    match MonitorManager::stream_site_logs_kind(&query.domain, query.kind.as_deref(), query.lines.unwrap_or(50)) {
+    match MonitorManager::stream_site_logs_kind(
+        &query.domain,
+        query.kind.as_deref(),
+        query.lines.unwrap_or(50),
+    ) {
         Ok(logs) => Json(json!({ "status": "success", "data": logs })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
 
 // Handler for CMS Installation
-async fn install_cms_handler(
-    Json(payload): Json<CmsInstallConfig>,
-) -> Json<serde_json::Value> {
+async fn install_cms_handler(Json(payload): Json<CmsInstallConfig>) -> Json<serde_json::Value> {
     match AppManager::install_cms(&payload).await {
         Ok(_) => Json(json!({
             "status": "success",
@@ -808,7 +1158,12 @@ async fn wordpress_plugins_update_handler(
 ) -> Json<serde_json::Value> {
     match WordPressManager::update_plugins(&payload) {
         Ok(msg) => {
-            AuditLogger::log(&auth.username, "wordpress.plugins.update", &payload.domain, "panel");
+            AuditLogger::log(
+                &auth.username,
+                "wordpress.plugins.update",
+                &payload.domain,
+                "panel",
+            );
             Json(json!({ "status": "success", "message": msg }))
         }
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -821,7 +1176,12 @@ async fn wordpress_plugins_delete_handler(
 ) -> Json<serde_json::Value> {
     match WordPressManager::delete_plugins(&payload) {
         Ok(msg) => {
-            AuditLogger::log(&auth.username, "wordpress.plugins.delete", &payload.domain, "panel");
+            AuditLogger::log(
+                &auth.username,
+                "wordpress.plugins.delete",
+                &payload.domain,
+                "panel",
+            );
             Json(json!({ "status": "success", "message": msg }))
         }
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -847,7 +1207,12 @@ async fn wordpress_themes_update_handler(
 ) -> Json<serde_json::Value> {
     match WordPressManager::update_themes(&payload) {
         Ok(msg) => {
-            AuditLogger::log(&auth.username, "wordpress.themes.update", &payload.domain, "panel");
+            AuditLogger::log(
+                &auth.username,
+                "wordpress.themes.update",
+                &payload.domain,
+                "panel",
+            );
             Json(json!({ "status": "success", "message": msg }))
         }
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -860,7 +1225,12 @@ async fn wordpress_themes_delete_handler(
 ) -> Json<serde_json::Value> {
     match WordPressManager::delete_themes(&payload) {
         Ok(msg) => {
-            AuditLogger::log(&auth.username, "wordpress.themes.delete", &payload.domain, "panel");
+            AuditLogger::log(
+                &auth.username,
+                "wordpress.themes.delete",
+                &payload.domain,
+                "panel",
+            );
             Json(json!({ "status": "success", "message": msg }))
         }
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -882,7 +1252,12 @@ async fn wordpress_staging_create_handler(
 ) -> Json<serde_json::Value> {
     match WordPressManager::create_staging(&payload) {
         Ok(entry) => {
-            AuditLogger::log(&auth.username, "wordpress.staging.create", &payload.source_domain, "panel");
+            AuditLogger::log(
+                &auth.username,
+                "wordpress.staging.create",
+                &payload.source_domain,
+                "panel",
+            );
             Json(json!({ "status": "success", "data": entry }))
         }
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -904,7 +1279,12 @@ async fn wordpress_backups_create_handler(
 ) -> Json<serde_json::Value> {
     match WordPressManager::create_backup(&payload) {
         Ok(entry) => {
-            AuditLogger::log(&auth.username, "wordpress.backup.create", &payload.domain, "panel");
+            AuditLogger::log(
+                &auth.username,
+                "wordpress.backup.create",
+                &payload.domain,
+                "panel",
+            );
             Json(json!({ "status": "success", "data": entry }))
         }
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -917,7 +1297,12 @@ async fn wordpress_backups_restore_handler(
 ) -> Json<serde_json::Value> {
     match WordPressManager::restore_backup(&payload) {
         Ok(msg) => {
-            AuditLogger::log(&auth.username, "wordpress.backup.restore", &payload.id, "panel");
+            AuditLogger::log(
+                &auth.username,
+                "wordpress.backup.restore",
+                &payload.id,
+                "panel",
+            );
             Json(json!({ "status": "success", "message": msg }))
         }
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -934,7 +1319,10 @@ async fn wordpress_backups_download_handler(
     let path = match WordPressManager::backup_file_path(&q.id) {
         Ok(p) => p,
         Err(e) => {
-            return (StatusCode::NOT_FOUND, Json(json!({ "status": "error", "message": e })))
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "status": "error", "message": e })),
+            )
                 .into_response()
         }
     };
@@ -989,7 +1377,9 @@ struct NodeStopPayload {
     app_name: String,
 }
 
-async fn node_install_deps_handler(Json(payload): Json<RuntimeDirPayload>) -> Json<serde_json::Value> {
+async fn node_install_deps_handler(
+    Json(payload): Json<RuntimeDirPayload>,
+) -> Json<serde_json::Value> {
     match AppManager::node_install_dependencies(&payload.dir) {
         Ok(msg) => Json(json!({ "status": "success", "message": msg })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -1010,14 +1400,18 @@ async fn node_stop_handler(Json(payload): Json<NodeStopPayload>) -> Json<serde_j
     }
 }
 
-async fn python_create_venv_handler(Json(payload): Json<RuntimeDirPayload>) -> Json<serde_json::Value> {
+async fn python_create_venv_handler(
+    Json(payload): Json<RuntimeDirPayload>,
+) -> Json<serde_json::Value> {
     match AppManager::python_create_venv(&payload.dir) {
         Ok(msg) => Json(json!({ "status": "success", "message": msg })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
 
-async fn python_install_requirements_handler(Json(payload): Json<RuntimeDirPayload>) -> Json<serde_json::Value> {
+async fn python_install_requirements_handler(
+    Json(payload): Json<RuntimeDirPayload>,
+) -> Json<serde_json::Value> {
     match AppManager::python_install_requirements(&payload.dir) {
         Ok(msg) => Json(json!({ "status": "success", "message": msg })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -1032,9 +1426,7 @@ async fn python_start_handler(Json(payload): Json<PythonAppRequest>) -> Json<ser
 }
 
 // Handler for creating isolated Redis
-async fn create_redis_handler(
-    Json(payload): Json<RedisConfig>,
-) -> Json<serde_json::Value> {
+async fn create_redis_handler(Json(payload): Json<RedisConfig>) -> Json<serde_json::Value> {
     match PerfManager::create_redis_instance(&payload).await {
         Ok(_) => Json(json!({
             "status": "success",
@@ -1048,9 +1440,7 @@ async fn create_redis_handler(
 }
 
 // Handler for IP blocking
-async fn firewall_rule_handler(
-    Json(payload): Json<FirewallRule>,
-) -> Json<serde_json::Value> {
+async fn firewall_rule_handler(Json(payload): Json<FirewallRule>) -> Json<serde_json::Value> {
     match SecurityManager::apply_firewall_rule(&payload).await {
         Ok(_) => Json(json!({
             "status": "success",
@@ -1118,9 +1508,7 @@ struct SshKeyListQuery {
     user: Option<String>,
 }
 
-async fn ssh_keys_add_handler(
-    Json(payload): Json<SshKeyCreatePayload>,
-) -> Json<serde_json::Value> {
+async fn ssh_keys_add_handler(Json(payload): Json<SshKeyCreatePayload>) -> Json<serde_json::Value> {
     match SecurityManager::add_ssh_key(&payload.user, &payload.title, &payload.public_key) {
         Ok(key) => Json(json!({ "status": "success", "data": key })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -1310,21 +1698,23 @@ fn resolve_owner_by_domain(domain: &str) -> Option<String> {
         return None;
     }
 
-    NitroEngine::list_vhosts().ok()?.into_iter().find_map(|site| {
-        let site_domain = site
-            .get("domain")
-            .and_then(|v| v.as_str())
-            .map(normalize_name_token)?;
-        if site_domain != target {
-            return None;
-        }
-        site
-            .get("owner")
-            .or_else(|| site.get("user"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.trim().to_ascii_lowercase())
-            .filter(|s| !s.is_empty())
-    })
+    NitroEngine::list_vhosts()
+        .ok()?
+        .into_iter()
+        .find_map(|site| {
+            let site_domain = site
+                .get("domain")
+                .and_then(|v| v.as_str())
+                .map(normalize_name_token)?;
+            if site_domain != target {
+                return None;
+            }
+            site.get("owner")
+                .or_else(|| site.get("user"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim().to_ascii_lowercase())
+                .filter(|s| !s.is_empty())
+        })
 }
 
 fn resolve_effective_owner(owner: Option<&str>, domain_hint: Option<&str>) -> Option<String> {
@@ -1349,8 +1739,7 @@ fn owner_domain_set(owner: &str) -> std::collections::HashSet<String> {
             if !site_owner.trim().eq_ignore_ascii_case(owner.trim()) {
                 return None;
             }
-            site
-                .get("domain")
+            site.get("domain")
                 .and_then(|v| v.as_str())
                 .map(normalize_name_token)
         })
@@ -1413,9 +1802,7 @@ fn count_owner_databases(owner: &str, engine: &str) -> usize {
 }
 
 // Handler for creating a new mailbox
-async fn create_mailbox_handler(
-    Json(payload): Json<MailboxConfig>,
-) -> Json<serde_json::Value> {
+async fn create_mailbox_handler(Json(payload): Json<MailboxConfig>) -> Json<serde_json::Value> {
     let effective_owner = resolve_effective_owner(payload.owner.as_deref(), Some(&payload.domain));
 
     // Quota enforcement: owner bazli email limitini kontrol et
@@ -1423,8 +1810,11 @@ async fn create_mailbox_handler(
         let quota_exceeded = || -> Option<(u32, u32)> {
             let users = crate::services::users::UserManager::list_users().ok()?;
             let user = users.iter().find(|u| u.username == owner)?;
-            let pkg = crate::services::packages::PackageManager::get_package_by_name(&user.package).ok()??;
-            if pkg.emails == 0 { return None; } // 0 = limitsiz
+            let pkg = crate::services::packages::PackageManager::get_package_by_name(&user.package)
+                .ok()??;
+            if pkg.emails == 0 {
+                return None;
+            } // 0 = limitsiz
             let count = count_owner_mailboxes(owner);
             Some((count, pkg.emails))
         };
@@ -1468,15 +1858,19 @@ async fn mariadb_list_handler() -> Json<serde_json::Value> {
 }
 
 async fn mariadb_create_handler(Json(payload): Json<DbConfig>) -> Json<serde_json::Value> {
-    let effective_owner = resolve_effective_owner(payload.owner.as_deref(), payload.site_domain.as_deref());
+    let effective_owner =
+        resolve_effective_owner(payload.owner.as_deref(), payload.site_domain.as_deref());
 
     // Quota enforcement (owner bazli)
     if let Some(owner) = effective_owner.as_deref() {
         let quota_exceeded = || -> Option<(usize, u32)> {
             let users = crate::services::users::UserManager::list_users().ok()?;
             let user = users.iter().find(|u| u.username == owner)?;
-            let pkg = crate::services::packages::PackageManager::get_package_by_name(&user.package).ok()??;
-            if pkg.databases == 0 { return None; }
+            let pkg = crate::services::packages::PackageManager::get_package_by_name(&user.package)
+                .ok()??;
+            if pkg.databases == 0 {
+                return None;
+            }
             let count = count_owner_databases(owner, "mariadb");
             Some((count, pkg.databases))
         };
@@ -1569,15 +1963,19 @@ async fn postgres_list_handler() -> Json<serde_json::Value> {
 }
 
 async fn postgres_create_handler(Json(payload): Json<DbConfig>) -> Json<serde_json::Value> {
-    let effective_owner = resolve_effective_owner(payload.owner.as_deref(), payload.site_domain.as_deref());
+    let effective_owner =
+        resolve_effective_owner(payload.owner.as_deref(), payload.site_domain.as_deref());
 
     // Quota enforcement (owner bazli)
     if let Some(owner) = effective_owner.as_deref() {
         let quota_exceeded = || -> Option<(usize, u32)> {
             let users = crate::services::users::UserManager::list_users().ok()?;
             let user = users.iter().find(|u| u.username == owner)?;
-            let pkg = crate::services::packages::PackageManager::get_package_by_name(&user.package).ok()??;
-            if pkg.databases == 0 { return None; }
+            let pkg = crate::services::packages::PackageManager::get_package_by_name(&user.package)
+                .ok()??;
+            if pkg.databases == 0 {
+                return None;
+            }
             let count = count_owner_databases(owner, "postgresql");
             Some((count, pkg.databases))
         };
@@ -1692,7 +2090,12 @@ async fn db_explorer_query_handler(
     Json(payload): Json<DbExplorerQueryPayload>,
 ) -> Json<serde_json::Value> {
     let mgr = DbExplorerManager::new();
-    if let Some(token) = payload.bridge_token.as_deref().map(str::trim).filter(|x| !x.is_empty()) {
+    if let Some(token) = payload
+        .bridge_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|x| !x.is_empty())
+    {
         return match mgr.execute_query_with_bridge(token, &payload.query) {
             Ok(result) => Json(json!({ "status": "success", "data": result })),
             Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
@@ -1718,7 +2121,12 @@ async fn db_explorer_tables_handler(
     Json(payload): Json<DbExplorerTablesPayload>,
 ) -> Json<serde_json::Value> {
     let mgr = DbExplorerManager::new();
-    if let Some(token) = payload.bridge_token.as_deref().map(str::trim).filter(|x| !x.is_empty()) {
+    if let Some(token) = payload
+        .bridge_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|x| !x.is_empty())
+    {
         return match mgr.list_tables_with_bridge(token) {
             Ok(tables) => Json(json!({ "status": "success", "data": tables })),
             Err(e) => Json(json!({ "status": "error", "message": e.to_string() })),
@@ -1761,7 +2169,11 @@ async fn db_explorer_bridge_create_handler(
         }));
     }
 
-    let mut domain = payload.domain.unwrap_or_default().trim().to_ascii_lowercase();
+    let mut domain = payload
+        .domain
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
     let mut db_user = payload.db_user.unwrap_or_default().trim().to_string();
 
     if domain.is_empty() || db_user.is_empty() {
@@ -1829,9 +2241,7 @@ async fn db_explorer_bridge_resolve_handler(
 }
 
 // Handler for creating a new DNS Zone
-async fn create_dns_zone_handler(
-    Json(payload): Json<DnsZoneConfig>,
-) -> Json<serde_json::Value> {
+async fn create_dns_zone_handler(Json(payload): Json<DnsZoneConfig>) -> Json<serde_json::Value> {
     let pdns = PowerDnsManager::new();
     match pdns.create_zone(&payload).await {
         Ok(_) => Json(json!({
@@ -1896,9 +2306,7 @@ fn resolve_dns_server_ip(preferred: Option<String>) -> Result<String, String> {
 }
 
 // Handler for creating a new website / vhost
-async fn create_vhost_handler(
-    Json(payload): Json<CreateVhostPayload>,
-) -> Json<serde_json::Value> {
+async fn create_vhost_handler(Json(payload): Json<CreateVhostPayload>) -> Json<serde_json::Value> {
     let domain = payload.domain.trim().to_lowercase();
     let owner = payload
         .user
@@ -2006,9 +2414,7 @@ async fn create_vhost_handler(
 }
 
 // Handler for issuing SSL certificate
-async fn issue_ssl_handler(
-    Json(payload): Json<SslConfig>,
-) -> Json<serde_json::Value> {
+async fn issue_ssl_handler(Json(payload): Json<SslConfig>) -> Json<serde_json::Value> {
     match SslManager::issue_certificate(&payload).await {
         Ok(_) => {
             AuditLogger::log("admin", "ssl.issue", &payload.domain, "panel");
@@ -2029,9 +2435,7 @@ struct SslDetailsRequest {
     domain: String,
 }
 
-async fn ssl_details_handler(
-    Json(payload): Json<SslDetailsRequest>,
-) -> Json<serde_json::Value> {
+async fn ssl_details_handler(Json(payload): Json<SslDetailsRequest>) -> Json<serde_json::Value> {
     match SslManager::certificate_details(&payload.domain) {
         Ok(data) => Json(json!({
             "status": "success",
@@ -2044,9 +2448,7 @@ async fn ssl_details_handler(
     }
 }
 
-async fn issue_hostname_ssl_handler(
-    Json(payload): Json<SslConfig>,
-) -> Json<serde_json::Value> {
+async fn issue_hostname_ssl_handler(Json(payload): Json<SslConfig>) -> Json<serde_json::Value> {
     match SslManager::issue_hostname_certificate(&payload).await {
         Ok(_) => Json(json!({
             "status": "success",
@@ -2060,9 +2462,7 @@ async fn issue_hostname_ssl_handler(
     }
 }
 
-async fn issue_mail_ssl_handler(
-    Json(payload): Json<SslConfig>,
-) -> Json<serde_json::Value> {
+async fn issue_mail_ssl_handler(Json(payload): Json<SslConfig>) -> Json<serde_json::Value> {
     match SslManager::issue_mail_server_certificate(&payload).await {
         Ok(_) => Json(json!({
             "status": "success",
@@ -2098,9 +2498,7 @@ struct FtpDeletePayload {
     username: String,
 }
 
-async fn create_ftp_handler(
-    Json(payload): Json<FtpUserConfig>,
-) -> Json<serde_json::Value> {
+async fn create_ftp_handler(Json(payload): Json<FtpUserConfig>) -> Json<serde_json::Value> {
     match SecureConnectManager::create_ftp_user(&payload) {
         Ok(_) => Json(json!({
             "status": "success",
@@ -2122,9 +2520,7 @@ async fn list_ftp_handler(
     }
 }
 
-async fn delete_ftp_handler(
-    Json(payload): Json<FtpDeletePayload>,
-) -> Json<serde_json::Value> {
+async fn delete_ftp_handler(Json(payload): Json<FtpDeletePayload>) -> Json<serde_json::Value> {
     match SecureConnectManager::delete_ftp_user(&payload.username) {
         Ok(_) => Json(json!({ "status": "success", "message": "FTP user deleted." })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -2141,9 +2537,7 @@ async fn reset_ftp_password_handler(
 }
 
 // Handler for creating SFTP user
-async fn create_sftp_handler(
-    Json(payload): Json<SftpUserConfig>,
-) -> Json<serde_json::Value> {
+async fn create_sftp_handler(Json(payload): Json<SftpUserConfig>) -> Json<serde_json::Value> {
     match SecureConnectManager::create_sftp_user(&payload).await {
         Ok(_) => Json(json!({
             "status": "success",
@@ -2168,9 +2562,7 @@ async fn list_sftp_handler() -> Json<serde_json::Value> {
     }
 }
 
-async fn delete_sftp_handler(
-    Json(payload): Json<SftpDeletePayload>,
-) -> Json<serde_json::Value> {
+async fn delete_sftp_handler(Json(payload): Json<SftpDeletePayload>) -> Json<serde_json::Value> {
     match SecureConnectManager::delete_sftp_user(&payload.username) {
         Ok(_) => Json(json!({ "status": "success", "message": "SFTP user deleted." })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -2187,9 +2579,7 @@ async fn reset_sftp_password_handler(
 }
 
 // Handler for creating backup
-async fn create_backup_handler(
-    Json(payload): Json<BackupConfig>,
-) -> Json<serde_json::Value> {
+async fn create_backup_handler(Json(payload): Json<BackupConfig>) -> Json<serde_json::Value> {
     match BackupManager::create_backup(&payload).await {
         Ok(snapshot) => Json(json!({
             "status": "success",
@@ -2234,9 +2624,7 @@ struct BackupDeleteQuery {
     id: String,
 }
 
-async fn backup_snapshots_handler(
-    Json(payload): Json<BackupConfig>,
-) -> Json<serde_json::Value> {
+async fn backup_snapshots_handler(Json(payload): Json<BackupConfig>) -> Json<serde_json::Value> {
     match BackupManager::list_snapshots(&payload) {
         Ok(data) => Json(json!({ "status": "success", "data": data })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -2337,9 +2725,7 @@ async fn minio_credentials_handler(
 }
 
 // Handler for WAF inspection
-async fn waf_inspect_handler(
-    Json(payload): Json<WafHttpRequest>,
-) -> Json<serde_json::Value> {
+async fn waf_inspect_handler(Json(payload): Json<WafHttpRequest>) -> Json<serde_json::Value> {
     let verdict = MlWaf::inspect(&payload);
     Json(json!({
         "allowed": verdict.allowed,
@@ -2349,9 +2735,7 @@ async fn waf_inspect_handler(
 }
 
 // Handler for GitOps deploy
-async fn gitops_deploy_handler(
-    Json(payload): Json<GitOpsConfig>,
-) -> Json<serde_json::Value> {
+async fn gitops_deploy_handler(Json(payload): Json<GitOpsConfig>) -> Json<serde_json::Value> {
     match GitOpsManager::deploy(&payload).await {
         Ok(_) => Json(json!({
             "status": "success",
@@ -2401,7 +2785,9 @@ async fn docker_action_handler(
     };
 
     match result {
-        Ok(_) => Json(json!({ "status": "success", "message": format!("{} -> {}", payload.action, payload.id) })),
+        Ok(_) => Json(
+            json!({ "status": "success", "message": format!("{} -> {}", payload.action, payload.id) }),
+        ),
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
@@ -2413,11 +2799,11 @@ async fn docker_list_images() -> Json<serde_json::Value> {
     }
 }
 
-async fn docker_pull_image(
-    Json(payload): Json<PullImageConfig>,
-) -> Json<serde_json::Value> {
+async fn docker_pull_image(Json(payload): Json<PullImageConfig>) -> Json<serde_json::Value> {
     match DockerManager::pull_image(&payload) {
-        Ok(_) => Json(json!({ "status": "success", "message": format!("Image {} pulled.", payload.image) })),
+        Ok(_) => Json(
+            json!({ "status": "success", "message": format!("Image {} pulled.", payload.image) }),
+        ),
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
@@ -2432,7 +2818,9 @@ async fn docker_remove_image(
     Json(payload): Json<DockerImageRemovePayload>,
 ) -> Json<serde_json::Value> {
     match DockerManager::remove_image(&payload.id, payload.force.unwrap_or(false)) {
-        Ok(_) => Json(json!({ "status": "success", "message": format!("Image removed: {}", payload.id) })),
+        Ok(_) => Json(
+            json!({ "status": "success", "message": format!("Image removed: {}", payload.id) }),
+        ),
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
@@ -2457,9 +2845,13 @@ async fn docker_apps_list_installed() -> Json<serde_json::Value> {
     }
 }
 
-async fn docker_apps_install(Json(payload): Json<CreateDockerAppRequest>) -> Json<serde_json::Value> {
+async fn docker_apps_install(
+    Json(payload): Json<CreateDockerAppRequest>,
+) -> Json<serde_json::Value> {
     match DockerAppsManager::create_app(&payload) {
-        Ok(id) => Json(json!({ "status": "success", "message": format!("Uygulama {} başarıyla kuruldu. Container ID: {}", payload.app_name, id) })),
+        Ok(id) => Json(
+            json!({ "status": "success", "message": format!("Uygulama {} başarıyla kuruldu. Container ID: {}", payload.app_name, id) }),
+        ),
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
@@ -2469,10 +2861,14 @@ struct DockerAppRemovePayload {
     app_name: String,
 }
 
-async fn docker_apps_remove(Json(payload): Json<DockerAppRemovePayload>) -> Json<serde_json::Value> {
+async fn docker_apps_remove(
+    Json(payload): Json<DockerAppRemovePayload>,
+) -> Json<serde_json::Value> {
     // DockerAppManager uygulamaları adlarıyla siliyor
     match DockerManager::remove_container(&payload.app_name, true) {
-        Ok(_) => Json(json!({ "status": "success", "message": format!("Uygulama {} başarıyla kaldırıldı.", payload.app_name) })),
+        Ok(_) => Json(
+            json!({ "status": "success", "message": format!("Uygulama {} başarıyla kaldırıldı.", payload.app_name) }),
+        ),
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
@@ -2542,7 +2938,10 @@ struct CfDeleteDnsPayload {
 }
 
 async fn cf_delete_dns_record(Json(payload): Json<CfDeleteDnsPayload>) -> Json<serde_json::Value> {
-    let req = DeleteDnsRecordRequest { zone_id: payload.zone_id, record_id: payload.record_id };
+    let req = DeleteDnsRecordRequest {
+        zone_id: payload.zone_id,
+        record_id: payload.record_id,
+    };
     match CloudFlareManager::delete_dns_record(&payload.api_key, &payload.email, &req) {
         Ok(msg) => Json(json!({ "status": "success", "message": msg })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -2558,7 +2957,10 @@ struct CfSslPayload {
 }
 
 async fn cf_set_ssl_mode(Json(payload): Json<CfSslPayload>) -> Json<serde_json::Value> {
-    let req = SetSslModeRequest { zone_id: payload.zone_id, mode: payload.mode };
+    let req = SetSslModeRequest {
+        zone_id: payload.zone_id,
+        mode: payload.mode,
+    };
     match CloudFlareManager::set_ssl_mode(&payload.api_key, &payload.email, &req) {
         Ok(msg) => Json(json!({ "status": "success", "message": msg })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -2575,7 +2977,11 @@ struct CfPurgeCachePayload {
 }
 
 async fn cf_purge_cache(Json(payload): Json<CfPurgeCachePayload>) -> Json<serde_json::Value> {
-    let req = PurgeCacheRequest { zone_id: payload.zone_id, purge_everything: payload.purge_everything, files: payload.files };
+    let req = PurgeCacheRequest {
+        zone_id: payload.zone_id,
+        purge_everything: payload.purge_everything,
+        files: payload.files,
+    };
     match CloudFlareManager::purge_cache(&payload.api_key, &payload.email, &req) {
         Ok(msg) => Json(json!({ "status": "success", "message": msg })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -2591,7 +2997,10 @@ struct CfSecurityPayload {
 }
 
 async fn cf_set_security_level(Json(payload): Json<CfSecurityPayload>) -> Json<serde_json::Value> {
-    let req = SetSecurityLevelRequest { zone_id: payload.zone_id, level: payload.level };
+    let req = SetSecurityLevelRequest {
+        zone_id: payload.zone_id,
+        level: payload.level,
+    };
     match CloudFlareManager::set_security_level(&payload.api_key, &payload.email, &req) {
         Ok(msg) => Json(json!({ "status": "success", "message": msg })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -2607,7 +3016,10 @@ struct CfDevModePayload {
 }
 
 async fn cf_set_dev_mode(Json(payload): Json<CfDevModePayload>) -> Json<serde_json::Value> {
-    let req = DevModeRequest { zone_id: payload.zone_id, enabled: payload.enabled };
+    let req = DevModeRequest {
+        zone_id: payload.zone_id,
+        enabled: payload.enabled,
+    };
     match CloudFlareManager::set_dev_mode(&payload.api_key, &payload.email, &req) {
         Ok(msg) => Json(json!({ "status": "success", "message": msg })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -2615,7 +3027,8 @@ async fn cf_set_dev_mode(Json(payload): Json<CfDevModePayload>) -> Json<serde_js
 }
 
 async fn cf_get_analytics(Json(payload): Json<CfZonePayload>) -> Json<serde_json::Value> {
-    match CloudFlareManager::get_zone_analytics(&payload.api_key, &payload.email, &payload.zone_id) {
+    match CloudFlareManager::get_zone_analytics(&payload.api_key, &payload.email, &payload.zone_id)
+    {
         Ok(data) => Json(json!({ "status": "success", "data": data })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
@@ -2695,9 +3108,13 @@ async fn file_rename_handler(Json(payload): Json<FileRenamePayload>) -> Json<ser
     }
 }
 
-async fn file_compress_handler(Json(payload): Json<FileCompressPayload>) -> Json<serde_json::Value> {
+async fn file_compress_handler(
+    Json(payload): Json<FileCompressPayload>,
+) -> Json<serde_json::Value> {
     match FileManager::compress_items(&payload.format, &payload.dest_path, payload.sources) {
-        Ok(_) => Json(json!({ "status": "success", "message": "Dosyalar basariyla sikistirildi." })),
+        Ok(_) => {
+            Json(json!({ "status": "success", "message": "Dosyalar basariyla sikistirildi." }))
+        }
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
@@ -2907,7 +3324,9 @@ struct ServiceControlPayload {
     action: String, // start, stop, restart
 }
 
-async fn status_service_control_handler(Json(payload): Json<ServiceControlPayload>) -> Json<serde_json::Value> {
+async fn status_service_control_handler(
+    Json(payload): Json<ServiceControlPayload>,
+) -> Json<serde_json::Value> {
     match StatusManager::control_service(&payload.name, &payload.action) {
         Ok(msg) => Json(json!({ "status": "success", "message": msg })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -2956,18 +3375,14 @@ async fn ols_tuning_get_handler() -> Json<serde_json::Value> {
     }
 }
 
-async fn ols_tuning_save_handler(
-    Json(payload): Json<OlsTuningConfig>,
-) -> Json<serde_json::Value> {
+async fn ols_tuning_save_handler(Json(payload): Json<OlsTuningConfig>) -> Json<serde_json::Value> {
     match OlsTuningManager::save_config(&payload) {
         Ok(data) => Json(json!({ "status": "success", "data": data })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
 
-async fn ols_tuning_apply_handler(
-    Json(payload): Json<OlsTuningConfig>,
-) -> Json<serde_json::Value> {
+async fn ols_tuning_apply_handler(Json(payload): Json<OlsTuningConfig>) -> Json<serde_json::Value> {
     match OlsTuningManager::apply_config(&payload) {
         Ok(message) => Json(json!({ "status": "success", "message": message })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -2989,14 +3404,22 @@ async fn vhost_list_handler(
     use std::cmp::min;
     match NitroEngine::list_vhosts() {
         Ok(mut sites) => {
-            if query.search.is_none() && query.php.is_none() && query.page.is_none() && query.per_page.is_none() {
+            if query.search.is_none()
+                && query.php.is_none()
+                && query.page.is_none()
+                && query.per_page.is_none()
+            {
                 return Json(json!({ "status": "success", "data": sites }));
             }
 
             if let Some(search) = query.search.as_ref() {
                 let needle = search.to_lowercase();
                 sites.retain(|s| {
-                    let domain = s.get("domain").and_then(|x| x.as_str()).unwrap_or_default().to_lowercase();
+                    let domain = s
+                        .get("domain")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or_default()
+                        .to_lowercase();
                     domain.contains(&needle)
                 });
             }
@@ -3019,7 +3442,11 @@ async fn vhost_list_handler(
             let per_page = query.per_page.unwrap_or(20).clamp(1, 200);
             let start = (page - 1).saturating_mul(per_page);
             let end = min(start + per_page, total);
-            let data = if start >= total { Vec::new() } else { sites[start..end].to_vec() };
+            let data = if start >= total {
+                Vec::new()
+            } else {
+                sites[start..end].to_vec()
+            };
 
             Json(json!({
                 "status": "success",
@@ -3443,15 +3870,21 @@ async fn dns_zones_list_handler() -> Json<serde_json::Value> {
     Json(json!({ "status": "success", "data": zones }))
 }
 
-async fn delete_dns_zone_handler(axum::extract::Path(domain): axum::extract::Path<String>) -> Json<serde_json::Value> {
+async fn delete_dns_zone_handler(
+    axum::extract::Path(domain): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
     let pdns = PowerDnsManager::new();
     match pdns.delete_zone(&domain) {
-        Ok(_) => Json(json!({ "status": "success", "message": format!("DNS Zone {} deleted.", domain) })),
+        Ok(_) => {
+            Json(json!({ "status": "success", "message": format!("DNS Zone {} deleted.", domain) }))
+        }
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
 
-async fn get_dns_records_handler(axum::extract::Path(domain): axum::extract::Path<String>) -> Json<serde_json::Value> {
+async fn get_dns_records_handler(
+    axum::extract::Path(domain): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
     let pdns = PowerDnsManager::new();
     let records = pdns.get_records(&domain);
     Json(json!({ "status": "success", "data": records }))
@@ -3573,7 +4006,9 @@ async fn get_default_ns_handler() -> Json<serde_json::Value> {
 }
 
 use crate::services::dns::DefaultNameservers;
-async fn set_default_ns_handler(Json(payload): Json<DefaultNameservers>) -> Json<serde_json::Value> {
+async fn set_default_ns_handler(
+    Json(payload): Json<DefaultNameservers>,
+) -> Json<serde_json::Value> {
     let pdns = PowerDnsManager::new();
     match pdns.set_default_nameservers(payload) {
         Ok(_) => Json(json!({ "status": "success", "message": "Default nameservers updated." })),
@@ -3637,7 +4072,9 @@ struct MailRoutingListQuery {
 
 async fn mail_delete_handler(Json(payload): Json<MailDeletePayload>) -> Json<serde_json::Value> {
     match MailManager::delete_mailbox(&payload.address).await {
-        Ok(_) => Json(json!({ "status": "success", "message": format!("{} basariyla silindi.", payload.address) })),
+        Ok(_) => Json(
+            json!({ "status": "success", "message": format!("{} basariyla silindi.", payload.address) }),
+        ),
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
@@ -3646,7 +4083,9 @@ async fn mail_password_reset_handler(
     Json(payload): Json<MailboxPasswordResetRequest>,
 ) -> Json<serde_json::Value> {
     match MailManager::reset_mailbox_password(&payload) {
-        Ok(_) => Json(json!({ "status": "success", "message": format!("{} sifresi guncellendi.", payload.address) })),
+        Ok(_) => Json(
+            json!({ "status": "success", "message": format!("{} sifresi guncellendi.", payload.address) }),
+        ),
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
@@ -3806,9 +4245,7 @@ async fn acl_policies_list_handler() -> Json<serde_json::Value> {
     }
 }
 
-async fn acl_policies_upsert_handler(
-    Json(payload): Json<AclPolicy>,
-) -> Json<serde_json::Value> {
+async fn acl_policies_upsert_handler(Json(payload): Json<AclPolicy>) -> Json<serde_json::Value> {
     match ResellerManager::upsert_policy(payload) {
         Ok(data) => Json(json!({ "status": "success", "data": data })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -3899,7 +4336,9 @@ async fn packages_list_handler() -> Json<serde_json::Value> {
     }
 }
 
-async fn packages_create_handler(Json(payload): Json<CreatePackageRequest>) -> Json<serde_json::Value> {
+async fn packages_create_handler(
+    Json(payload): Json<CreatePackageRequest>,
+) -> Json<serde_json::Value> {
     match PackageManager::create_package(&payload) {
         Ok(msg) => Json(json!({ "status": "success", "message": msg })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -3911,7 +4350,9 @@ struct PackageIdPayload {
     id: u64,
 }
 
-async fn packages_update_handler(Json(payload): Json<UpdatePackageRequest>) -> Json<serde_json::Value> {
+async fn packages_update_handler(
+    Json(payload): Json<UpdatePackageRequest>,
+) -> Json<serde_json::Value> {
     match PackageManager::update_package(&payload) {
         Ok(msg) => Json(json!({ "status": "success", "message": msg })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -3972,9 +4413,7 @@ async fn db_backup_list_handler() -> Json<serde_json::Value> {
     Json(json!({ "status": "success", "data": entries }))
 }
 
-async fn db_backup_create_handler(
-    Json(payload): Json<DbBackupRequest>,
-) -> Json<serde_json::Value> {
+async fn db_backup_create_handler(Json(payload): Json<DbBackupRequest>) -> Json<serde_json::Value> {
     match DbBackupManager::create_backup(&payload) {
         Ok(entry) => Json(json!({ "status": "success", "data": entry })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -4000,9 +4439,7 @@ struct BackupDownloadQuery {
     id: String,
 }
 
-async fn db_backup_delete_handler(
-    Json(payload): Json<BackupIdPayload>,
-) -> Json<serde_json::Value> {
+async fn db_backup_delete_handler(Json(payload): Json<BackupIdPayload>) -> Json<serde_json::Value> {
     match DbBackupManager::delete_backup(&payload.backup_id) {
         Ok(()) => Json(json!({ "status": "success", "message": "Backup silindi." })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -4019,7 +4456,10 @@ async fn db_backup_download_handler(
     let path = match DbBackupManager::backup_file_path(&q.id) {
         Ok(p) => p,
         Err(e) => {
-            return (StatusCode::NOT_FOUND, Json(json!({ "status": "error", "message": e })))
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "status": "error", "message": e })),
+            )
                 .into_response()
         }
     };
@@ -4059,9 +4499,7 @@ async fn db_backup_download_handler(
 
 // ─── SSL Wildcard ─────────────────────────────────────────────────────────────
 
-async fn issue_wildcard_ssl_handler(
-    Json(payload): Json<SslConfig>,
-) -> Json<serde_json::Value> {
+async fn issue_wildcard_ssl_handler(Json(payload): Json<SslConfig>) -> Json<serde_json::Value> {
     match SslManager::issue_wildcard_certificate(&payload).await {
         Ok(msg) => Json(json!({ "status": "success", "message": msg })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
@@ -4070,8 +4508,8 @@ async fn issue_wildcard_ssl_handler(
 
 #[cfg(test)]
 mod tests {
-    use crate::auth::jwt;
     use super::routes;
+    use crate::auth::jwt;
     use crate::services::users::{CreateUserRequest, UserManager};
     use axum::body::Body;
     use axum::http::{Method, Request, StatusCode};
@@ -4189,6 +4627,65 @@ mod tests {
             .expect("response");
 
         assert_eq!(response.status(), StatusCode::OK);
+        teardown_env(&state_dir);
+    }
+
+    #[tokio::test]
+    async fn reseller_cannot_access_admin_endpoints() {
+        let state_dir = setup_env("reseller-rbac");
+        UserManager::create_user(&CreateUserRequest {
+            username: "reseller1".to_string(),
+            email: "reseller@example.com".to_string(),
+            password: "supersecret".to_string(),
+            role: "reseller".to_string(),
+            package: "default".to_string(),
+        })
+        .expect("create reseller");
+        let token = jwt::create_token("reseller1", "reseller").expect("token");
+
+        let response = routes()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/users/list")
+                    .header("authorization", format!("Bearer {}", token))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        teardown_env(&state_dir);
+    }
+
+    #[tokio::test]
+    async fn user_can_access_basic_status_endpoint() {
+        let state_dir = setup_env("user-rbac");
+        UserManager::create_user(&CreateUserRequest {
+            username: "user1".to_string(),
+            email: "user@example.com".to_string(),
+            password: "supersecret".to_string(),
+            role: "user".to_string(),
+            package: "default".to_string(),
+        })
+        .expect("create user");
+        let token = jwt::create_token("user1", "user").expect("token");
+
+        let response = routes()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/status/metrics")
+                    .header("authorization", format!("Bearer {}", token))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_ne!(response.status(), StatusCode::FORBIDDEN);
+        assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
         teardown_env(&state_dir);
     }
 
@@ -4319,5 +4816,3 @@ mod tests {
         teardown_env(&state_dir);
     }
 }
-
-

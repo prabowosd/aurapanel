@@ -1,4 +1,4 @@
-﻿pub mod cron;
+pub mod cron;
 pub mod gitops;
 pub mod logs;
 pub mod metrics;
@@ -98,12 +98,9 @@ fn detect_log_sources() -> Vec<String> {
 }
 
 fn read_tail_lines(path: &str, count: usize) -> Result<Vec<String>, String> {
-    let raw = fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read log file {}: {}", path, e))?;
-    let lines: Vec<String> = raw
-        .lines()
-        .map(|line| line.to_string())
-        .collect();
+    let raw =
+        fs::read_to_string(path).map_err(|e| format!("Failed to read log file {}: {}", path, e))?;
+    let lines: Vec<String> = raw.lines().map(|line| line.to_string()).collect();
 
     if lines.len() <= count {
         return Ok(lines);
@@ -220,7 +217,9 @@ impl MonitorManager {
         let mut actions = Vec::new();
 
         if metrics.ram_usage > 75.0 {
-            actions.push("Enable aggressive object cache policy for high-traffic websites.".to_string());
+            actions.push(
+                "Enable aggressive object cache policy for high-traffic websites.".to_string(),
+            );
         } else {
             actions.push("RAM profile is stable; keep standard cache policy.".to_string());
         }
@@ -234,7 +233,9 @@ impl MonitorManager {
         if metrics.disk_usage > 80.0 {
             actions.push("Rotate logs and run incremental backup compaction.".to_string());
         } else {
-            actions.push("Disk pressure is acceptable; keep scheduled maintenance cadence.".to_string());
+            actions.push(
+                "Disk pressure is acceptable; keep scheduled maintenance cadence.".to_string(),
+            );
         }
 
         actions.push("Run anomaly scan every 5 minutes for sustained trend tracking.".to_string());
@@ -276,7 +277,11 @@ impl MonitorManager {
         Self::stream_site_logs_kind(domain, None, lines)
     }
 
-    pub fn stream_site_logs_kind(domain: &str, kind: Option<&str>, lines: u32) -> Result<Vec<String>, String> {
+    pub fn stream_site_logs_kind(
+        domain: &str,
+        kind: Option<&str>,
+        lines: u32,
+    ) -> Result<Vec<String>, String> {
         if domain.trim().is_empty() {
             return Err("domain is required.".to_string());
         }

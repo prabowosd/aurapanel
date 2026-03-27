@@ -1,4 +1,4 @@
-﻿use std::net::SocketAddr;
+use std::net::SocketAddr;
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,7 +37,8 @@ fn parse_security_policy(value: &str) -> SecurityPolicy {
 pub fn mode() -> RuntimeMode {
     static MODE: OnceLock<RuntimeMode> = OnceLock::new();
     *MODE.get_or_init(|| {
-        let raw = std::env::var("AURAPANEL_RUNTIME_MODE").unwrap_or_else(|_| "development".to_string());
+        let raw =
+            std::env::var("AURAPANEL_RUNTIME_MODE").unwrap_or_else(|_| "development".to_string());
         parse_mode(&raw)
     })
 }
@@ -102,16 +103,23 @@ fn is_loopback_bind(addr: &str) -> bool {
         return parsed.ip().is_loopback();
     }
 
-    addr.starts_with("127.0.0.1:") || addr.starts_with("[::1]:") || addr.eq_ignore_ascii_case("localhost:8000")
+    addr.starts_with("127.0.0.1:")
+        || addr.starts_with("[::1]:")
+        || addr.eq_ignore_ascii_case("localhost:8000")
 }
 
 pub fn validate_startup() -> Result<(), String> {
     if is_production() && simulation_flag_set() {
-        return Err("AURAPANEL_DEV_SIMULATION cannot be enabled in production runtime mode".to_string());
+        return Err(
+            "AURAPANEL_DEV_SIMULATION cannot be enabled in production runtime mode".to_string(),
+        );
     }
 
     if is_production() && security_policy() == SecurityPolicy::FailOpen {
-        return Err("AURAPANEL_SECURITY_POLICY=fail-open is not allowed in production. Use fail-closed.".to_string());
+        return Err(
+            "AURAPANEL_SECURITY_POLICY=fail-open is not allowed in production. Use fail-closed."
+                .to_string(),
+        );
     }
 
     if is_production() && gateway_only_enabled() && !is_loopback_bind(&core_bind_addr()) {
@@ -127,7 +135,8 @@ pub fn validate_startup() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_loopback_bind, parse_flag, parse_mode, parse_security_policy, RuntimeMode, SecurityPolicy,
+        is_loopback_bind, parse_flag, parse_mode, parse_security_policy, RuntimeMode,
+        SecurityPolicy,
     };
 
     #[test]
@@ -152,7 +161,10 @@ mod tests {
 
     #[test]
     fn parse_security_policy_maps_expected_variants() {
-        assert_eq!(parse_security_policy("fail-closed"), SecurityPolicy::FailClosed);
+        assert_eq!(
+            parse_security_policy("fail-closed"),
+            SecurityPolicy::FailClosed
+        );
         assert_eq!(parse_security_policy("open"), SecurityPolicy::FailOpen);
         assert_eq!(parse_security_policy("FAIL-OPEN"), SecurityPolicy::FailOpen);
     }

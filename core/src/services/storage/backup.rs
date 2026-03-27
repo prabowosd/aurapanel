@@ -16,11 +16,17 @@ impl BackupManager {
             .arg(format!("/var/www/vhosts/{}/html", domain))
             .env("RESTIC_PASSWORD", password)
             .output()?;
-        
+
         Ok(output.status.success())
     }
 
-    pub fn restore_site(&self, domain: &str, repo_path: &str, snapshot_id: &str, password: &str) -> Result<bool> {
+    pub fn restore_site(
+        &self,
+        domain: &str,
+        repo_path: &str,
+        snapshot_id: &str,
+        password: &str,
+    ) -> Result<bool> {
         let output = Command::new("restic")
             .arg("-r")
             .arg(repo_path)
@@ -30,7 +36,7 @@ impl BackupManager {
             .arg(format!("/var/www/vhosts/{}/html", domain))
             .env("RESTIC_PASSWORD", password)
             .output()?;
-        
+
         Ok(output.status.success())
     }
 }

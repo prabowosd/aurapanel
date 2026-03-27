@@ -1,6 +1,6 @@
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use anyhow::{Result, Context};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -24,9 +24,9 @@ pub struct Settings {
 pub fn load_config(path: &str) -> Result<Settings> {
     let config_content = fs::read_to_string(path)
         .with_context(|| format!("Failed to read config file at {}", path))?;
-    
-    let settings: Settings = toml::from_str(&config_content)
-        .with_context(|| "Failed to parse TOML configuration")?;
-    
+
+    let settings: Settings =
+        toml::from_str(&config_content).with_context(|| "Failed to parse TOML configuration")?;
+
     Ok(settings)
 }

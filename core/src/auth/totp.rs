@@ -1,5 +1,5 @@
-use totp_rs::{Algorithm, TOTP, Secret};
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
+use totp_rs::{Algorithm, Secret, TOTP};
 
 pub fn generate_totp_secret(account_name: &str) -> Result<(String, String)> {
     let mut bytes = vec![0u8; 20];
@@ -15,7 +15,8 @@ pub fn generate_totp_secret(account_name: &str) -> Result<(String, String)> {
         secret.to_bytes().map_err(|e| anyhow!("{}", e))?,
         Some("AuraPanel".to_string()),
         account_name.to_string(),
-    ).map_err(|e| anyhow!("{}", e))?;
+    )
+    .map_err(|e| anyhow!("{}", e))?;
 
     let qr_code = totp.get_qr_base64().map_err(|e| anyhow!("{}", e))?;
     let secret_str = secret.to_encoded().to_string();
@@ -33,7 +34,8 @@ pub fn verify_totp(secret_str: &str, token: &str) -> Result<bool> {
         secret.to_bytes().map_err(|e| anyhow!("{}", e))?,
         Some("AuraPanel".to_string()),
         "".to_string(),
-    ).map_err(|e| anyhow!("{}", e))?;
-    
+    )
+    .map_err(|e| anyhow!("{}", e))?;
+
     totp.check_current(token).map_err(|e| anyhow!("{}", e))
 }

@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::process::Command;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -51,7 +51,12 @@ impl DockerManager {
         }
 
         let output = Command::new("docker")
-            .args(["ps", "-a", "--format", "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.Ports}}|{{.CreatedAt}}"])
+            .args([
+                "ps",
+                "-a",
+                "--format",
+                "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.Ports}}|{{.CreatedAt}}",
+            ])
             .output()
             .map_err(|e| format!("docker ps failed: {}", e))?;
 
@@ -76,13 +81,21 @@ impl DockerManager {
     }
 
     pub fn create_container(config: &CreateContainerConfig) -> Result<String, String> {
-        println!("[DOCKER] Creating container: {} from image: {}", config.name, config.image);
+        println!(
+            "[DOCKER] Creating container: {} from image: {}",
+            config.name, config.image
+        );
 
         if !Self::is_docker_available() {
             return Err(Self::docker_unavailable_error());
         }
 
-        let mut args = vec!["run".to_string(), "-d".to_string(), "--name".to_string(), config.name.clone()];
+        let mut args = vec![
+            "run".to_string(),
+            "-d".to_string(),
+            "--name".to_string(),
+            config.name.clone(),
+        ];
 
         for port in &config.ports {
             args.push("-p".to_string());
@@ -174,7 +187,11 @@ impl DockerManager {
         }
 
         let output = Command::new("docker")
-            .args(["images", "--format", "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}|{{.CreatedAt}}"])
+            .args([
+                "images",
+                "--format",
+                "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}|{{.CreatedAt}}",
+            ])
             .output()
             .map_err(|e| format!("docker images failed: {}", e))?;
 
@@ -215,7 +232,10 @@ impl DockerManager {
             .map_err(|e| format!("docker pull failed: {}", e))?;
 
         if !output.status.success() {
-            return Err(format!("image pull failed: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(format!(
+                "image pull failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
 
         Ok(())

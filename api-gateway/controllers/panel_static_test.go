@@ -49,6 +49,18 @@ func TestPanelStaticHandlerServesIndexAndAssets(t *testing.T) {
 	if got := recSpa.Header().Get("Cache-Control"); got == "" {
 		t.Fatalf("expected Cache-Control on SPA fallback response")
 	}
+
+	recMissingAsset := httptest.NewRecorder()
+	handler.ServeHTTP(recMissingAsset, httptest.NewRequest(http.MethodGet, "/assets/missing.js", nil))
+	if recMissingAsset.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing asset, got %d", recMissingAsset.Code)
+	}
+
+	recMissingStatic := httptest.NewRecorder()
+	handler.ServeHTTP(recMissingStatic, httptest.NewRequest(http.MethodGet, "/favicon.ico", nil))
+	if recMissingStatic.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing static file, got %d", recMissingStatic.Code)
+	}
 }
 
 func TestPanelStaticHandlerRejectsAPIPath(t *testing.T) {

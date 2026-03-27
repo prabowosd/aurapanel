@@ -16,16 +16,13 @@ impl NodeManager {
             .arg(app_name)
             .current_dir(dir)
             .output()?;
-        
+
         Ok(output.status.success())
     }
 
     pub fn stop_app(&self, app_name: &str) -> Result<bool> {
-        let output = Command::new("pm2")
-            .arg("stop")
-            .arg(app_name)
-            .output()?;
-        
+        let output = Command::new("pm2").arg("stop").arg(app_name).output()?;
+
         Ok(output.status.success())
     }
 
@@ -34,7 +31,7 @@ impl NodeManager {
             .arg("install")
             .current_dir(dir)
             .output()?;
-            
+
         Ok(output.status.success())
     }
 }

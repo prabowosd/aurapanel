@@ -23,7 +23,12 @@ impl CmsInstaller {
         let target = cms_target_dir(domain)?;
         fs::create_dir_all(&target)?;
         let output = Command::new("composer")
-            .args(["create-project", "--prefer-dist", "--no-interaction", "laravel/laravel"])
+            .args([
+                "create-project",
+                "--prefer-dist",
+                "--no-interaction",
+                "laravel/laravel",
+            ])
             .arg(&target)
             .output()?;
         Ok(output.status.success())

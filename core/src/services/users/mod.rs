@@ -1,5 +1,5 @@
-pub mod reseller;
 pub mod cms;
 pub mod manager;
+pub mod reseller;
 
-pub use manager::{UserManager, PanelUser, CreateUserRequest, ChangePasswordRequest};
+pub use manager::{ChangePasswordRequest, CreateUserRequest, PanelUser, UserManager};

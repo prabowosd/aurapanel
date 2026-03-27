@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::process::{Command, Stdio};
 
@@ -34,7 +34,13 @@ impl GitOpsManager {
             }
         } else {
             let output = Command::new("git")
-                .args(["clone", "-b", &config.branch, &config.repo_url, &config.deploy_path])
+                .args([
+                    "clone",
+                    "-b",
+                    &config.branch,
+                    &config.repo_url,
+                    &config.deploy_path,
+                ])
                 .output()
                 .map_err(|e| format!("git clone failed: {}", e))?;
 
@@ -81,7 +87,10 @@ impl GitOpsManager {
             return false;
         }
 
-        let provided = sig.strip_prefix("sha256=").unwrap_or(sig).to_ascii_lowercase();
+        let provided = sig
+            .strip_prefix("sha256=")
+            .unwrap_or(sig)
+            .to_ascii_lowercase();
         if provided.is_empty() {
             return false;
         }

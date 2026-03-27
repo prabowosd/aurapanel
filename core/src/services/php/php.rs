@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -21,12 +21,36 @@ pub struct PhpManager;
 impl PhpManager {
     pub fn list_versions() -> Result<Vec<PhpVersion>, String> {
         let mut versions = vec![
-            PhpVersion { version: "7.4".to_string(), installed: false, eol: true },
-            PhpVersion { version: "8.0".to_string(), installed: false, eol: true },
-            PhpVersion { version: "8.1".to_string(), installed: false, eol: false },
-            PhpVersion { version: "8.2".to_string(), installed: false, eol: false },
-            PhpVersion { version: "8.3".to_string(), installed: false, eol: false },
-            PhpVersion { version: "8.4".to_string(), installed: false, eol: false },
+            PhpVersion {
+                version: "7.4".to_string(),
+                installed: false,
+                eol: true,
+            },
+            PhpVersion {
+                version: "8.0".to_string(),
+                installed: false,
+                eol: true,
+            },
+            PhpVersion {
+                version: "8.1".to_string(),
+                installed: false,
+                eol: false,
+            },
+            PhpVersion {
+                version: "8.2".to_string(),
+                installed: false,
+                eol: false,
+            },
+            PhpVersion {
+                version: "8.3".to_string(),
+                installed: false,
+                eol: false,
+            },
+            PhpVersion {
+                version: "8.4".to_string(),
+                installed: false,
+                eol: false,
+            },
         ];
 
         for v in &mut versions {
@@ -134,8 +158,15 @@ impl PhpManager {
     fn resolve_ini_path(version: &str) -> Option<std::path::PathBuf> {
         let candidates = [
             format!("/etc/php/{}/fpm/php.ini", version),
-            format!("/usr/local/lsws/lsphp{}/etc/php/{}/litespeed/php.ini", version.replace('.', ""), version),
-            format!("/usr/local/lsws/lsphp{}/etc/php.ini", version.replace('.', "")),
+            format!(
+                "/usr/local/lsws/lsphp{}/etc/php/{}/litespeed/php.ini",
+                version.replace('.', ""),
+                version
+            ),
+            format!(
+                "/usr/local/lsws/lsphp{}/etc/php.ini",
+                version.replace('.', "")
+            ),
         ];
 
         for candidate in candidates {
@@ -154,7 +185,10 @@ fn normalize_version(version: &str) -> Result<String, String> {
     if parts.len() != 2 {
         return Err("version must be in major.minor format (e.g. 8.3)".to_string());
     }
-    if parts.iter().any(|p| p.is_empty() || p.chars().any(|c| !c.is_ascii_digit())) {
+    if parts
+        .iter()
+        .any(|p| p.is_empty() || p.chars().any(|c| !c.is_ascii_digit()))
+    {
         return Err("version must be numeric in major.minor format".to_string());
     }
     Ok(format!("{}.{}", parts[0], parts[1]))

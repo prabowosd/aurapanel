@@ -38,7 +38,8 @@ fn load_suspended_vhosts() -> HashSet<String> {
 fn save_suspended_vhosts(items: &HashSet<String>) -> Result<(), String> {
     let path = suspended_state_file();
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("State directory could not be created: {}", e))?;
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("State directory could not be created: {}", e))?;
     }
     let mut ordered: Vec<String> = items.iter().cloned().collect();
     ordered.sort();
@@ -213,7 +214,8 @@ fn load_vhost_metadata() -> BTreeMap<String, VHostMetadata> {
 fn save_vhost_metadata(items: &BTreeMap<String, VHostMetadata>) -> Result<(), String> {
     let path = metadata_state_file();
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("State directory could not be created: {}", e))?;
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("State directory could not be created: {}", e))?;
     }
     let payload = serde_json::to_string_pretty(items).map_err(|e| e.to_string())?;
     fs::write(path, payload).map_err(|e| format!("VHost metadata could not be written: {}", e))
@@ -286,7 +288,10 @@ fn update_vhconf_content(content: &str, php_version: &str, email: &str) -> Resul
         }
 
         if trimmed.starts_with("path") && trimmed.contains("/lsphp") {
-            updated_lines.push(format!("  path                    /usr/local/lsws/lsphp{}/bin/lsphp", php_segment));
+            updated_lines.push(format!(
+                "  path                    /usr/local/lsws/lsphp{}/bin/lsphp",
+                php_segment
+            ));
             php_line_updated = true;
             continue;
         }
@@ -314,8 +319,8 @@ impl NitroEngine {
     /// Creates a new OpenLiteSpeed Virtual Host and its directories
     pub fn create_vhost(config: &VHostConfig) -> Result<(), String> {
         let domain = sanitize_domain(&config.domain);
-        let owner = normalize_owner(&config.user)
-            .ok_or_else(|| "Gecersiz kullanici".to_string())?;
+        let owner =
+            normalize_owner(&config.user).ok_or_else(|| "Gecersiz kullanici".to_string())?;
         let php_version = normalize_php_version(&config.php_version)
             .ok_or_else(|| "Gecersiz PHP versiyonu".to_string())?;
 
@@ -328,8 +333,7 @@ impl NitroEngine {
             return Err("OpenLiteSpeed is not installed on this system.".to_string());
         }
 
-        fs::create_dir_all(&public_html)
-            .map_err(|e| format!("Ana dizin olusturulamadi: {}", e))?;
+        fs::create_dir_all(&public_html).map_err(|e| format!("Ana dizin olusturulamadi: {}", e))?;
         fs::create_dir_all(&vhost_conf_dir)
             .map_err(|e| format!("Vhost config dizini olusturulamadi: {}", e))?;
 
@@ -392,7 +396,10 @@ extprocessor {domain}_php {{
             email: format!("webmaster@{}", domain),
             updated_at: now_ts(),
         }) {
-            eprintln!("[WARN] VHost metadata update failed for {}: {}", domain, err);
+            eprintln!(
+                "[WARN] VHost metadata update failed for {}: {}",
+                domain, err
+            );
         }
 
         // 3. Reload OpenLiteSpeed gracefully
@@ -438,7 +445,8 @@ extprocessor {domain}_php {{
                 if let Ok(domains) = fs::read_dir(&public_html) {
                     for domain_entry in domains.flatten() {
                         let domain = sanitize_domain(&domain_entry.file_name().to_string_lossy());
-                        let has_ssl = Path::new(&format!("/etc/letsencrypt/live/{}", domain)).exists();
+                        let has_ssl =
+                            Path::new(&format!("/etc/letsencrypt/live/{}", domain)).exists();
                         let is_suspended = suspended.contains(&domain);
                         let owner_from_fs = user_entry.file_name().to_string_lossy().to_string();
 
@@ -547,10 +555,7 @@ extprocessor {domain}_php {{
         let conf_file = vhost_conf_file(&domain);
         let ols_exists = Path::new("/usr/local/lsws").exists();
         let conf_content = if ols_exists && conf_file.exists() {
-            Some(
-                fs::read_to_string(&conf_file)
-                    .map_err(|e| format!("vhconf okunamadi: {}", e))?,
-            )
+            Some(fs::read_to_string(&conf_file).map_err(|e| format!("vhconf okunamadi: {}", e))?)
         } else {
             None
         };
@@ -579,13 +584,18 @@ extprocessor {domain}_php {{
         let fallback_email = existing
             .as_ref()
             .map(|x| x.email.clone())
-            .or_else(|| conf_content.as_deref().and_then(extract_admin_email_from_vhconf))
+            .or_else(|| {
+                conf_content
+                    .as_deref()
+                    .and_then(extract_admin_email_from_vhconf)
+            })
             .unwrap_or_else(|| format!("webmaster@{}", domain));
 
         let owner = normalize_owner(config.owner.as_deref().unwrap_or(&fallback_owner))
             .ok_or_else(|| "Gecersiz owner".to_string())?;
-        let php_version = normalize_php_version(config.php_version.as_deref().unwrap_or(&fallback_php))
-            .ok_or_else(|| "Gecersiz php_version".to_string())?;
+        let php_version =
+            normalize_php_version(config.php_version.as_deref().unwrap_or(&fallback_php))
+                .ok_or_else(|| "Gecersiz php_version".to_string())?;
         let package = normalize_package(config.package.as_deref().unwrap_or(&fallback_package));
         let email = normalize_email(config.email.as_deref().unwrap_or(&fallback_email))
             .ok_or_else(|| "Gecersiz email".to_string())?;
@@ -597,14 +607,17 @@ extprocessor {domain}_php {{
             Self::reload_ols()?;
         }
 
-        metadata.insert(domain.clone(), VHostMetadata {
-            domain: domain.clone(),
-            owner: owner.clone(),
-            php_version: php_version.clone(),
-            package: package.clone(),
-            email: email.clone(),
-            updated_at: now_ts(),
-        });
+        metadata.insert(
+            domain.clone(),
+            VHostMetadata {
+                domain: domain.clone(),
+                owner: owner.clone(),
+                php_version: php_version.clone(),
+                package: package.clone(),
+                email: email.clone(),
+                updated_at: now_ts(),
+            },
+        );
         save_vhost_metadata(&metadata)?;
 
         Ok(VHostUpdateResult {

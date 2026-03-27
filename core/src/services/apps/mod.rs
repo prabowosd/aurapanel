@@ -16,7 +16,7 @@ pub struct CmsInstallConfig {
     pub db_name: String,
     pub db_user: String,
     pub db_pass: String,
-    pub owner: Option<String>,      // system user that owns the vhost
+    pub owner: Option<String>, // system user that owns the vhost
     pub admin_email: Option<String>,
     pub admin_user: Option<String>,
     pub admin_pass: Option<String>,
@@ -106,7 +106,8 @@ impl AppManager {
                 let db_host = "localhost";
                 let cfg = Command::new("wp")
                     .args([
-                        "config", "create",
+                        "config",
+                        "create",
                         "--allow-root",
                         &format!("--path={}", public_html),
                         &format!("--dbname={}", config.db_name),
@@ -121,17 +122,15 @@ impl AppManager {
                 }
 
                 // 3. Install WordPress (creates DB tables, sets admin credentials)
-                let admin_email = config
-                    .admin_email
-                    .as_deref()
-                    .unwrap_or("admin@example.com");
+                let admin_email = config.admin_email.as_deref().unwrap_or("admin@example.com");
                 let admin_user = config.admin_user.as_deref().unwrap_or("admin");
                 let admin_pass = config.admin_pass.as_deref().unwrap_or("changeme123!");
                 let site_title = config.site_title.as_deref().unwrap_or("My Website");
 
                 let install = Command::new("wp")
                     .args([
-                        "core", "install",
+                        "core",
+                        "install",
                         "--allow-root",
                         &format!("--path={}", public_html),
                         &format!("--url=https://{}", domain),
@@ -217,7 +216,9 @@ impl AppManager {
         if cfg!(target_os = "windows") {
             return Err("Node runtime stop is not supported on Windows hosts.".to_string());
         }
-        let ok = NodeManager::new().stop_app(app_name).map_err(|e| e.to_string())?;
+        let ok = NodeManager::new()
+            .stop_app(app_name)
+            .map_err(|e| e.to_string())?;
         if ok {
             let mut guard = runtime_state().lock().map_err(|e| e.to_string())?;
             if let Some(app) = guard.apps.get_mut(app_name) {
@@ -233,7 +234,9 @@ impl AppManager {
         if cfg!(target_os = "windows") {
             return Err("Python venv creation is not supported on Windows hosts.".to_string());
         }
-        let ok = PythonManager::new().create_venv(dir).map_err(|e| e.to_string())?;
+        let ok = PythonManager::new()
+            .create_venv(dir)
+            .map_err(|e| e.to_string())?;
         if ok {
             Ok("Python venv created.".to_string())
         } else {
@@ -243,7 +246,9 @@ impl AppManager {
 
     pub fn python_install_requirements(dir: &str) -> Result<String, String> {
         if cfg!(target_os = "windows") {
-            return Err("Python requirements install is not supported on Windows hosts.".to_string());
+            return Err(
+                "Python requirements install is not supported on Windows hosts.".to_string(),
+            );
         }
         let ok = PythonManager::new()
             .install_requirements(dir)

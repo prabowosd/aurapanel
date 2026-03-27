@@ -216,7 +216,9 @@ impl BackupManager {
 
         let target = Self::default_target();
         if target != "internal-minio" {
-            return Err("remote_repo is required for non-internal-minio backup target.".to_string());
+            return Err(
+                "remote_repo is required for non-internal-minio backup target.".to_string(),
+            );
         }
 
         let endpoint = std::env::var("AURAPANEL_BACKUP_MINIO_ENDPOINT")
@@ -230,10 +232,17 @@ impl BackupManager {
             .to_string();
 
         if endpoint.is_empty() || bucket.is_empty() {
-            return Err("internal-minio target requires endpoint and bucket configuration.".to_string());
+            return Err(
+                "internal-minio target requires endpoint and bucket configuration.".to_string(),
+            );
         }
 
-        Ok(format!("s3:{}/{}/{}", endpoint, bucket, config.domain.trim()))
+        Ok(format!(
+            "s3:{}/{}/{}",
+            endpoint,
+            bucket,
+            config.domain.trim()
+        ))
     }
 
     fn resolve_backup_password(config: &BackupConfig) -> Result<String, String> {
@@ -265,7 +274,10 @@ impl BackupManager {
             );
         }
 
-        Ok(Some((access_key.trim().to_string(), secret_key.trim().to_string())))
+        Ok(Some((
+            access_key.trim().to_string(),
+            secret_key.trim().to_string(),
+        )))
     }
 
     fn validate_backup_input(config: &BackupConfig) -> Result<(), String> {
@@ -283,7 +295,8 @@ impl BackupManager {
         if p.exists() {
             return Ok(());
         }
-        fs::create_dir_all(p).map_err(|e| format!("backup_path does not exist and cannot be created: {}", e))
+        fs::create_dir_all(p)
+            .map_err(|e| format!("backup_path does not exist and cannot be created: {}", e))
     }
 
     fn restic_available() -> bool {
@@ -321,7 +334,8 @@ impl BackupManager {
             let Some(destination) = state
                 .destinations
                 .iter()
-                .find(|d| d.id == schedule.destination_id && d.enabled) else {
+                .find(|d| d.id == schedule.destination_id && d.enabled)
+            else {
                 continue;
             };
 
@@ -429,7 +443,11 @@ impl BackupManager {
         payload.cron = payload.cron.trim().to_string();
 
         let mut state = load_backup_center_state()?;
-        if !state.destinations.iter().any(|d| d.id == payload.destination_id) {
+        if !state
+            .destinations
+            .iter()
+            .any(|d| d.id == payload.destination_id)
+        {
             return Err("destination_id not found".to_string());
         }
 
@@ -533,7 +551,10 @@ impl BackupManager {
             .map_err(|e| format!("restic backup failed: {}", e))?;
 
         if !output.status.success() {
-            return Err(format!("Backup failed: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(format!(
+                "Backup failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())

@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::process::Command;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -112,9 +112,12 @@ impl CloudFlareManager {
             cmd.args(["-d", payload]);
         }
 
-        let output = cmd
-            .output()
-            .map_err(|e| format!("CloudFlare API call failed ({} {}): {}", method, endpoint, e))?;
+        let output = cmd.output().map_err(|e| {
+            format!(
+                "CloudFlare API call failed ({} {}): {}",
+                method, endpoint, e
+            )
+        })?;
 
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -323,7 +326,10 @@ impl CloudFlareManager {
         email: &str,
         zone_id: &str,
     ) -> Result<serde_json::Value, String> {
-        let endpoint = format!("/zones/{}/analytics/dashboard?since=-1440&continuous=true", zone_id);
+        let endpoint = format!(
+            "/zones/{}/analytics/dashboard?since=-1440&continuous=true",
+            zone_id
+        );
         let resp = Self::api_call("GET", &endpoint, api_key, email, None)?;
         serde_json::from_str(&resp).map_err(|e| e.to_string())
     }

@@ -1,4 +1,3 @@
-
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::fs;
 use std::io::{Read, Write};
@@ -283,7 +282,9 @@ impl WordPressManager {
         let config = Self::parse_wp_config(&site.docroot)?;
         let backup_type = match req.backup_type.trim().to_lowercase().as_str() {
             "full" | "files" | "database" => req.backup_type.trim().to_lowercase(),
-            _ => return Err("Desteklenmeyen backup tipi. full/files/database kullanin.".to_string()),
+            _ => {
+                return Err("Desteklenmeyen backup tipi. full/files/database kullanin.".to_string())
+            }
         };
 
         let ts = Self::now_ts();
@@ -295,11 +296,21 @@ impl WordPressManager {
         let (file_name, file_path) = if backup_type == "database" {
             let dump_path = domain_dir.join(format!("{}_database.sql", id));
             Self::dump_database(&site.domain, &config, &dump_path)?;
-            (dump_path.file_name().unwrap().to_string_lossy().to_string(), dump_path)
+            (
+                dump_path.file_name().unwrap().to_string_lossy().to_string(),
+                dump_path,
+            )
         } else if backup_type == "files" {
             let archive_path = domain_dir.join(format!("{}_files.tar.gz", id));
             Self::archive_directory_contents(&site.docroot, &archive_path)?;
-            (archive_path.file_name().unwrap().to_string_lossy().to_string(), archive_path)
+            (
+                archive_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string(),
+                archive_path,
+            )
         } else {
             let bundle_root = Self::temp_root().join(&id);
             let site_bundle = bundle_root.join("site");
@@ -318,11 +329,18 @@ impl WordPressManager {
             let archive_path = domain_dir.join(format!("{}_full.tar.gz", id));
             Self::archive_directory_contents(&bundle_root, &archive_path)?;
             let _ = fs::remove_dir_all(&bundle_root);
-            (archive_path.file_name().unwrap().to_string_lossy().to_string(), archive_path)
+            (
+                archive_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string(),
+                archive_path,
+            )
         };
 
-        let metadata = fs::metadata(&file_path)
-            .map_err(|e| format!("Backup dosyasi dogrulanamadi: {}", e))?;
+        let metadata =
+            fs::metadata(&file_path).map_err(|e| format!("Backup dosyasi dogrulanamadi: {}", e))?;
         let entry = WordPressBackupEntry {
             id: id.clone(),
             domain: site.domain.clone(),
@@ -374,10 +392,13 @@ impl WordPressManager {
                 fs::create_dir_all(&extract_root)
                     .map_err(|e| format!("Gecici restore dizini olusturulamadi: {}", e))?;
                 Self::extract_archive(&backup_path, &extract_root)?;
-                let bundle_root = if extract_root.join("site").exists() || extract_root.join("database.sql").exists() {
+                let bundle_root = if extract_root.join("site").exists()
+                    || extract_root.join("database.sql").exists()
+                {
                     extract_root.clone()
                 } else {
-                    Self::single_child_directory(&extract_root).unwrap_or_else(|| extract_root.clone())
+                    Self::single_child_directory(&extract_root)
+                        .unwrap_or_else(|| extract_root.clone())
                 };
                 let restored_site = bundle_root.join("site");
                 let restored_db = bundle_root.join("database.sql");
@@ -420,7 +441,10 @@ impl WordPressManager {
         if staging_domain == source.domain {
             return Err("Staging domain kaynak domain ile ayni olamaz.".to_string());
         }
-        if Self::site_candidates()?.iter().any(|site| site.domain == staging_domain) {
+        if Self::site_candidates()?
+            .iter()
+            .any(|site| site.domain == staging_domain)
+        {
             return Err("Bu staging domain zaten mevcut.".to_string());
         }
 
@@ -457,7 +481,8 @@ impl WordPressManager {
             }
         }
 
-        let temp_dump = Self::temp_root().join(format!("{}_stage.sql", Self::slugify(&staging_domain)));
+        let temp_dump =
+            Self::temp_root().join(format!("{}_stage.sql", Self::slugify(&staging_domain)));
         Self::dump_database(&source.domain, &source_config, &temp_dump)?;
         let target_config = WordPressConfig {
             db_name: db_name.clone(),
@@ -474,19 +499,33 @@ impl WordPressManager {
         let target_url = format!("https://{}", staging_domain);
         let _ = Self::run_wp_capture(
             &target_docroot,
-            &["search-replace", &source_url, &target_url, "--skip-columns=guid"],
+            &[
+                "search-replace",
+                &source_url,
+                &target_url,
+                "--skip-columns=guid",
+            ],
         );
         let source_http = source_url.replace("https://", "http://");
         let target_http = target_url.replace("https://", "http://");
         if source_http != source_url {
             let _ = Self::run_wp_capture(
                 &target_docroot,
-                &["search-replace", &source_http, &target_http, "--skip-columns=guid"],
+                &[
+                    "search-replace",
+                    &source_http,
+                    &target_http,
+                    "--skip-columns=guid",
+                ],
             );
         }
 
         let entry = WordPressStagingEntry {
-            id: format!("wpstage_{}_{}", Self::slugify(&source.domain), Self::now_ts()),
+            id: format!(
+                "wpstage_{}_{}",
+                Self::slugify(&source.domain),
+                Self::now_ts()
+            ),
             source_domain: source.domain,
             staging_domain,
             owner: source.owner,
@@ -551,7 +590,12 @@ impl WordPressManager {
     fn list_plugins_for_path(docroot: &Path) -> Result<Vec<WordPressPluginInfo>, String> {
         let raw: Vec<RawWpExtension> = Self::run_wp_json(
             docroot,
-            &["plugin", "list", "--format=json", "--fields=name,title,status,version,update"],
+            &[
+                "plugin",
+                "list",
+                "--format=json",
+                "--fields=name,title,status,version,update",
+            ],
         )?;
         Ok(raw
             .into_iter()
@@ -568,7 +612,12 @@ impl WordPressManager {
     fn list_themes_for_path(docroot: &Path) -> Result<Vec<WordPressThemeInfo>, String> {
         let raw: Vec<RawWpExtension> = Self::run_wp_json(
             docroot,
-            &["theme", "list", "--format=json", "--fields=name,title,status,version,update"],
+            &[
+                "theme",
+                "list",
+                "--format=json",
+                "--fields=name,title,status,version,update",
+            ],
         )?;
         Ok(raw
             .into_iter()
@@ -630,8 +679,8 @@ impl WordPressManager {
             .ok_or_else(|| "DB_USER bulunamadi.".to_string())?;
         let db_pass = Self::extract_wp_define(&content, "DB_PASSWORD")
             .ok_or_else(|| "DB_PASSWORD bulunamadi.".to_string())?;
-        let db_host = Self::extract_wp_define(&content, "DB_HOST")
-            .unwrap_or_else(|| "localhost".to_string());
+        let db_host =
+            Self::extract_wp_define(&content, "DB_HOST").unwrap_or_else(|| "localhost".to_string());
 
         Ok(WordPressConfig {
             db_name,
@@ -643,8 +692,8 @@ impl WordPressManager {
 
     fn rewrite_wp_config(docroot: &Path, config: &WordPressConfig) -> Result<(), String> {
         let path = docroot.join("wp-config.php");
-        let content = fs::read_to_string(&path)
-            .map_err(|e| format!("wp-config okunamadi: {}", e))?;
+        let content =
+            fs::read_to_string(&path).map_err(|e| format!("wp-config okunamadi: {}", e))?;
         let content = Self::replace_wp_define(&content, "DB_NAME", &config.db_name);
         let content = Self::replace_wp_define(&content, "DB_USER", &config.db_user);
         let content = Self::replace_wp_define(&content, "DB_PASSWORD", &config.db_pass);
@@ -705,7 +754,11 @@ impl WordPressManager {
         }
     }
 
-    fn import_database(domain: &str, config: &WordPressConfig, dump_path: &Path) -> Result<(), String> {
+    fn import_database(
+        domain: &str,
+        config: &WordPressConfig,
+        dump_path: &Path,
+    ) -> Result<(), String> {
         match Self::resolve_db_engine(domain).as_str() {
             "postgresql" => Self::import_postgres(config, dump_path),
             _ => Self::import_mariadb(config, dump_path),
@@ -723,7 +776,9 @@ impl WordPressManager {
             .output()
             .map_err(|e| format!("mysqldump basarisiz: {}", e))?;
         if !output_data.status.success() {
-            return Err(String::from_utf8_lossy(&output_data.stderr).trim().to_string());
+            return Err(String::from_utf8_lossy(&output_data.stderr)
+                .trim()
+                .to_string());
         }
         fs::write(output, output_data.stdout).map_err(|e| format!("MariaDB dump yazilamadi: {}", e))
     }
@@ -749,7 +804,9 @@ impl WordPressManager {
             .ok_or_else(|| "mysql stdin kullanilamadi.".to_string())?
             .write_all(&sql)
             .map_err(|e| format!("MariaDB import yazilamadi: {}", e))?;
-        let result = child.wait_with_output().map_err(|e| format!("mysql import tamamlama hatasi: {}", e))?;
+        let result = child
+            .wait_with_output()
+            .map_err(|e| format!("mysql import tamamlama hatasi: {}", e))?;
         if !result.status.success() {
             return Err(String::from_utf8_lossy(&result.stderr).trim().to_string());
         }
@@ -807,12 +864,23 @@ impl WordPressManager {
                 return (host.to_string(), port.to_string());
             }
         }
-        (if trimmed.is_empty() { "localhost".to_string() } else { trimmed.to_string() }, default_port.to_string())
+        (
+            if trimmed.is_empty() {
+                "localhost".to_string()
+            } else {
+                trimmed.to_string()
+            },
+            default_port.to_string(),
+        )
     }
 
     fn archive_directory(source: &Path, output: &Path) -> Result<(), String> {
-        let parent = source.parent().ok_or_else(|| "Archive source parent bulunamadi.".to_string())?;
-        let name = source.file_name().ok_or_else(|| "Archive source ismi bulunamadi.".to_string())?;
+        let parent = source
+            .parent()
+            .ok_or_else(|| "Archive source parent bulunamadi.".to_string())?;
+        let name = source
+            .file_name()
+            .ok_or_else(|| "Archive source ismi bulunamadi.".to_string())?;
         let result = Command::new("tar")
             .arg("-czf")
             .arg(output)
@@ -843,7 +911,8 @@ impl WordPressManager {
     }
 
     fn extract_archive(archive: &Path, destination: &Path) -> Result<(), String> {
-        fs::create_dir_all(destination).map_err(|e| format!("Extract dizini olusturulamadi: {}", e))?;
+        fs::create_dir_all(destination)
+            .map_err(|e| format!("Extract dizini olusturulamadi: {}", e))?;
         let result = Command::new("tar")
             .arg("-xzf")
             .arg(archive)
@@ -900,7 +969,9 @@ impl WordPressManager {
         for arg in args {
             command.arg(arg);
         }
-        let output = command.output().map_err(|e| format!("wp-cli calistirilamadi: {}", e))?;
+        let output = command
+            .output()
+            .map_err(|e| format!("wp-cli calistirilamadi: {}", e))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             if stderr.is_empty() {
@@ -912,18 +983,25 @@ impl WordPressManager {
     }
 
     fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
-        fs::create_dir_all(destination).map_err(|e| format!("Hedef dizin olusturulamadi: {}", e))?;
+        fs::create_dir_all(destination)
+            .map_err(|e| format!("Hedef dizin olusturulamadi: {}", e))?;
         for entry in fs::read_dir(source).map_err(|e| format!("Kaynak dizin okunamadi: {}", e))? {
             let entry = entry.map_err(|e| format!("Dizin girdisi okunamadi: {}", e))?;
             let src_path = entry.path();
             let dst_path = destination.join(entry.file_name());
-            if entry.file_type().map_err(|e| format!("Dosya tipi okunamadi: {}", e))?.is_dir() {
+            if entry
+                .file_type()
+                .map_err(|e| format!("Dosya tipi okunamadi: {}", e))?
+                .is_dir()
+            {
                 Self::copy_dir_recursive(&src_path, &dst_path)?;
             } else {
                 if let Some(parent) = dst_path.parent() {
-                    fs::create_dir_all(parent).map_err(|e| format!("Alt dizin olusturulamadi: {}", e))?;
+                    fs::create_dir_all(parent)
+                        .map_err(|e| format!("Alt dizin olusturulamadi: {}", e))?;
                 }
-                fs::copy(&src_path, &dst_path).map_err(|e| format!("Dosya kopyalanamadi: {}", e))?;
+                fs::copy(&src_path, &dst_path)
+                    .map_err(|e| format!("Dosya kopyalanamadi: {}", e))?;
             }
         }
         Ok(())
@@ -934,7 +1012,11 @@ impl WordPressManager {
         for entry in fs::read_dir(path).map_err(|e| format!("Dizin okunamadi: {}", e))? {
             let entry = entry.map_err(|e| format!("Dizin girdisi okunamadi: {}", e))?;
             let item_path = entry.path();
-            if entry.file_type().map_err(|e| format!("Dosya tipi okunamadi: {}", e))?.is_dir() {
+            if entry
+                .file_type()
+                .map_err(|e| format!("Dosya tipi okunamadi: {}", e))?
+                .is_dir()
+            {
                 fs::remove_dir_all(&item_path).map_err(|e| format!("Klasor silinemedi: {}", e))?;
             } else {
                 fs::remove_file(&item_path).map_err(|e| format!("Dosya silinemedi: {}", e))?;
@@ -977,16 +1059,19 @@ impl WordPressManager {
         if !path.exists() {
             return Ok(WordPressState::default());
         }
-        let raw = fs::read_to_string(&path).map_err(|e| format!("WordPress state okunamadi: {}", e))?;
+        let raw =
+            fs::read_to_string(&path).map_err(|e| format!("WordPress state okunamadi: {}", e))?;
         serde_json::from_str(&raw).map_err(|e| format!("WordPress state parse edilemedi: {}", e))
     }
 
     fn save_state(state: &WordPressState) -> Result<(), String> {
         let path = Self::state_path();
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| format!("WordPress state dizini olusturulamadi: {}", e))?;
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("WordPress state dizini olusturulamadi: {}", e))?;
         }
-        let json = serde_json::to_string_pretty(state).map_err(|e| format!("WordPress state json olusturulamadi: {}", e))?;
+        let json = serde_json::to_string_pretty(state)
+            .map_err(|e| format!("WordPress state json olusturulamadi: {}", e))?;
         fs::write(path, json).map_err(|e| format!("WordPress state yazilamadi: {}", e))
     }
 
@@ -1040,6 +1125,10 @@ impl WordPressManager {
             }
         }
         let fallback = Self::now_ts().to_string();
-        fallback.repeat((len / fallback.len()) + 1).chars().take(len).collect()
+        fallback
+            .repeat((len / fallback.len()) + 1)
+            .chars()
+            .take(len)
+            .collect()
     }
 }

@@ -31,9 +31,17 @@ impl MlWaf {
 
         // SQL Injection kalıpları
         let sqli_patterns = [
-            "' or '1'='1", "union select", "drop table", "insert into",
-            "delete from", "1=1", "' or 1=1--", "admin'--",
-            "sleep(", "benchmark(", "load_file(",
+            "' or '1'='1",
+            "union select",
+            "drop table",
+            "insert into",
+            "delete from",
+            "1=1",
+            "' or 1=1--",
+            "admin'--",
+            "sleep(",
+            "benchmark(",
+            "load_file(",
         ];
         for pattern in &sqli_patterns {
             if combined.contains(pattern) {
@@ -44,8 +52,13 @@ impl MlWaf {
 
         // XSS kalıpları
         let xss_patterns = [
-            "<script", "javascript:", "onerror=", "onload=",
-            "document.cookie", "eval(", "alert(",
+            "<script",
+            "javascript:",
+            "onerror=",
+            "onload=",
+            "document.cookie",
+            "eval(",
+            "alert(",
         ];
         for pattern in &xss_patterns {
             if combined.contains(pattern) {

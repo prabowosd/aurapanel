@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import api from '../services/api'
 import i18n from '../i18n'
 import { useNotificationStore } from './notifications'
+import { normalizeRole } from '../security/rbac'
 
 const TOKEN_KEY = 'aura_token'
 const USER_KEY = 'aura_user'
@@ -93,7 +94,10 @@ export const useAuthStore = defineStore('auth', {
   }),
   getters: {
     isAuthenticated: (state) => !!state.token,
-    isAdmin: (state) => state.user?.role === 'admin'
+    role: (state) => normalizeRole(state.user?.role),
+    isAdmin: (state) => normalizeRole(state.user?.role) === 'admin',
+    isReseller: (state) => normalizeRole(state.user?.role) === 'reseller',
+    isUser: (state) => normalizeRole(state.user?.role) === 'user',
   },
   actions: {
     isTokenExpired(token = this.token) {

@@ -29,7 +29,7 @@
           <span>{{ t('menu.dashboard') }}</span>
         </router-link>
 
-        <div class="mt-3">
+        <div v-if="canHostingGroup" class="mt-3">
           <button @click="hostingMenuOpen = !hostingMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isHostingRoute }">
             <div class="flex items-center">
               <Box class="w-5 h-5 mr-3" />
@@ -40,26 +40,26 @@
 
           <transition name="accordion">
             <div v-show="hostingMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
-              <router-link to="/websites" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/websites')" to="/websites" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('menu.websites') }}</span>
               </router-link>
-              <router-link to="/migration" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/migration')" to="/migration" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>Migration Wizard</span>
               </router-link>
-              <router-link to="/packages" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/packages')" to="/packages" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('menu.packages') }}</span>
               </router-link>
-              <router-link to="/users" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/users')" to="/users" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('menu.users') }}</span>
               </router-link>
-              <router-link to="/reseller" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/reseller')" to="/reseller" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('layout.links.reseller_acl') }}</span>
               </router-link>
             </div>
           </transition>
         </div>
 
-        <div class="mt-2">
+        <div v-if="canWebAppsGroup" class="mt-2">
           <button @click="webAppsMenuOpen = !webAppsMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isWebAppsRoute }">
             <div class="flex items-center">
               <Globe class="w-5 h-5 mr-3" />
@@ -70,7 +70,7 @@
 
           <transition name="accordion">
             <div v-show="webAppsMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
-              <router-link to="/dns" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/dns')" to="/dns" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('menu.dns') }}</span>
               </router-link>
 
@@ -85,6 +85,7 @@
               <transition name="accordion">
                 <div v-show="sslMenuOpen" class="ml-3 mt-1 space-y-0.5 border-l border-panel-border/40 pl-3">
                   <router-link
+                    v-if="can('/ssl')"
                     :to="{ path: '/ssl', query: { tab: 'manage' } }"
                     class="sidebar-sub-link"
                     :class="{ 'sidebar-sub-link-active': isSslTabActive('manage') }"
@@ -92,6 +93,7 @@
                     <span>{{ t('layout.links.ssl_manage') }}</span>
                   </router-link>
                   <router-link
+                    v-if="can('/ssl')"
                     :to="{ path: '/ssl', query: { tab: 'hostname' } }"
                     class="sidebar-sub-link"
                     :class="{ 'sidebar-sub-link-active': isSslTabActive('hostname') }"
@@ -99,6 +101,7 @@
                     <span>{{ t('layout.links.ssl_hostname') }}</span>
                   </router-link>
                   <router-link
+                    v-if="can('/ssl')"
                     :to="{ path: '/ssl', query: { tab: 'mail' } }"
                     class="sidebar-sub-link"
                     :class="{ 'sidebar-sub-link-active': isSslTabActive('mail') }"
@@ -108,29 +111,29 @@
                 </div>
               </transition>
 
-              <router-link to="/cloudflare" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/cloudflare')" to="/cloudflare" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('routes.CloudFlare') }}</span>
               </router-link>
-              <router-link to="/wordpress" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/wordpress')" to="/wordpress" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('layout.links.wordpress_manager') }}</span>
               </router-link>
-              <router-link to="/app-runtime" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/app-runtime')" to="/app-runtime" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('layout.links.app_runtime') }}</span>
               </router-link>
-              <router-link to="/php" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/php')" to="/php" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('routes.PHP') }}</span>
               </router-link>
-              <router-link to="/filemanager" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/filemanager')" to="/filemanager" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('layout.links.file_manager') }}</span>
               </router-link>
-              <router-link to="/terminal" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/terminal')" to="/terminal" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('layout.links.terminal') }}</span>
               </router-link>
             </div>
           </transition>
         </div>
 
-        <div class="mt-2">
+        <div v-if="canDataAccessGroup" class="mt-2">
           <button @click="dataAccessMenuOpen = !dataAccessMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isDataAccessRoute }">
             <div class="flex items-center">
               <Database class="w-5 h-5 mr-3" />
@@ -141,13 +144,13 @@
 
           <transition name="accordion">
             <div v-show="dataAccessMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
-              <router-link to="/databases" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/databases')" to="/databases" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('menu.databases') }}</span>
               </router-link>
-              <router-link to="/emails" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/emails')" to="/emails" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('menu.emails') }}</span>
               </router-link>
-              <router-link to="/minio" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/minio')" to="/minio" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('routes.MinIO') }}</span>
               </router-link>
 
@@ -161,10 +164,10 @@
 
               <transition name="accordion">
                 <div v-show="ftpMenuOpen" class="ml-3 mt-1 space-y-0.5 border-l border-panel-border/40 pl-3">
-                  <router-link to="/ftp" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/ftp')" to="/ftp" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>FTP</span>
                   </router-link>
-                  <router-link to="/sftp" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/sftp')" to="/sftp" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>SFTP</span>
                   </router-link>
                 </div>
@@ -180,10 +183,10 @@
 
               <transition name="accordion">
                 <div v-show="backupsMenuOpen" class="ml-3 mt-1 space-y-0.5 border-l border-panel-border/40 pl-3">
-                  <router-link to="/backups" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/backups')" to="/backups" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.file_backups') }}</span>
                   </router-link>
-                  <router-link to="/db-backup" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/db-backup')" to="/db-backup" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('routes.DbBackup') }}</span>
                   </router-link>
                 </div>
@@ -192,7 +195,7 @@
           </transition>
         </div>
 
-        <div class="mt-2">
+        <div v-if="canSecurityGroup" class="mt-2">
           <button @click="securityLogsMenuOpen = !securityLogsMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isSecurityLogsRoute }">
             <div class="flex items-center">
               <Shield class="w-5 h-5 mr-3" />
@@ -213,22 +216,22 @@
 
               <transition name="accordion">
                 <div v-show="securityMenuOpen" class="ml-3 mt-1 space-y-0.5 border-l border-panel-border/40 pl-3">
-                  <router-link :to="{ path: '/security', query: { tab: 'overview' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/security')" :to="{ path: '/security', query: { tab: 'overview' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.overview') }}</span>
                   </router-link>
-                  <router-link :to="{ path: '/security', query: { tab: 'firewall' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/security')" :to="{ path: '/security', query: { tab: 'firewall' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.firewall') }}</span>
                   </router-link>
-                  <router-link :to="{ path: '/security', query: { tab: 'waf' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/security')" :to="{ path: '/security', query: { tab: 'waf' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.ml_waf') }}</span>
                   </router-link>
-                  <router-link :to="{ path: '/security', query: { tab: '2fa' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/security')" :to="{ path: '/security', query: { tab: '2fa' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.totp') }}</span>
                   </router-link>
-                  <router-link :to="{ path: '/security', query: { tab: 'ssh' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/security')" :to="{ path: '/security', query: { tab: 'ssh' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.ssh_keys') }}</span>
                   </router-link>
-                  <router-link :to="{ path: '/security', query: { tab: 'hardening' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/security')" :to="{ path: '/security', query: { tab: 'hardening' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.hardening') }}</span>
                   </router-link>
                 </div>
@@ -244,10 +247,10 @@
 
               <transition name="accordion">
                 <div v-show="logsMenuOpen" class="ml-3 mt-1 space-y-0.5 border-l border-panel-border/40 pl-3">
-                  <router-link to="/activity-log" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/activity-log')" to="/activity-log" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.activity_log') }}</span>
                   </router-link>
-                  <router-link to="/log-viewer" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/log-viewer')" to="/log-viewer" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.log_viewer') }}</span>
                   </router-link>
                 </div>
@@ -256,7 +259,7 @@
           </transition>
         </div>
 
-        <div class="mt-2">
+        <div v-if="canDevopsGroup" class="mt-2">
           <button @click="devopsMenuOpen = !devopsMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isDevopsRoute }">
             <div class="flex items-center">
               <Container class="w-5 h-5 mr-3" />
@@ -280,47 +283,47 @@
                   <div class="pt-1 pb-1">
                     <span class="px-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">{{ t('layout.labels.manager') }}</span>
                   </div>
-                  <router-link to="/docker/images" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/docker/images')" to="/docker/images" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.image_manager') }}</span>
                   </router-link>
-                  <router-link to="/docker/containers" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/docker/containers')" to="/docker/containers" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.container_manager') }}</span>
                   </router-link>
-                  <router-link to="/docker/create" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/docker/create')" to="/docker/create" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.create_container') }}</span>
                   </router-link>
                   <div class="pt-2 pb-1">
                     <span class="px-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">{{ t('layout.labels.apps') }}</span>
                   </div>
-                  <router-link to="/docker/apps" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/docker/apps')" to="/docker/apps" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.app_store') }}</span>
                   </router-link>
-                  <router-link to="/docker/apps/installed" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/docker/apps/installed')" to="/docker/apps/installed" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.installed_apps') }}</span>
                   </router-link>
-                  <router-link to="/docker/apps/packages" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/docker/apps/packages')" to="/docker/apps/packages" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.docker_packages') }}</span>
                   </router-link>
                 </div>
               </transition>
 
-              <router-link to="/cron-jobs" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/cron-jobs')" to="/cron-jobs" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('layout.links.cron_jobs') }}</span>
               </router-link>
-              <router-link to="/federated" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/federated')" to="/federated" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('routes.Federated') }}</span>
               </router-link>
-              <router-link to="/auradb" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/auradb')" to="/auradb" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('routes.AuraDB') }}</span>
               </router-link>
-              <router-link to="/ops-center" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/ops-center')" to="/ops-center" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>Ops Center</span>
               </router-link>
             </div>
           </transition>
         </div>
 
-        <div class="mt-2">
+        <div v-if="canSystemGroup" class="mt-2">
           <button @click="systemMenuOpen = !systemMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isSystemRoute }">
             <div class="flex items-center">
               <Settings2 class="w-5 h-5 mr-3" />
@@ -331,13 +334,13 @@
 
           <transition name="accordion">
             <div v-show="systemMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
-              <router-link to="/server-status" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/server-status')" to="/server-status" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('routes.ServerStatus') }}</span>
               </router-link>
-              <router-link to="/ols-tuning" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/ols-tuning')" to="/ols-tuning" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('routes.OlsTuning') }}</span>
               </router-link>
-              <router-link to="/panel-port" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/panel-port')" to="/panel-port" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('layout.links.panel_port') }}</span>
               </router-link>
             </div>
@@ -489,6 +492,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationStore } from '../stores/notifications'
+import { canAccessPath } from '../security/rbac'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
 import {
   Activity,
@@ -592,6 +596,26 @@ const pageTitle = computed(() => {
   return key ? t(key) : routeName
 })
 
+const can = (path) => canAccessPath(path, authStore.role)
+const canHostingGroup = computed(() =>
+  ['/websites', '/migration', '/packages', '/users', '/reseller'].some((path) => can(path)),
+)
+const canWebAppsGroup = computed(() =>
+  ['/dns', '/ssl', '/cloudflare', '/wordpress', '/app-runtime', '/php', '/filemanager', '/terminal'].some((path) => can(path)),
+)
+const canDataAccessGroup = computed(() =>
+  ['/databases', '/emails', '/minio', '/ftp', '/sftp', '/backups', '/db-backup'].some((path) => can(path)),
+)
+const canSecurityGroup = computed(() =>
+  ['/security', '/activity-log', '/log-viewer'].some((path) => can(path)),
+)
+const canDevopsGroup = computed(() =>
+  ['/docker/images', '/docker/containers', '/docker/create', '/docker/apps', '/cron-jobs', '/federated', '/auradb', '/ops-center'].some((path) => can(path)),
+)
+const canSystemGroup = computed(() =>
+  ['/server-status', '/ols-tuning', '/panel-port'].some((path) => can(path)),
+)
+
 const commandItems = computed(() => [
   { label: t('routes.Dashboard'), path: '/' },
   { label: t('routes.Websites'), path: '/websites' },
@@ -628,6 +652,7 @@ const commandItems = computed(() => [
   { label: t('routes.ActivityLog'), path: '/activity-log' },
   { label: t('routes.DbBackup'), path: '/db-backup' },
 ])
+const roleFilteredCommandItems = computed(() => commandItems.value.filter((item) => can(item.path)))
 
 const isDockerRoute = computed(() => route.path.startsWith('/docker'))
 const isSecurityRoute = computed(() => route.path.startsWith('/security'))
@@ -672,8 +697,8 @@ const isSslTabActive = (tab) => {
 }
 const filteredCommandItems = computed(() => {
   const q = commandQuery.value.trim().toLowerCase()
-  if (!q) return commandItems.value
-  return commandItems.value.filter(i => i.label.toLowerCase().includes(q) || i.path.toLowerCase().includes(q))
+  if (!q) return roleFilteredCommandItems.value
+  return roleFilteredCommandItems.value.filter(i => i.label.toLowerCase().includes(q) || i.path.toLowerCase().includes(q))
 })
 
 const syncMenuState = () => {

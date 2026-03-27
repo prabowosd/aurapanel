@@ -93,7 +93,11 @@ fn normalize_username(input: &str) -> Option<String> {
 
 fn normalize_domain(input: Option<&str>) -> Option<String> {
     let raw = input?.trim().trim_end_matches('.').to_ascii_lowercase();
-    if raw.is_empty() { None } else { Some(raw) }
+    if raw.is_empty() {
+        None
+    } else {
+        Some(raw)
+    }
 }
 
 fn load_sftp_users() -> Result<Vec<SftpUserRecord>, String> {
@@ -149,11 +153,13 @@ fn purepw_path() -> &'static str {
 }
 
 fn purepw_file() -> String {
-    std::env::var("AURAPANEL_PUREPW_FILE").unwrap_or_else(|_| "/etc/pure-ftpd/pureftpd.passwd".to_string())
+    std::env::var("AURAPANEL_PUREPW_FILE")
+        .unwrap_or_else(|_| "/etc/pure-ftpd/pureftpd.passwd".to_string())
 }
 
 fn purepdb_file() -> String {
-    std::env::var("AURAPANEL_PUREPDB_FILE").unwrap_or_else(|_| "/etc/pure-ftpd/pureftpd.pdb".to_string())
+    std::env::var("AURAPANEL_PUREPDB_FILE")
+        .unwrap_or_else(|_| "/etc/pure-ftpd/pureftpd.pdb".to_string())
 }
 
 fn ensure_purepw_backend() -> Result<(), String> {
@@ -270,11 +276,16 @@ impl SecureConnectManager {
             .map_err(|e| format!("useradd failed: {}", e))?;
 
         let _ = Command::new("sh")
-            .args(["-c", &format!("echo '{}:{}' | chpasswd", username, password)])
+            .args([
+                "-c",
+                &format!("echo '{}:{}' | chpasswd", username, password),
+            ])
             .output()
             .map_err(|e| format!("chpasswd failed: {}", e))?;
 
-        let _ = Command::new("chown").args(["root:root", &home_dir]).output();
+        let _ = Command::new("chown")
+            .args(["root:root", &home_dir])
+            .output();
         let _ = Command::new("chmod").args(["755", &home_dir]).output();
 
         let mut users = load_sftp_users()?;
@@ -318,7 +329,10 @@ impl SecureConnectManager {
         }
 
         let _ = Command::new("sh")
-            .args(["-c", &format!("echo '{}:{}' | chpasswd", username, password)])
+            .args([
+                "-c",
+                &format!("echo '{}:{}' | chpasswd", username, password),
+            ])
             .output()
             .map_err(|e| format!("chpasswd failed: {}", e))?;
         Ok(())
@@ -383,7 +397,8 @@ impl SecureConnectManager {
     }
 
     pub fn delete_ftp_user(username: &str) -> Result<(), String> {
-        let username = normalize_username(username).ok_or_else(|| "valid username is required.".to_string())?;
+        let username = normalize_username(username)
+            .ok_or_else(|| "valid username is required.".to_string())?;
         ensure_purepw_backend()?;
 
         let args = vec![
@@ -406,7 +421,8 @@ impl SecureConnectManager {
     }
 
     pub fn reset_ftp_password(req: &FtpPasswordResetRequest) -> Result<(), String> {
-        let username = normalize_username(&req.username).ok_or_else(|| "valid username is required.".to_string())?;
+        let username = normalize_username(&req.username)
+            .ok_or_else(|| "valid username is required.".to_string())?;
         let password = req.new_password.trim().to_string();
         if password.is_empty() {
             return Err("new_password is required.".to_string());

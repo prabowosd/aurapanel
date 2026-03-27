@@ -1,7 +1,7 @@
 use anyhow::Result;
-use std::process::Command;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 pub struct PythonManager;
 
@@ -23,7 +23,7 @@ impl PythonManager {
     pub fn install_requirements(&self, dir: &str) -> Result<bool> {
         let pip_path = Path::new(dir).join("venv/bin/pip");
         let req_path = Path::new(dir).join("requirements.txt");
-        
+
         if req_path.exists() {
             let output = Command::new(pip_path)
                 .arg("install")
@@ -36,10 +36,16 @@ impl PythonManager {
             Ok(true) // no requirements
         }
     }
-    
-    pub fn start_gunicorn(&self, app_name: &str, wsgi_module: &str, dir: &str, port: u16) -> Result<bool> {
+
+    pub fn start_gunicorn(
+        &self,
+        app_name: &str,
+        wsgi_module: &str,
+        dir: &str,
+        port: u16,
+    ) -> Result<bool> {
         let gunicorn_cmd = format!("gunicorn {} -b 127.0.0.1:{}", wsgi_module, port);
-        
+
         let output = Command::new("pm2")
             .arg("start")
             .arg(gunicorn_cmd)
@@ -47,7 +53,7 @@ impl PythonManager {
             .arg(app_name)
             .current_dir(dir)
             .output()?;
-        
+
         Ok(output.status.success())
     }
 }

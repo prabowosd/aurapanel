@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -51,7 +51,9 @@ impl OlsTuningManager {
         save_state(&normalized)?;
 
         if crate::runtime::simulation_enabled() {
-            return Ok("Simulation mode: OLS tuning state saved, config write skipped.".to_string());
+            return Ok(
+                "Simulation mode: OLS tuning state saved, config write skipped.".to_string(),
+            );
         }
 
         let path = ols_httpd_conf_path();
@@ -62,8 +64,8 @@ impl OlsTuningManager {
             ));
         }
 
-        let original = fs::read_to_string(&path)
-            .map_err(|e| format!("OLS config read failed: {}", e))?;
+        let original =
+            fs::read_to_string(&path).map_err(|e| format!("OLS config read failed: {}", e))?;
 
         let managed_block = render_managed_block(&normalized);
         let updated = inject_managed_block(&original, &managed_block);

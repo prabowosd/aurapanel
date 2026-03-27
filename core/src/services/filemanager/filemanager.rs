@@ -131,16 +131,12 @@ impl FileManager {
         }
 
         let mut items = Vec::new();
-        let entries =
-            fs::read_dir(&target_path).map_err(|e| format!("Dizin okunamadi: {}", e))?;
+        let entries = fs::read_dir(&target_path).map_err(|e| format!("Dizin okunamadi: {}", e))?;
 
         for entry in entries.flatten() {
             if let Ok(meta) = entry.metadata() {
                 let is_dir = meta.is_dir();
-                let modified = meta
-                    .modified()
-                    .map(Self::format_time)
-                    .unwrap_or_default();
+                let modified = meta.modified().map(Self::format_time).unwrap_or_default();
 
                 items.push(FileItem {
                     name: entry.file_name().to_string_lossy().to_string(),
@@ -206,16 +202,21 @@ impl FileManager {
 
         let root = matched_root.ok_or_else(|| "Dosya sandbox disinda.".to_string())?;
         let trash_dir = root.join(".trash");
-        
+
         if !trash_dir.exists() {
-            fs::create_dir_all(&trash_dir).map_err(|e| format!("Cop kutusu olusturulamadi: {}", e))?;
+            fs::create_dir_all(&trash_dir)
+                .map_err(|e| format!("Cop kutusu olusturulamadi: {}", e))?;
         }
 
-        let file_name = target_path.file_name().unwrap_or_default().to_string_lossy();
+        let file_name = target_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
         let timestamp = Local::now().format("%Y%m%d_%H%M%S");
         let trash_target = trash_dir.join(format!("{}_{}", file_name, timestamp));
 
-        fs::rename(&target_path, &trash_target).map_err(|e| format!("Cop kutusuna tasinamadi: {}", e))
+        fs::rename(&target_path, &trash_target)
+            .map_err(|e| format!("Cop kutusuna tasinamadi: {}", e))
     }
 
     pub fn compress_items(format: &str, dest: &str, sources: Vec<String>) -> Result<(), String> {
@@ -231,7 +232,12 @@ impl FileManager {
             if parent_dir.is_none() {
                 parent_dir = p.parent().map(|p| p.to_path_buf());
             }
-            resolved_sources.push(p.file_name().unwrap_or_default().to_string_lossy().to_string());
+            resolved_sources.push(
+                p.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+            );
         }
 
         let working_dir = parent_dir.ok_or_else(|| "Gecersiz kaynak dizini.".to_string())?;
@@ -269,14 +275,31 @@ impl FileManager {
         let dest_path = Self::resolve_write_path(dest_dir)?;
 
         if !dest_path.exists() {
-            fs::create_dir_all(&dest_path).map_err(|e| format!("Hedef dizin olusturulamadi: {}", e))?;
+            fs::create_dir_all(&dest_path)
+                .map_err(|e| format!("Hedef dizin olusturulamadi: {}", e))?;
         }
 
         let archive_str = archive_path.to_string_lossy().to_lowercase();
         let (cmd, args) = if archive_str.ends_with(".zip") {
-            ("unzip", vec!["-o".to_string(), archive_path.to_string_lossy().to_string(), "-d".to_string(), dest_path.to_string_lossy().to_string()])
+            (
+                "unzip",
+                vec![
+                    "-o".to_string(),
+                    archive_path.to_string_lossy().to_string(),
+                    "-d".to_string(),
+                    dest_path.to_string_lossy().to_string(),
+                ],
+            )
         } else if archive_str.ends_with(".tar.gz") || archive_str.ends_with(".tgz") {
-            ("tar", vec!["-xzf".to_string(), archive_path.to_string_lossy().to_string(), "-C".to_string(), dest_path.to_string_lossy().to_string()])
+            (
+                "tar",
+                vec![
+                    "-xzf".to_string(),
+                    archive_path.to_string_lossy().to_string(),
+                    "-C".to_string(),
+                    dest_path.to_string_lossy().to_string(),
+                ],
+            )
         } else {
             return Err("Desteklenmeyen arsiv formati (zip veya tar.gz olmali).".to_string());
         };

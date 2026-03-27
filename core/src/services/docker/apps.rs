@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::docker::DockerManager;
+use serde::{Deserialize, Serialize};
 
 // ─── Docker App Şablonları ──────────────────────────────────
 
@@ -100,10 +100,7 @@ impl DockerAppsManager {
                 description: "Web tabanlı MySQL yönetim aracı".into(),
                 image: "phpmyadmin:latest".into(),
                 default_ports: vec!["8081:80".into()],
-                default_env: vec![
-                    "PMA_HOST=mysql-db".into(),
-                    "PMA_PORT=3306".into(),
-                ],
+                default_env: vec!["PMA_HOST=mysql-db".into(), "PMA_PORT=3306".into()],
                 default_volumes: vec![],
                 category: "Tool".into(),
                 icon: "🔧".into(),
@@ -150,22 +147,43 @@ impl DockerAppsManager {
     /// Kaynak limiti paketlerini döndürür
     pub fn list_packages() -> Vec<DockerPackage> {
         vec![
-            DockerPackage { id: "starter".into(), name: "Starter".into(), memory_limit: "256m".into(), cpu_limit: "0.5".into(), max_containers: 3 },
-            DockerPackage { id: "pro".into(), name: "Professional".into(), memory_limit: "1g".into(), cpu_limit: "1.0".into(), max_containers: 10 },
-            DockerPackage { id: "enterprise".into(), name: "Enterprise".into(), memory_limit: "4g".into(), cpu_limit: "2.0".into(), max_containers: 50 },
+            DockerPackage {
+                id: "starter".into(),
+                name: "Starter".into(),
+                memory_limit: "256m".into(),
+                cpu_limit: "0.5".into(),
+                max_containers: 3,
+            },
+            DockerPackage {
+                id: "pro".into(),
+                name: "Professional".into(),
+                memory_limit: "1g".into(),
+                cpu_limit: "1.0".into(),
+                max_containers: 10,
+            },
+            DockerPackage {
+                id: "enterprise".into(),
+                name: "Enterprise".into(),
+                memory_limit: "4g".into(),
+                cpu_limit: "2.0".into(),
+                max_containers: 50,
+            },
         ]
     }
 
     /// Şablondan Docker uygulaması oluşturur
     pub fn create_app(req: &CreateDockerAppRequest) -> Result<String, String> {
         let templates = Self::list_templates();
-        let template = templates.iter()
+        let template = templates
+            .iter()
             .find(|t| t.id == req.template_id)
             .ok_or_else(|| format!("Şablon bulunamadı: {}", req.template_id))?;
 
         // Paketten kaynak limiti al
         let packages = Self::list_packages();
-        let package = req.package_id.as_ref()
+        let package = req
+            .package_id
+            .as_ref()
             .and_then(|pid| packages.iter().find(|p| p.id == *pid));
 
         // Ortam değişkenlerini birleştir

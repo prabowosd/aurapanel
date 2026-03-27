@@ -87,7 +87,8 @@ fn load_rules(engine: &str) -> Vec<RemoteAccessRule> {
 fn save_rules(engine: &str, rules: &[RemoteAccessRule]) -> Result<(), String> {
     let path = rules_path(engine);
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("State directory could not be created: {}", e))?;
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("State directory could not be created: {}", e))?;
     }
     let payload = serde_json::to_string_pretty(rules).map_err(|e| e.to_string())?;
     fs::write(path, payload).map_err(|e| format!("Remote access state could not be written: {}", e))
@@ -149,11 +150,15 @@ pub fn change_password_postgres(req: &DbPasswordChangeRequest) -> Result<String,
 
 pub fn list_remote_access_mariadb(db_user: Option<&str>) -> Result<Vec<RemoteAccessRule>, String> {
     let mut rules = load_rules("mariadb");
-    let output = run_mysql("SELECT User, Host FROM mysql.user WHERE Host NOT IN ('localhost','127.0.0.1','::1');")?;
+    let output = run_mysql(
+        "SELECT User, Host FROM mysql.user WHERE Host NOT IN ('localhost','127.0.0.1','::1');",
+    )?;
     for line in output.lines().skip(1).filter(|x| !x.trim().is_empty()) {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if let (Some(user), Some(host)) = (parts.first(), parts.get(1)) {
-            let exists = rules.iter().any(|r| r.db_user == *user && r.remote == *host && r.engine == "mariadb");
+            let exists = rules
+                .iter()
+                .any(|r| r.db_user == *user && r.remote == *host && r.engine == "mariadb");
             if !exists {
                 rules.push(RemoteAccessRule {
                     engine: "mariadb".to_string(),
@@ -259,19 +264,31 @@ pub fn allow_remote_access_postgres(req: &RemoteAccessGrantRequest) -> Result<St
     Ok(format!("PostgreSQL remote access granted for '{}'.", user))
 }
 
-pub fn check_connection_readiness(engine: &str, db_name: &str, db_user: &str) -> Result<DbConnectionCheckResult, String> {
+pub fn check_connection_readiness(
+    engine: &str,
+    db_name: &str,
+    db_user: &str,
+) -> Result<DbConnectionCheckResult, String> {
     let engine = engine.trim().to_lowercase();
     let database_exists;
     let user_exists;
     let remote_access_rules;
 
     if engine == "mariadb" || engine == "mysql" {
-        database_exists = MariaDbManager::list_databases()?.iter().any(|x| x.name == db_name);
-        user_exists = MariaDbManager::list_users()?.iter().any(|x| x.username == db_user);
+        database_exists = MariaDbManager::list_databases()?
+            .iter()
+            .any(|x| x.name == db_name);
+        user_exists = MariaDbManager::list_users()?
+            .iter()
+            .any(|x| x.username == db_user);
         remote_access_rules = list_remote_access_mariadb(Some(db_user)).unwrap_or_default();
     } else if engine == "postgresql" || engine == "postgres" {
-        database_exists = PostgresManager::list_databases()?.iter().any(|x| x.name == db_name);
-        user_exists = PostgresManager::list_users()?.iter().any(|x| x.username == db_user);
+        database_exists = PostgresManager::list_databases()?
+            .iter()
+            .any(|x| x.name == db_name);
+        user_exists = PostgresManager::list_users()?
+            .iter()
+            .any(|x| x.username == db_user);
         remote_access_rules = list_remote_access_postgres(Some(db_user)).unwrap_or_default();
     } else {
         return Err("Unsupported database engine.".to_string());

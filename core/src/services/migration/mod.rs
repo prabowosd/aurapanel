@@ -127,7 +127,9 @@ impl MigrationManager {
 
         let mut warnings = Vec::new();
         if source_type == MigrationSource::Unknown {
-            warnings.push("Kaynak panel tipi otomatik tespit edilemedi, genel parser kullanildi.".to_string());
+            warnings.push(
+                "Kaynak panel tipi otomatik tespit edilemedi, genel parser kullanildi.".to_string(),
+            );
         }
         if mysql_dumps.is_empty() {
             warnings.push("MySQL dump dosyasi bulunamadi.".to_string());
@@ -243,7 +245,8 @@ impl MigrationManager {
 
         let out_dir = state_root().join("migrations").join("imports").join(job_id);
         let db_dir = out_dir.join("databases");
-        fs::create_dir_all(&db_dir).map_err(|e| format!("DB cikti dizini olusturulamadi: {}", e))?;
+        fs::create_dir_all(&db_dir)
+            .map_err(|e| format!("DB cikti dizini olusturulamadi: {}", e))?;
 
         let mut converted_db_files = Vec::new();
         for (idx, dump_rel_path) in analysis.mysql_dumps.iter().enumerate() {
@@ -257,7 +260,8 @@ impl MigrationManager {
             convert_dump_to_plain_sql(&absolute_dump, &output_file)?;
             converted_db_files.push(output_file.to_string_lossy().to_string());
 
-            let progress = 20u8.saturating_add((((idx + 1) * 30) / analysis.mysql_dumps.len().max(1)) as u8);
+            let progress =
+                20u8.saturating_add((((idx + 1) * 30) / analysis.mysql_dumps.len().max(1)) as u8);
             update_job(
                 job_id,
                 None,
@@ -277,7 +281,10 @@ impl MigrationManager {
             Some(70),
             None,
             None,
-            Some(format!("E-posta plani uretildi ({} hesap).", analysis.email_accounts.len())),
+            Some(format!(
+                "E-posta plani uretildi ({} hesap).",
+                analysis.email_accounts.len()
+            )),
         )?;
 
         let vhost_plan = build_vhost_plan(&analysis.vhost_candidates, target_owner);
@@ -289,7 +296,10 @@ impl MigrationManager {
             Some(82),
             None,
             None,
-            Some(format!("VHost plani uretildi ({} site).", analysis.vhost_candidates.len())),
+            Some(format!(
+                "VHost plani uretildi ({} site).",
+                analysis.vhost_candidates.len()
+            )),
         )?;
 
         let apply_system_import = std::env::var("AURAPANEL_MIGRATION_APPLY_SYSTEM_IMPORT")
@@ -409,7 +419,8 @@ fn save_job(job: &MigrationJob) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Job dizini olusturulamadi: {}", e))?;
     }
-    let json = serde_json::to_string_pretty(job).map_err(|e| format!("Job serialize hatasi: {}", e))?;
+    let json =
+        serde_json::to_string_pretty(job).map_err(|e| format!("Job serialize hatasi: {}", e))?;
     fs::write(path, json).map_err(|e| format!("Job yazilamadi: {}", e))
 }
 
@@ -437,7 +448,10 @@ fn update_job(
     if let Some(line) = log_line {
         job.logs.push(line);
     }
-    if matches!(job.status, MigrationJobState::Completed | MigrationJobState::Failed) {
+    if matches!(
+        job.status,
+        MigrationJobState::Completed | MigrationJobState::Failed
+    ) {
         job.finished_at = Some(now_ts());
     }
     save_job(&job)
@@ -505,12 +519,7 @@ fn scan_extracted_tree(root: &Path) -> Result<ScannedTree, String> {
 }
 
 fn parse_source(value: Option<&str>) -> MigrationSource {
-    match value
-        .unwrap_or("auto")
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
+    match value.unwrap_or("auto").trim().to_ascii_lowercase().as_str() {
         "cpanel" => MigrationSource::Cpanel,
         "cyberpanel" => MigrationSource::Cyberpanel,
         _ => MigrationSource::Unknown,
@@ -619,7 +628,11 @@ fn discover_email_accounts(source: &MigrationSource, tree: &ScannedTree) -> Vec<
                 let domain = parts[idx + 1];
                 let user = parts[idx + 2];
                 if looks_like_domain(domain) && looks_like_local_part(user) {
-                    accounts.insert(format!("{}@{}", user.to_ascii_lowercase(), domain.to_ascii_lowercase()));
+                    accounts.insert(format!(
+                        "{}@{}",
+                        user.to_ascii_lowercase(),
+                        domain.to_ascii_lowercase()
+                    ));
                 }
             }
         }
@@ -642,7 +655,10 @@ fn discover_vhosts(source: &MigrationSource, tree: &ScannedTree) -> Vec<String> 
     for file in &tree.files {
         let rel = file.to_string_lossy().replace('\\', "/");
         let lower = rel.to_ascii_lowercase();
-        if lower.contains("/userdata/") || lower.contains("/vhosts/") || lower.contains("/public_html/") {
+        if lower.contains("/userdata/")
+            || lower.contains("/vhosts/")
+            || lower.contains("/public_html/")
+        {
             for segment in rel.split('/') {
                 if looks_like_domain(segment) {
                     domains.insert(segment.to_ascii_lowercase());
@@ -758,7 +774,8 @@ fn write_json_file<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Dizin olusturulamadi: {}", e))?;
     }
-    let body = serde_json::to_string_pretty(value).map_err(|e| format!("JSON serialize hatasi: {}", e))?;
+    let body =
+        serde_json::to_string_pretty(value).map_err(|e| format!("JSON serialize hatasi: {}", e))?;
     fs::write(path, body).map_err(|e| format!("JSON yazilamadi: {}", e))
 }
 
@@ -775,7 +792,11 @@ mod tests {
         let root = std::env::temp_dir().join(format!("aurapanel-migration-test-{}", now_ts()));
         let source = root.join("source");
         let mysql_dir = source.join("mysql");
-        let mail_dir = source.join("homedir").join("mail").join("example.com").join("admin");
+        let mail_dir = source
+            .join("homedir")
+            .join("mail")
+            .join("example.com")
+            .join("admin");
         let userdata_dir = source.join("userdata").join("example.com");
         fs::create_dir_all(&mysql_dir).expect("mysql dir");
         fs::create_dir_all(&mail_dir).expect("mail dir");
@@ -788,7 +809,9 @@ mod tests {
         let archive_file = fs::File::create(&archive_path).expect("archive create");
         let encoder = GzEncoder::new(archive_file, Compression::default());
         let mut builder = Builder::new(encoder);
-        builder.append_dir_all("cpmove-demo", &source).expect("append");
+        builder
+            .append_dir_all("cpmove-demo", &source)
+            .expect("append");
         let encoder = builder.into_inner().expect("builder finalize");
         encoder.finish().expect("gzip finalize");
 
@@ -798,7 +821,10 @@ mod tests {
         })
         .expect("analyze");
 
-        assert!(matches!(analysis.source_type, MigrationSource::Cpanel | MigrationSource::Unknown));
+        assert!(matches!(
+            analysis.source_type,
+            MigrationSource::Cpanel | MigrationSource::Unknown
+        ));
         assert!(!analysis.mysql_dumps.is_empty());
         assert!(!analysis.email_accounts.is_empty());
         assert!(!analysis.vhost_candidates.is_empty());

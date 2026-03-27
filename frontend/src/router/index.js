@@ -4,6 +4,7 @@ import Dashboard from '../views/Dashboard.vue'
 import Websites from '../views/Websites.vue'
 import Login from '../views/Login.vue'
 import { useAuthStore } from '../stores/auth'
+import { canAccessPath } from '../security/rbac'
 
 const routes = [
   {
@@ -240,6 +241,8 @@ router.beforeEach((to, from, next) => {
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     next('/login')
   } else if (to.meta.requiresGuest && authStore.isAuthenticated) {
+    next('/')
+  } else if (to.meta.requiresAuth && !canAccessPath(to.path, authStore.role)) {
     next('/')
   } else {
     next()

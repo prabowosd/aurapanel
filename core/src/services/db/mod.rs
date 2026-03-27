@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::process::Command;
 
 pub mod auradb;
@@ -71,7 +71,10 @@ impl MariaDbManager {
             Self::run_sql(sql)?;
         }
         Ok(DbCreateResult {
-            message: format!("MariaDB veritabanı '{}' ve kullanıcı '{}' oluşturuldu", config.db_name, config.db_user),
+            message: format!(
+                "MariaDB veritabanı '{}' ve kullanıcı '{}' oluşturuldu",
+                config.db_name, config.db_user
+            ),
             db_name: config.db_name.clone(),
             db_user: config.db_user.clone(),
             engine: "mariadb".to_string(),
@@ -92,7 +95,8 @@ impl MariaDbManager {
 
     pub fn list_databases() -> Result<Vec<DatabaseInfo>, String> {
         let output = Self::run_sql("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME NOT IN ('information_schema','mysql','performance_schema','sys');")?;
-        let dbs: Vec<DatabaseInfo> = output.lines()
+        let dbs: Vec<DatabaseInfo> = output
+            .lines()
             .skip(1)
             .filter(|l| !l.is_empty())
             .map(|l| DatabaseInfo {
@@ -107,7 +111,8 @@ impl MariaDbManager {
 
     pub fn list_users() -> Result<Vec<DbUserInfo>, String> {
         let output = Self::run_sql("SELECT User, Host FROM mysql.user WHERE User NOT IN ('root','mysql.sys','mysql.session','mariadb.sys','debian-sys-maint');")?;
-        let users: Vec<DbUserInfo> = output.lines()
+        let users: Vec<DbUserInfo> = output
+            .lines()
             .skip(1)
             .filter(|l| !l.is_empty())
             .map(|l| {
@@ -149,21 +154,29 @@ impl PostgresManager {
 
         // Veritabanı oluştur
         let check = Self::run_psql(&format!(
-            "SELECT 1 FROM pg_database WHERE datname = '{}';", config.db_name
+            "SELECT 1 FROM pg_database WHERE datname = '{}';",
+            config.db_name
         ))?;
         if !check.contains("1") {
             // createdb komutu daha güvenli (psql CREATE DATABASE transaction'da çalışmaz)
             let output = Command::new("sudo")
-                .args(["-u", "postgres", "createdb", &config.db_name, "-O", &config.db_user])
+                .args([
+                    "-u",
+                    "postgres",
+                    "createdb",
+                    &config.db_name,
+                    "-O",
+                    &config.db_user,
+                ])
                 .output();
             match output {
-                Ok(o) if o.status.success() => {},
+                Ok(o) if o.status.success() => {}
                 Ok(o) => {
                     let err = String::from_utf8_lossy(&o.stderr).to_string();
                     if !err.contains("already exists") {
                         return Err(err);
                     }
-                },
+                }
                 Err(e) => return Err(format!("createdb command failed: {}", e)),
             }
         }
@@ -175,7 +188,10 @@ impl PostgresManager {
         ))?;
 
         Ok(DbCreateResult {
-            message: format!("PostgreSQL veritabanı '{}' ve kullanıcı '{}' oluşturuldu", config.db_name, config.db_user),
+            message: format!(
+                "PostgreSQL veritabanı '{}' ve kullanıcı '{}' oluşturuldu",
+                config.db_name, config.db_user
+            ),
             db_name: config.db_name.clone(),
             db_user: config.db_user.clone(),
             engine: "postgresql".to_string(),
@@ -193,7 +209,9 @@ impl PostgresManager {
             .args(["-u", "postgres", "dropdb", "--if-exists", db_name])
             .output();
         match output {
-            Ok(o) if o.status.success() => Ok(format!("PostgreSQL veritabanı '{}' silindi", db_name)),
+            Ok(o) if o.status.success() => {
+                Ok(format!("PostgreSQL veritabanı '{}' silindi", db_name))
+            }
             Ok(o) => Err(String::from_utf8_lossy(&o.stderr).to_string()),
             Err(e) => Err(format!("dropdb command failed: {}", e)),
         }
@@ -206,7 +224,8 @@ impl PostgresManager {
 
     pub fn list_databases() -> Result<Vec<DatabaseInfo>, String> {
         let output = Self::run_psql("SELECT datname FROM pg_database WHERE datistemplate = false AND datname NOT IN ('postgres');")?;
-        let dbs: Vec<DatabaseInfo> = output.lines()
+        let dbs: Vec<DatabaseInfo> = output
+            .lines()
             .skip(2) // psql header
             .filter(|l| !l.trim().is_empty() && !l.contains("rows)") && !l.starts_with("---"))
             .map(|l| DatabaseInfo {
@@ -221,7 +240,8 @@ impl PostgresManager {
 
     pub fn list_users() -> Result<Vec<DbUserInfo>, String> {
         let output = Self::run_psql("SELECT rolname FROM pg_roles WHERE rolcanlogin = true AND rolname NOT IN ('postgres');")?;
-        let users: Vec<DbUserInfo> = output.lines()
+        let users: Vec<DbUserInfo> = output
+            .lines()
             .skip(2)
             .filter(|l| !l.trim().is_empty() && !l.contains("rows)") && !l.starts_with("---"))
             .map(|l| DbUserInfo {
@@ -233,4 +253,3 @@ impl PostgresManager {
         Ok(users)
     }
 }
-

@@ -1,10 +1,10 @@
+use crate::services::cgroups::CGroupManager;
+use crate::services::packages::PackageManager;
 use bcrypt::{hash, verify, DEFAULT_COST};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use crate::services::packages::PackageManager;
-use crate::services::cgroups::CGroupManager;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PanelUser {
@@ -48,15 +48,15 @@ impl UserManager {
             return Ok(Vec::new());
         }
 
-        let json_str = fs::read_to_string(path)
-            .map_err(|e| format!("Kullanici listesi okunamadi: {}", e))?;
+        let json_str =
+            fs::read_to_string(path).map_err(|e| format!("Kullanici listesi okunamadi: {}", e))?;
         serde_json::from_str(&json_str)
             .map_err(|e| format!("Kullanici listesi parse edilemedi: {}", e))
     }
 
     pub fn create_user(req: &CreateUserRequest) -> Result<String, String> {
-        let username =
-            sanitize_username(&req.username).ok_or_else(|| "Gecerli username zorunludur".to_string())?;
+        let username = sanitize_username(&req.username)
+            .ok_or_else(|| "Gecerli username zorunludur".to_string())?;
         let email = req.email.trim().to_ascii_lowercase();
         if email.is_empty() || !email.contains('@') {
             return Err("Gecerli email zorunludur".to_string());
@@ -100,9 +100,10 @@ impl UserManager {
             let _ = Command::new("useradd")
                 .args(["-m", "-s", "/bin/bash", &username])
                 .output();
-                
+
             if let Ok(Some(pkg)) = PackageManager::get_package_by_name(&package) {
-                let _ = CGroupManager::apply_limits(&username, pkg.cpu_limit, pkg.ram_mb, pkg.io_limit);
+                let _ =
+                    CGroupManager::apply_limits(&username, pkg.cpu_limit, pkg.ram_mb, pkg.io_limit);
             }
         }
 
@@ -146,20 +147,22 @@ impl UserManager {
             let _ = Command::new("userdel").args(["-r", &username]).output();
         }
 
-        Ok(format!("Kullanici '{}' ve ilgili tum veriler basariyla silindi.", username))
+        Ok(format!(
+            "Kullanici '{}' ve ilgili tum veriler basariyla silindi.",
+            username
+        ))
     }
 
     /// Verifies a user's password. Used by the auth layer.
     pub fn verify_password(username: &str, password: &str) -> Result<bool, String> {
-        let user = Self::find_by_identity(username)?
-            .ok_or_else(|| "Kullanici bulunamadi.".to_string())?;
+        let user =
+            Self::find_by_identity(username)?.ok_or_else(|| "Kullanici bulunamadi.".to_string())?;
 
         if user.password_hash.is_empty() {
             return Err("Bu kullanicinin sifresi ayarlanmamis.".to_string());
         }
 
-        verify(password, &user.password_hash)
-            .map_err(|e| format!("Sifre dogrulama hatasi: {}", e))
+        verify(password, &user.password_hash).map_err(|e| format!("Sifre dogrulama hatasi: {}", e))
     }
 
     /// Changes a user's panel password. When `current_password` is None the
@@ -194,7 +197,10 @@ impl UserManager {
         users[pos].password_hash = new_hash;
         save_users(&users)?;
 
-        Ok(format!("'{}' kullanicisinin sifresi basariyla degistirildi.", user.username))
+        Ok(format!(
+            "'{}' kullanicisinin sifresi basariyla degistirildi.",
+            user.username
+        ))
     }
 
     pub fn find_by_identity(identity: &str) -> Result<Option<PanelUser>, String> {
@@ -236,7 +242,13 @@ impl UserManager {
             .position(|u| u.username == user.username)
             .ok_or_else(|| format!("Kullanici '{}' bulunamadi.", username))?;
 
-        if users[pos].totp_secret.as_deref().unwrap_or("").trim().is_empty() {
+        if users[pos]
+            .totp_secret
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+        {
             return Err("2FA secret bulunamadi.".to_string());
         }
 
@@ -247,7 +259,8 @@ impl UserManager {
     pub fn seed_default_admin() -> Result<(), String> {
         let users = Self::list_users().unwrap_or_default();
         if users.is_empty() {
-            let email = std::env::var("AURAPANEL_ADMIN_EMAIL").unwrap_or_else(|_| "admin@server.com".to_string());
+            let email = std::env::var("AURAPANEL_ADMIN_EMAIL")
+                .unwrap_or_else(|_| "admin@server.com".to_string());
             let password = std::env::var("AURAPANEL_ADMIN_PASSWORD").unwrap_or_else(|_| {
                 let password_file = "/opt/aurapanel/logs/initial_password.txt";
                 if let Ok(raw) = std::fs::read_to_string(password_file) {
@@ -264,7 +277,7 @@ impl UserManager {
                 role: "admin".to_string(),
                 package: "default".to_string(),
             };
-            
+
             let _ = Self::create_user(&req);
             tracing::info!("Default admin user 'admin' seeded into users.json.");
         }

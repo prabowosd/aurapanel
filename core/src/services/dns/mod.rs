@@ -264,7 +264,11 @@ impl PowerDnsManager {
         true
     }
 
-    pub fn reconcile_zone_defaults(&self, domain: &str, server_ip: &str) -> Result<DnsReconcileResult, String> {
+    pub fn reconcile_zone_defaults(
+        &self,
+        domain: &str,
+        server_ip: &str,
+    ) -> Result<DnsReconcileResult, String> {
         let domain = Self::normalize_domain(domain);
         if domain.is_empty() {
             return Err("Domain bos olamaz.".to_string());
@@ -321,11 +325,12 @@ impl PowerDnsManager {
                 continue;
             }
 
-            let had_same_key = domain_records.iter().any(|r| {
-                r.name == desired.name && r.record_type == desired.record_type
-            });
+            let had_same_key = domain_records
+                .iter()
+                .any(|r| r.name == desired.name && r.record_type == desired.record_type);
 
-            domain_records.retain(|r| !(r.name == desired.name && r.record_type == desired.record_type));
+            domain_records
+                .retain(|r| !(r.name == desired.name && r.record_type == desired.record_type));
             domain_records.push(desired);
 
             if had_same_key {
@@ -397,7 +402,10 @@ impl PowerDnsManager {
         }
     }
 
-    pub fn suggest_default_nameservers(&self, base_domain: &str) -> Result<DefaultNameservers, String> {
+    pub fn suggest_default_nameservers(
+        &self,
+        base_domain: &str,
+    ) -> Result<DefaultNameservers, String> {
         let base = Self::normalize_domain(base_domain);
         if base.is_empty() {
             return Err("base_domain zorunludur.".to_string());
@@ -426,7 +434,10 @@ impl PowerDnsManager {
             "nameservers": []
         });
 
-        println!("[DNS] Creating or reconciling PowerDNS zone for: {}", domain);
+        println!(
+            "[DNS] Creating or reconciling PowerDNS zone for: {}",
+            domain
+        );
         self.reconcile_zone_defaults(&domain, &config.server_ip)?;
 
         Ok(())
@@ -482,7 +493,12 @@ impl PowerDnsManager {
         all_records.get(domain).cloned().unwrap_or_default()
     }
 
-    pub fn delete_record(&self, domain: &str, record_type: &str, record_name: &str) -> Result<(), String> {
+    pub fn delete_record(
+        &self,
+        domain: &str,
+        record_type: &str,
+        record_name: &str,
+    ) -> Result<(), String> {
         let mut all_records = self.read_all_records();
 
         if let Some(mut records) = all_records.remove(domain) {

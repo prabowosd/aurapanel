@@ -80,7 +80,9 @@ impl StatusManager {
             return Err("System metrics are supported only on Linux hosts.".to_string());
         }
         if !Path::new("/proc/loadavg").exists() {
-            return Err("/proc/loadavg not found. Real Linux metrics cannot be collected.".to_string());
+            return Err(
+                "/proc/loadavg not found. Real Linux metrics cannot be collected.".to_string(),
+            );
         }
 
         let cpu_cores = fs::read_to_string("/proc/cpuinfo")
@@ -260,7 +262,10 @@ impl StatusManager {
             .map_err(|e| format!("systemctl {} calistirilamadi: {}", normalized_action, e))?;
 
         if output.status.success() {
-            Ok(format!("{} servisi {} edildi.", normalized_name, normalized_action))
+            Ok(format!(
+                "{} servisi {} edildi.",
+                normalized_name, normalized_action
+            ))
         } else {
             Err(String::from_utf8_lossy(&output.stderr).to_string())
         }
@@ -268,7 +273,8 @@ impl StatusManager {
 
     pub fn get_panel_port() -> Result<PanelPortInfo, String> {
         let gateway_addr = Self::current_gateway_addr();
-        let current_port = Self::extract_port_from_addr(&gateway_addr).unwrap_or(DEFAULT_PANEL_PORT);
+        let current_port =
+            Self::extract_port_from_addr(&gateway_addr).unwrap_or(DEFAULT_PANEL_PORT);
 
         Ok(PanelPortInfo {
             current_port,
@@ -278,7 +284,10 @@ impl StatusManager {
         })
     }
 
-    pub fn update_panel_port(new_port: u16, open_firewall: bool) -> Result<PanelPortUpdateResult, String> {
+    pub fn update_panel_port(
+        new_port: u16,
+        open_firewall: bool,
+    ) -> Result<PanelPortUpdateResult, String> {
         if new_port == 0 {
             return Err("Port araligi 1-65535 olmalidir.".to_string());
         }
