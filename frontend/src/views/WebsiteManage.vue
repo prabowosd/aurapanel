@@ -106,6 +106,9 @@
       </div>
 
       <div v-if="insightTab === 'traffic'" class="space-y-4">
+        <div v-if="insightError" class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+          {{ insightError }}
+        </div>
         <div class="flex flex-wrap items-center gap-3">
           <label class="text-xs text-gray-400">Aralik</label>
           <select v-model.number="trafficHours" class="aura-input w-40" @change="loadTraffic">
@@ -165,6 +168,9 @@
       </div>
 
       <div v-else class="space-y-3">
+        <div v-if="insightError" class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+          {{ insightError }}
+        </div>
         <div class="flex gap-2">
           <button class="btn-secondary" :class="logKind === 'access' ? 'border-brand-500 text-brand-300' : ''" @click="changeLogKind('access')">
             {{ t('website_manage.logs_access') }}
@@ -180,7 +186,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../services/api'
@@ -201,6 +207,7 @@ const advanced = ref({ open_basedir: false, rewrite_rules: '', vhost_config: '' 
 const customSsl = ref({ cert_pem: '', key_pem: '' })
 const logKind = ref('access')
 const logs = ref([])
+const insightError = ref('')
 const insightTab = ref('traffic')
 const trafficHours = ref(24)
 const trafficLoading = ref(false)
@@ -211,6 +218,10 @@ const traffic = ref({
   source_log: '',
 })
 const maxTrafficHit = computed(() => Math.max(1, ...(traffic.value.series || []).map(item => Number(item.hits || 0))))
+const insightRequestConfig = {
+  timeout: 30000,
+  headers: { 'X-Aura-Silent-Error': '1' },
+}
 
 const isSuspended = computed(() => String(site.value?.status || 'active').toLowerCase() === 'suspended')
 
@@ -254,7 +265,10 @@ async function loadAdvanced() {
 }
 
 async function loadLogs() {
-  const res = await api.get('/monitor/logs/site', { params: { domain: domain.value, kind: logKind.value, lines: 200 } })
+  const res = await api.get('/monitor/logs/site', {
+    ...insightRequestConfig,
+    params: { domain: domain.value, kind: logKind.value, lines: 200 },
+  })
   logs.value = res.data?.data || []
 }
 
@@ -271,6 +285,7 @@ async function loadTraffic() {
   trafficLoading.value = true
   try {
     const res = await api.get('/analytics/website-traffic', {
+      ...insightRequestConfig,
       params: { domain: domain.value, hours: trafficHours.value },
     })
     traffic.value = res.data?.data || {
@@ -286,24 +301,31 @@ async function loadTraffic() {
       top_paths: [],
       source_log: '',
     }
-    error.value = msg(err, 'website_manage.messages.load_failed')
+    throw err
   } finally {
     trafficLoading.value = false
   }
 }
 
 async function refreshInsights() {
-  if (insightTab.value === 'logs') {
-    await loadLogs()
-  } else {
-    await loadTraffic()
+  insightError.value = ''
+  try {
+    if (insightTab.value === 'logs') {
+      await loadLogs()
+    } else {
+      await loadTraffic()
+    }
+  } catch (err) {
+    insightError.value = msg(err, 'website_manage.messages.load_failed')
   }
 }
 
 async function refreshAll() {
   error.value = ''
+  insightError.value = ''
   try {
-    await Promise.all([loadSite(), loadAliases(), loadAdvanced(), loadLogs(), loadTraffic()])
+    await Promise.all([loadSite(), loadAliases(), loadAdvanced()])
+    await refreshInsights()
   } catch (err) {
     error.value = msg(err, 'website_manage.messages.load_failed')
   }
@@ -421,12 +443,16 @@ async function saveCustomSsl() {
 
 async function changeLogKind(kind) {
   logKind.value = kind
-  await loadLogs()
+  await refreshInsights()
 }
 
 function goBack() {
   router.push('/websites')
 }
+
+watch(insightTab, async () => {
+  await refreshInsights()
+})
 
 onMounted(refreshAll)
 </script>
