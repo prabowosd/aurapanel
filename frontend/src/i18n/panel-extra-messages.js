@@ -1035,7 +1035,7 @@ Object.assign(extraEn, {
       hostname: 'panel.example.com',
       mail_hostname: 'mail.example.com',
       domain: 'example.com',
-      email: 'admin@example.com',
+      email: "admin{'@'}example.com",
       webroot: 'Auto-detect (optional)',
     },
     messages: {
@@ -1275,7 +1275,7 @@ Object.assign(extraTr, {
       hostname: 'panel.example.com',
       mail_hostname: 'mail.example.com',
       domain: 'example.com',
-      email: 'admin@example.com',
+      email: "admin{'@'}example.com",
       webroot: 'Otomatik tespit (opsiyonel)',
     },
     messages: {
