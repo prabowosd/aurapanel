@@ -197,7 +197,9 @@
                 </select>
               </div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <input v-model="createForm.website_package" type="text" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white" :placeholder="t('database_manager.modal.package_placeholder')" />
+                <select v-model="createForm.website_package" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white">
+                  <option v-for="pkg in websitePackageOptions" :key="`db-create-${pkg}`" :value="pkg">{{ pkg }}</option>
+                </select>
                 <input v-model="createForm.website_email" type="email" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white" :placeholder="t('database_manager.modal.email_placeholder')" />
               </div>
               <div class="flex flex-wrap gap-4 text-sm text-gray-300">
@@ -292,6 +294,7 @@ const postgresUsers = ref([])
 const mariadbRemoteRules = ref([])
 const postgresRemoteRules = ref([])
 const sites = ref([])
+const hostingPackages = ref([])
 
 const currentDatabases = computed(() => (engine.value === 'mariadb' ? mariadbDatabases.value : postgresDatabases.value))
 const currentUsers = computed(() => (engine.value === 'mariadb' ? mariadbUsers.value : postgresUsers.value))
@@ -300,6 +303,16 @@ const currentEngineLabel = computed(() => (engine.value === 'mariadb'
   ? t('database_manager.engines.mariadb')
   : t('database_manager.engines.postgresql')))
 const siteOptions = computed(() => sites.value.map(site => site.domain).filter(Boolean))
+const websitePackageOptions = computed(() => {
+  const names = new Set(['default'])
+  for (const pkg of hostingPackages.value || []) {
+    const name = String(pkg?.name || '').trim()
+    if (name) names.add(name)
+  }
+  const ordered = Array.from(names).filter(Boolean)
+  const tail = ordered.filter(name => name !== 'default').sort((a, b) => a.localeCompare(b))
+  return ['default', ...tail]
+})
 
 const createForm = ref({
   engine: 'mariadb',
@@ -389,7 +402,7 @@ function resetCreateForm() {
     new_site_domain: '',
     website_owner: 'aura',
     website_php: '8.3',
-    website_package: 'default',
+    website_package: websitePackageOptions.value[0] || 'default',
     website_email: '',
     website_mail_domain: false,
     website_apache_backend: false,
@@ -408,6 +421,7 @@ const loadData = async () => {
     api.get('/db/postgres/users'),
     api.get('/db/postgres/remote-access'),
     api.get('/vhost/list'),
+    api.get('/packages/list'),
   ])
 
   mariadbDatabases.value = requests[0].status === 'fulfilled' ? requests[0].value.data?.data || [] : []
@@ -417,6 +431,7 @@ const loadData = async () => {
   postgresUsers.value = requests[4].status === 'fulfilled' ? requests[4].value.data?.data || [] : []
   postgresRemoteRules.value = requests[5].status === 'fulfilled' ? requests[5].value.data?.data || [] : []
   sites.value = requests[6].status === 'fulfilled' ? requests[6].value.data?.data || [] : []
+  hostingPackages.value = requests[7].status === 'fulfilled' ? requests[7].value.data?.data || [] : []
 
   if (!createForm.value.site_domain && siteOptions.value.length > 0) {
     createForm.value.site_domain = siteOptions.value[0]
@@ -612,6 +627,13 @@ watch(showCreateModal, (open) => {
     createForm.value.site_domain = siteOptions.value[0]
   }
 })
+
+watch(websitePackageOptions, (options) => {
+  if (!options.length) return
+  if (!options.includes(createForm.value.website_package)) {
+    createForm.value.website_package = options[0]
+  }
+}, { immediate: true })
 
 onMounted(async () => {
   await loadData()

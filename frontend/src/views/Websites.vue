@@ -355,7 +355,9 @@
             </div>
             <div>
               <label class="block text-sm text-gray-400 mb-1">Paket</label>
-              <input v-model="siteForm.package" type="text" class="aura-input w-full" placeholder="default" />
+              <select v-model="siteForm.package" class="aura-input w-full">
+                <option v-for="pkg in packageOptions" :key="`create-${pkg}`" :value="pkg">{{ pkg }}</option>
+              </select>
             </div>
             <div>
               <label class="block text-sm text-gray-400 mb-1">Admin Email</label>
@@ -402,7 +404,9 @@
             </div>
             <div>
               <label class="block text-sm text-gray-400 mb-1">Paket</label>
-              <input v-model="editSiteForm.package" type="text" class="aura-input w-full" placeholder="default" />
+              <select v-model="editSiteForm.package" class="aura-input w-full">
+                <option v-for="pkg in packageOptions" :key="`edit-${pkg}`" :value="pkg">{{ pkg }}</option>
+              </select>
             </div>
             <div>
               <label class="block text-sm text-gray-400 mb-1">Admin Email</label>
@@ -541,6 +545,7 @@ const sites = ref([])
 const users = ref([])
 const subdomains = ref([])
 const dbLinks = ref([])
+const hostingPackages = ref([])
 
 const mariadbDatabases = ref([])
 const postgresDatabases = ref([])
@@ -599,6 +604,26 @@ const siteLogsLines = ref([])
 
 const filteredSites = computed(() => sites.value)
 
+const packageOptions = computed(() => {
+  const names = new Set(['default'])
+  for (const pkg of hostingPackages.value || []) {
+    const name = String(pkg?.name || '').trim()
+    if (name) names.add(name)
+  }
+  for (const site of sites.value || []) {
+    const name = String(site?.package || '').trim()
+    if (name) names.add(name)
+  }
+  const currentCreate = String(siteForm.value?.package || '').trim()
+  const currentEdit = String(editSiteForm.value?.package || '').trim()
+  if (currentCreate) names.add(currentCreate)
+  if (currentEdit) names.add(currentEdit)
+
+  const ordered = Array.from(names).filter(Boolean)
+  const tail = ordered.filter(name => name !== 'default').sort((a, b) => a.localeCompare(b))
+  return ['default', ...tail]
+})
+
 const owners = computed(() => {
   const names = users.value
     .map(u => u.username)
@@ -654,6 +679,16 @@ watch(() => sitesPagination.value.per_page, async () => {
     await applySiteFilters()
   }
 })
+
+watch(packageOptions, (options) => {
+  if (!options.length) return
+  if (!options.includes(siteForm.value.package)) {
+    siteForm.value.package = options[0]
+  }
+  if (!options.includes(editSiteForm.value.package)) {
+    editSiteForm.value.package = options[0]
+  }
+}, { immediate: true })
 
 function apiErrorMessage(err, fallback) {
   return err?.response?.data?.message || err?.message || fallback
@@ -715,6 +750,15 @@ async function loadDbLinks() {
     dbLinks.value = res.data?.data || []
   } catch {
     dbLinks.value = []
+  }
+}
+
+async function loadPackages() {
+  try {
+    const res = await api.get('/packages/list')
+    hostingPackages.value = res.data?.data || []
+  } catch {
+    hostingPackages.value = []
   }
 }
 
@@ -789,7 +833,7 @@ async function refreshAll() {
   loading.value = true
   error.value = ''
   try {
-    await Promise.all([loadSites(), loadUsers(), loadSubdomains(), loadDbLinks(), loadDatabases()])
+    await Promise.all([loadSites(), loadUsers(), loadSubdomains(), loadDbLinks(), loadDatabases(), loadPackages()])
     if (!advancedDomain.value) {
       advancedDomain.value = parentDomains.value[0] || ''
     }
