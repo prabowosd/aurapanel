@@ -161,18 +161,35 @@ gateway_port() {
 }
 
 configure_panel_firewall() {
-  local port="$1"
-  local rule="${port}/tcp"
+  # Backward-compatible wrapper. Main flow calls configure_standard_firewall.
+  configure_standard_firewall "$1"
+}
+
+configure_ftp_firewall() {
+  # Backward-compatible no-op wrapper. Standard profile covers FTP ports.
+  return 0
+}
+
+to_firewalld_rule() {
+  local ufw_rule="$1"
+  local port_part proto
+  port_part="${ufw_rule%/*}"
+  proto="${ufw_rule##*/}"
+  # firewalld range syntax uses hyphen, ufw uses colon.
+  port_part="${port_part/:/-}"
+  echo "${port_part}/${proto}"
+}
+
+configure_standard_firewall() {
+  local panel_port="$1"
   local touched="0"
+  local ufw_active="0"
+  local firewalld_active="0"
+  local firewalld_changed="0"
 
   if command -v ufw >/dev/null 2>&1; then
     if ufw status 2>/dev/null | grep -qi "Status: active"; then
-      if ufw allow "${rule}" >/dev/null 2>&1; then
-        ok "ufw rule added for AuraPanel port ${port}/tcp"
-        touched="1"
-      else
-        warn "ufw is active but failed to allow ${port}/tcp."
-      fi
+      ufw_active="1"
     else
       warn "ufw is installed but inactive. Skipping ufw rule automation."
     fi
@@ -180,69 +197,75 @@ configure_panel_firewall() {
 
   if command -v firewall-cmd >/dev/null 2>&1; then
     if firewall-cmd --state >/dev/null 2>&1; then
-      if firewall-cmd --permanent --add-port="${rule}" >/dev/null 2>&1; then
-        firewall-cmd --reload >/dev/null 2>&1 || true
-        ok "firewalld rule added for AuraPanel port ${port}/tcp"
-        touched="1"
-      else
-        warn "firewalld is active but failed to add ${port}/tcp."
-      fi
+      firewalld_active="1"
     else
       warn "firewalld is installed but inactive. Skipping firewalld rule automation."
     fi
   fi
 
-  if [ "${touched}" = "0" ]; then
+  if [ "${ufw_active}" = "0" ] && [ "${firewalld_active}" = "0" ]; then
     warn "No active firewall manager detected for automated port opening."
-  fi
-}
-
-configure_ftp_firewall() {
-  local touched="0"
-
-  if command -v ufw >/dev/null 2>&1; then
-    if ufw status 2>/dev/null | grep -qi "Status: active"; then
-      if ufw allow 21/tcp >/dev/null 2>&1; then
-        ok "ufw rule added for FTP 21/tcp"
-        touched="1"
-      else
-        warn "ufw is active but failed to allow 21/tcp."
-      fi
-
-      if ufw allow 30000:30049/tcp >/dev/null 2>&1; then
-        ok "ufw rule added for FTP passive range 30000:30049/tcp"
-        touched="1"
-      else
-        warn "ufw is active but failed to allow passive range."
-      fi
-    else
-      warn "ufw is installed but inactive. Skipping FTP ufw rules."
-    fi
+    return 0
   fi
 
-  if command -v firewall-cmd >/dev/null 2>&1; then
-    if firewall-cmd --state >/dev/null 2>&1; then
-      if firewall-cmd --permanent --add-port=21/tcp >/dev/null 2>&1; then
-        ok "firewalld rule added for FTP 21/tcp"
-        touched="1"
-      else
-        warn "firewalld failed to add 21/tcp."
-      fi
+  # Standard AuraPanel exposure profile (internet-facing services).
+  local -a entries=(
+    "22/tcp|SSH"
+    "80/tcp|HTTP (ACME challenge)"
+    "443/tcp|HTTPS"
+    "7080/tcp|OpenLiteSpeed WebAdmin"
+    "${panel_port}/tcp|AuraPanel Gateway Panel"
+    "53/tcp|DNS (TCP)"
+    "53/udp|DNS (UDP)"
+    "25/tcp|SMTP"
+    "465/tcp|SMTPS"
+    "587/tcp|SMTP Submission"
+    "110/tcp|POP3"
+    "995/tcp|POP3S"
+    "143/tcp|IMAP"
+    "993/tcp|IMAPS"
+    "21/tcp|FTP"
+    "30000:30049/tcp|FTP Passive Range"
+  )
 
-      if firewall-cmd --permanent --add-port=30000-30049/tcp >/dev/null 2>&1; then
-        ok "firewalld rule added for FTP passive range 30000-30049/tcp"
+  declare -A seen_rules=()
+  local entry rule label firewalld_rule
+  for entry in "${entries[@]}"; do
+    rule="${entry%%|*}"
+    label="${entry#*|}"
+
+    if [ -n "${seen_rules[${rule}]:-}" ]; then
+      continue
+    fi
+    seen_rules["${rule}"]=1
+
+    if [ "${ufw_active}" = "1" ]; then
+      if ufw allow "${rule}" >/dev/null 2>&1; then
+        ok "ufw rule ensured: ${rule} (${label})"
         touched="1"
       else
-        warn "firewalld failed to add passive range."
+        warn "ufw is active but failed to allow ${rule} (${label})."
       fi
-      firewall-cmd --reload >/dev/null 2>&1 || true
-    else
-      warn "firewalld is installed but inactive. Skipping FTP firewalld rules."
     fi
+
+    if [ "${firewalld_active}" = "1" ]; then
+      firewalld_rule="$(to_firewalld_rule "${rule}")"
+      if firewall-cmd --permanent --add-port="${firewalld_rule}" >/dev/null 2>&1; then
+        ok "firewalld rule ensured: ${firewalld_rule} (${label})"
+        touched="1"
+        firewalld_changed="1"
+      else
+        warn "firewalld is active but failed to add ${firewalld_rule} (${label})."
+      fi
+    fi
+  done
+
+  if [ "${firewalld_active}" = "1" ] && [ "${firewalld_changed}" = "1" ]; then
+    firewall-cmd --reload >/dev/null 2>&1 || true
   fi
 
   if [ "${touched}" = "0" ]; then
-    warn "No active firewall manager detected for FTP port automation."
+    warn "Firewall manager is active but no rule could be applied."
   fi
 }
 
@@ -896,6 +919,15 @@ smoke_check() {
   curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null || fail "MinIO health check failed"
   curl -fsS http://127.0.0.1/webmail/ >/dev/null 2>&1 || warn "Roundcube endpoint check skipped/failed (non-fatal)."
 
+  if command -v ss >/dev/null 2>&1; then
+    if ! ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq '(^|:)80$'; then
+      warn "Port 80 listener was not detected. HTTP-01 SSL validation may fail."
+    fi
+    if ! ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq '(^|:)443$'; then
+      warn "Port 443 listener was not detected. Public HTTPS traffic may fail."
+    fi
+  fi
+
   ok "Smoke checks passed."
 }
 
@@ -935,8 +967,7 @@ main() {
   build_components
   configure_systemd_services
   enable_stack_services
-  configure_panel_firewall "$(gateway_port)"
-  configure_ftp_firewall
+  configure_standard_firewall "$(gateway_port)"
   smoke_check
 
   local panel_port
