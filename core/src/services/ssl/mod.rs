@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::net::{ToSocketAddrs, UdpSocket};
+use std::net::{TcpListener, ToSocketAddrs, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -175,6 +175,39 @@ impl SslManager {
         )
     }
 
+    fn is_port_80_busy() -> bool {
+        TcpListener::bind("0.0.0.0:80").is_err()
+    }
+
+    fn issue_certificate_standalone(
+        certbot_bin: &str,
+        domains: &[String],
+        email: &str,
+    ) -> Result<(), String> {
+        let mut certbot_args = vec!["certonly".to_string(), "--standalone".to_string()];
+        for host in domains {
+            certbot_args.push("-d".to_string());
+            certbot_args.push(host.to_string());
+        }
+        certbot_args.push("--email".to_string());
+        certbot_args.push(email.to_string());
+        certbot_args.push("--agree-tos".to_string());
+        certbot_args.push("--non-interactive".to_string());
+        certbot_args.push("--preferred-challenges".to_string());
+        certbot_args.push("http".to_string());
+
+        let output = Command::new(certbot_bin)
+            .args(&certbot_args)
+            .output()
+            .map_err(|e| format!("certbot standalone calistirilamadi: {}", e))?;
+
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).to_string());
+        }
+
+        Ok(())
+    }
+
     fn state_root() -> PathBuf {
         if let Ok(path) = std::env::var("AURAPANEL_STATE_DIR") {
             let p = PathBuf::from(path.trim());
@@ -219,6 +252,11 @@ impl SslManager {
             return Err("domain and email are required.".to_string());
         }
 
+        let explicit_webroot = config
+            .webroot
+            .as_deref()
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
         let webroot = Self::resolve_webroot(config, &domain)?;
         println!(
             "[ACME] Issuing SSL for {} via Let's Encrypt (email: {})",
@@ -272,15 +310,30 @@ impl SslManager {
             }
         }
 
+        if !explicit_webroot && !Self::is_port_80_busy() {
+            println!(
+                "[ACME] Port 80 bos gorunuyor, webroot yerine certbot standalone ile deneniyor."
+            );
+            match Self::issue_certificate_standalone(certbot_bin, &domains_for_cert, email) {
+                Ok(_) => return Ok(()),
+                Err(err) => {
+                    println!(
+                        "[ACME] Standalone denemesi basarisiz, webroot akisina donuluyor: {}",
+                        err
+                    );
+                }
+            }
+        }
+
         let mut certbot_args = vec![
             "certonly".to_string(),
             "--webroot".to_string(),
             "-w".to_string(),
             webroot.to_string(),
         ];
-        for host in domains_for_cert {
+        for host in &domains_for_cert {
             certbot_args.push("-d".to_string());
-            certbot_args.push(host);
+            certbot_args.push(host.to_string());
         }
         certbot_args.push("--email".to_string());
         certbot_args.push(email.to_string());
@@ -294,6 +347,23 @@ impl SslManager {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            if !explicit_webroot
+                && stderr.contains("Connection refused")
+                && !Self::is_port_80_busy()
+            {
+                println!(
+                    "[ACME] Webroot challenge Connection refused aldi, standalone fallback deneniyor."
+                );
+                match Self::issue_certificate_standalone(certbot_bin, &domains_for_cert, email) {
+                    Ok(_) => return Ok(()),
+                    Err(fallback_err) => {
+                        return Err(format!(
+                            "SSL alinamadi. webroot hata: {} ; standalone hata: {}",
+                            stderr, fallback_err
+                        ));
+                    }
+                }
+            }
             return Err(format!("SSL alinamadi (webroot: {}): {}", webroot, stderr));
         }
 
