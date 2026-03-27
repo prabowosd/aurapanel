@@ -234,6 +234,8 @@ const router = createRouter({
   routes
 })
 
+const CHUNK_RELOAD_GUARD_KEY = 'aurapanel:chunk-reload-once'
+
 // Authentication Guard (Zero-Trust Navigation)
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
@@ -246,6 +248,34 @@ router.beforeEach((to, from, next) => {
     next('/')
   } else {
     next()
+  }
+})
+
+router.onError((error, to) => {
+  const message = String(error?.message || '')
+  const isChunkLoadError =
+    /Failed to fetch dynamically imported module|Importing a module script failed|ChunkLoadError|Loading chunk/i.test(
+      message
+    )
+
+  if (!isChunkLoadError || typeof window === 'undefined') {
+    return
+  }
+
+  const alreadyRetried = window.sessionStorage.getItem(CHUNK_RELOAD_GUARD_KEY) === '1'
+  if (alreadyRetried) {
+    window.sessionStorage.removeItem(CHUNK_RELOAD_GUARD_KEY)
+    return
+  }
+
+  window.sessionStorage.setItem(CHUNK_RELOAD_GUARD_KEY, '1')
+  const targetPath = to?.fullPath || `${window.location.pathname}${window.location.search}${window.location.hash}`
+  window.location.replace(targetPath)
+})
+
+router.afterEach(() => {
+  if (typeof window !== 'undefined') {
+    window.sessionStorage.removeItem(CHUNK_RELOAD_GUARD_KEY)
   }
 })
 
