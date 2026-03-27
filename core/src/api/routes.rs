@@ -956,12 +956,7 @@ async fn auth_me_handler(Extension(auth): Extension<AuthContext>) -> impl IntoRe
 
     (
         StatusCode::OK,
-        Json(json!({
-            "id": user.id,
-            "name": user.username,
-            "email": user.email,
-            "role": user.role
-        })),
+        Json(json!({ "status": "success", "data": public_user_view(&user) })),
     )
         .into_response()
 }
