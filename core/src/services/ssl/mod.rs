@@ -160,13 +160,13 @@ impl SslManager {
             return Ok(vhost_root);
         }
 
-        if let Some(panel_dist) = Self::panel_dist_path() {
-            return Ok(panel_dist);
-        }
-
         let legacy = "/usr/local/lsws/Example/html";
         if Path::new(legacy).exists() && Path::new(legacy).is_dir() {
             return Ok(legacy.to_string());
+        }
+
+        if let Some(panel_dist) = Self::panel_dist_path() {
+            return Ok(panel_dist);
         }
 
         Err(
