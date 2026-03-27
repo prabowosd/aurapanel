@@ -3284,7 +3284,18 @@ async fn migration_import_status_handler(
             StatusCode::OK,
             Json(json!({ "status": "success", "data": job })),
         ),
-        Err(e) => migration_error_response(e),
+        Err(e) => {
+            let lowered = e.to_ascii_lowercase();
+            let status = if lowered.contains("no such file")
+                || lowered.contains("job okunamadi")
+                || lowered.contains("bulunamadi")
+            {
+                StatusCode::NOT_FOUND
+            } else {
+                migration_error_status(&e)
+            };
+            (status, Json(json!({ "status": "error", "message": e })))
+        }
     }
 }
 
