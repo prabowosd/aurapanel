@@ -1,22 +1,22 @@
-﻿<template>
+<template>
   <div class="space-y-6 php-theme">
     <div>
-      <h1 class="text-2xl font-bold text-white">PHP Yonetimi</h1>
-      <p class="text-gray-400 mt-1">Surumler, site atamalari ve php.ini yonetimi.</p>
+      <h1 class="text-2xl font-bold text-white">{{ t('php.title') }}</h1>
+      <p class="text-gray-400 mt-1">{{ t('php.subtitle') }}</p>
     </div>
 
     <div class="border-b border-panel-border">
       <nav class="flex gap-6">
-        <button @click="tab='versions'" :class="tabClass('versions')">Versiyonlar</button>
-        <button @click="tab='sites'" :class="tabClass('sites')">Site Atamalari</button>
-        <button @click="tab='config'" :class="tabClass('config')">php.ini</button>
+        <button @click="tab='versions'" :class="tabClass('versions')">{{ t('php.versions_tab') }}</button>
+        <button @click="tab='sites'" :class="tabClass('sites')">{{ t('php.sites_tab') }}</button>
+        <button @click="tab='config'" :class="tabClass('config')">{{ t('php.ini_tab') }}</button>
       </nav>
     </div>
 
     <div v-if="error" class="aura-card border-red-500/30 bg-red-500/5 text-red-400">{{ error }}</div>
     <div v-if="success" class="aura-card border-green-500/30 bg-green-500/5 text-green-300">{{ success }}</div>
 
-    <div v-if="loading" class="text-center py-10 text-gray-400">Yukleniyor...</div>
+    <div v-if="loading" class="text-center py-10 text-gray-400">{{ t('common.loading') }}</div>
 
     <div v-else>
       <div v-if="tab==='versions'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -24,16 +24,16 @@
           <div class="flex items-center justify-between mb-3">
             <div>
               <p class="text-white font-semibold">PHP {{ v.version }}</p>
-              <p class="text-xs" :class="v.eol ? 'text-yellow-400' : 'text-gray-400'">{{ v.eol ? 'EOL' : 'Supported' }}</p>
+              <p class="text-xs" :class="v.eol ? 'text-yellow-400' : 'text-gray-400'">{{ v.eol ? t('php.eol') : t('php.supported') }}</p>
             </div>
             <span :class="['px-2 py-0.5 rounded text-xs font-medium', v.installed ? 'bg-green-500/15 text-green-400' : 'bg-gray-500/15 text-gray-400']">
-              {{ v.installed ? 'Kurulu' : 'Kurulu degil' }}
+              {{ v.installed ? t('php.installed') : t('php.not_installed') }}
             </span>
           </div>
           <div class="flex gap-2">
-            <button v-if="!v.installed" class="btn-primary flex-1" @click="installPhp(v.version)">Kur</button>
-            <button v-else class="btn-danger flex-1" @click="removePhp(v.version)">Kaldir</button>
-            <button v-if="v.installed" class="btn-secondary" @click="restartPhp(v.version)">Restart</button>
+            <button v-if="!v.installed" class="btn-primary flex-1" @click="installPhp(v.version)">{{ t('php.install') }}</button>
+            <button v-else class="btn-danger flex-1" @click="removePhp(v.version)">{{ t('php.remove') }}</button>
+            <button v-if="v.installed" class="btn-secondary" @click="restartPhp(v.version)">{{ t('php.restart') }}</button>
           </div>
         </div>
       </div>
@@ -42,9 +42,9 @@
         <table class="w-full text-sm">
           <thead>
             <tr class="text-gray-400 border-b border-panel-border">
-              <th class="text-left px-4 py-3">Domain</th>
-              <th class="text-left px-4 py-3">Mevcut PHP</th>
-              <th class="text-left px-4 py-3">Degistir</th>
+              <th class="text-left px-4 py-3">{{ t('php.domain') }}</th>
+              <th class="text-left px-4 py-3">{{ t('php.current_php') }}</th>
+              <th class="text-left px-4 py-3">{{ t('php.change_php') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -58,7 +58,7 @@
               </td>
             </tr>
             <tr v-if="siteAssignments.length===0">
-              <td colspan="3" class="p-4 text-center text-gray-500">Site bulunamadi</td>
+              <td colspan="3" class="p-4 text-center text-gray-500">{{ t('php.site_not_found') }}</td>
             </tr>
           </tbody>
         </table>
@@ -69,8 +69,8 @@
           <select v-model="selectedConfigVersion" class="php-field aura-input max-w-xs" @change="loadPhpIni">
             <option v-for="v in installedVersions" :key="v" :value="v">PHP {{ v }}</option>
           </select>
-          <button class="btn-secondary" @click="loadPhpIni">Oku</button>
-          <button class="btn-primary" @click="savePhpIni">Kaydet</button>
+          <button class="btn-secondary" @click="loadPhpIni">{{ t('php.read_ini') }}</button>
+          <button class="btn-primary" @click="savePhpIni">{{ t('common.save') }}</button>
         </div>
         <textarea v-model="phpIniContent" rows="20" class="aura-input w-full font-mono text-xs"></textarea>
       </div>
@@ -80,7 +80,10 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '../services/api'
+
+const { t } = useI18n({ useScope: 'global' })
 
 const tab = ref('versions')
 const loading = ref(false)
@@ -101,8 +104,8 @@ function tabClass(key) {
   ]
 }
 
-function apiErrorMessage(e, fallback) {
-  return e?.response?.data?.message || e?.message || fallback
+function apiErrorMessage(e, fallbackKey) {
+  return e?.response?.data?.message || e?.message || t(fallbackKey)
 }
 
 async function loadData() {
@@ -134,7 +137,7 @@ async function loadData() {
       phpIniContent.value = ''
     }
   } catch (e) {
-    error.value = apiErrorMessage(e, 'PHP verileri alinamadi')
+    error.value = apiErrorMessage(e, 'php.messages.load_failed')
   } finally {
     loading.value = false
   }
@@ -145,10 +148,10 @@ async function installPhp(version) {
   success.value = ''
   try {
     const res = await api.post('/php/install', { version })
-    success.value = res.data?.message || `PHP ${version} kuruldu.`
+    success.value = res.data?.message || t('php.messages.installed', { version })
     await loadData()
   } catch (e) {
-    error.value = apiErrorMessage(e, 'PHP kurulumu basarisiz')
+    error.value = apiErrorMessage(e, 'php.messages.install_failed')
   }
 }
 
@@ -157,10 +160,10 @@ async function removePhp(version) {
   success.value = ''
   try {
     const res = await api.post('/php/remove', { version })
-    success.value = res.data?.message || `PHP ${version} kaldirildi.`
+    success.value = res.data?.message || t('php.messages.removed', { version })
     await loadData()
   } catch (e) {
-    error.value = apiErrorMessage(e, 'PHP kaldirma basarisiz')
+    error.value = apiErrorMessage(e, 'php.messages.remove_failed')
   }
 }
 
@@ -169,9 +172,9 @@ async function restartPhp(version) {
   success.value = ''
   try {
     const res = await api.post('/php/restart', { version })
-    success.value = res.data?.message || `PHP ${version} restart edildi.`
+    success.value = res.data?.message || t('php.messages.restarted', { version })
   } catch (e) {
-    error.value = apiErrorMessage(e, 'PHP restart basarisiz')
+    error.value = apiErrorMessage(e, 'php.messages.restart_failed')
   }
 }
 
@@ -186,9 +189,9 @@ async function changePhp(site) {
       package: site.package || undefined,
       email: site.email || undefined,
     })
-    success.value = res.data?.message || `${site.domain} icin PHP guncellendi.`
+    success.value = res.data?.message || t('php.messages.site_updated', { domain: site.domain })
   } catch (e) {
-    error.value = apiErrorMessage(e, 'Site PHP atamasi basarisiz')
+    error.value = apiErrorMessage(e, 'php.messages.site_update_failed')
   }
 }
 
@@ -203,7 +206,7 @@ async function loadPhpIni() {
     const res = await api.post('/php/ini/get', { version: selectedConfigVersion.value })
     phpIniContent.value = String(res.data?.data || '')
   } catch (e) {
-    error.value = apiErrorMessage(e, 'php.ini okunamadi')
+    error.value = apiErrorMessage(e, 'php.messages.ini_read_failed')
   }
 }
 
@@ -216,9 +219,9 @@ async function savePhpIni() {
       version: selectedConfigVersion.value,
       content: phpIniContent.value,
     })
-    success.value = res.data?.message || 'php.ini kaydedildi.'
+    success.value = res.data?.message || t('php.save_ini_success')
   } catch (e) {
-    error.value = apiErrorMessage(e, 'php.ini kaydedilemedi')
+    error.value = apiErrorMessage(e, 'php.messages.ini_save_failed')
   }
 }
 

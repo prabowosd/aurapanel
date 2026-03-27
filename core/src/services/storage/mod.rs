@@ -373,7 +373,6 @@ impl BackupManager {
         payload.name = payload.name.trim().to_string();
         payload.remote_repo = payload.remote_repo.trim().to_string();
         payload.password = payload.password.trim().to_string();
-        payload.enabled = payload.enabled;
 
         let mut state = load_backup_center_state()?;
         if let Some(existing) = state.destinations.iter_mut().find(|x| x.id == payload.id) {

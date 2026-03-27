@@ -219,10 +219,8 @@ impl WebsitesManager {
         let mut removed = Vec::new();
         for root in Self::home_public_html_roots() {
             let candidate = root.join(domain);
-            if candidate.exists() {
-                if fs::remove_dir_all(&candidate).is_ok() {
-                    removed.push(candidate.display().to_string());
-                }
+            if candidate.exists() && fs::remove_dir_all(&candidate).is_ok() {
+                removed.push(candidate.display().to_string());
             }
         }
         removed

@@ -2,70 +2,68 @@
   <div class="space-y-6">
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-bold text-white">Security Center</h1>
-        <p class="text-gray-400 mt-1">
-          Zero-Trust guvenlik ozelliklerini plan bazli yonetin.
-        </p>
+        <h1 class="text-2xl font-bold text-white">{{ t('security_center.title') }}</h1>
+        <p class="mt-1 text-gray-400">{{ t('security_center.subtitle') }}</p>
       </div>
-      <button class="btn-secondary" @click="loadAll">Yenile</button>
+      <button class="btn-secondary" @click="loadAll">{{ t('security_center.refresh') }}</button>
     </div>
 
     <div class="aura-card">
       <div class="flex flex-wrap gap-2">
         <button
-          v-for="tab in tabs"
-          :key="tab.id"
-          class="px-3 py-2 rounded-lg text-sm transition"
-          :class="activeTab === tab.id ? 'bg-brand-500/20 text-brand-300 border border-brand-500/30' : 'bg-panel-dark text-gray-300 border border-panel-border hover:bg-panel-hover'"
-          @click="setTab(tab.id)"
+          v-for="tabItem in tabs"
+          :key="tabItem.id"
+          class="rounded-lg px-3 py-2 text-sm transition"
+          :class="activeTab === tabItem.id ? 'border border-brand-500/30 bg-brand-500/20 text-brand-300' : 'border border-panel-border bg-panel-dark text-gray-300 hover:bg-panel-hover'"
+          @click="setTab(tabItem.id)"
         >
-          {{ tab.label }}
+          {{ tabItem.label }}
         </button>
       </div>
     </div>
 
-    <div v-if="activeTab === 'overview'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div v-if="activeTab === 'overview'" class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
       <div v-for="item in statusCards" :key="item.key" class="aura-card">
         <div class="flex items-center justify-between">
           <h3 class="text-sm font-semibold text-gray-300">{{ item.label }}</h3>
           <span :class="item.value ? 'text-green-400' : 'text-yellow-400'">
-            {{ item.value ? 'Aktif' : 'Kismi' }}
+            {{ item.value ? t('security_center.overview.active') : t('security_center.overview.partial') }}
           </span>
         </div>
       </div>
     </div>
 
     <div v-if="activeTab === 'firewall'" class="aura-card space-y-4">
-      <h2 class="text-lg font-bold text-white">Firewall (nftables)</h2>
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <input v-model="firewallForm.ip_address" class="aura-input" placeholder="IP address" />
-        <input v-model="firewallForm.reason" class="aura-input" placeholder="Reason" />
+      <h2 class="text-lg font-bold text-white">{{ t('security_center.firewall.title') }}</h2>
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
+        <input v-model="firewallForm.ip_address" class="aura-input" :placeholder="t('security_center.firewall.ip')" />
+        <input v-model="firewallForm.reason" class="aura-input" :placeholder="t('security_center.firewall.reason')" />
         <select v-model="firewallForm.block" class="aura-input">
-          <option :value="true">Block</option>
-          <option :value="false">Allow</option>
+          <option :value="true">{{ t('security_center.firewall.block') }}</option>
+          <option :value="false">{{ t('security_center.firewall.allow') }}</option>
         </select>
-        <button class="btn-primary" @click="addFirewallRule">Kural Ekle</button>
+        <button class="btn-primary" @click="addFirewallRule">{{ t('security_center.firewall.add_rule') }}</button>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
-            <tr class="text-gray-400 border-b border-panel-border">
-              <th class="text-left py-2">IP</th>
-              <th class="text-left py-2">Action</th>
-              <th class="text-left py-2">Reason</th>
-              <th class="text-right py-2">Islem</th>
+            <tr class="border-b border-panel-border text-gray-400">
+              <th class="py-2 text-left">{{ t('security_center.firewall.ip') }}</th>
+              <th class="py-2 text-left">{{ t('security_center.firewall.action') }}</th>
+              <th class="py-2 text-left">{{ t('security_center.firewall.reason') }}</th>
+              <th class="py-2 text-right">{{ t('security_center.firewall.action') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="firewallRules.length === 0">
-              <td colspan="4" class="py-4 text-center text-gray-400">Kural yok</td>
+              <td colspan="4" class="py-4 text-center text-gray-400">{{ t('security_center.firewall.no_rules') }}</td>
             </tr>
             <tr v-for="rule in firewallRules" :key="rule.ip_address" class="border-b border-panel-border/60">
               <td class="py-2 font-mono">{{ rule.ip_address }}</td>
-              <td class="py-2">{{ rule.block ? 'Block' : 'Allow' }}</td>
+              <td class="py-2">{{ rule.block ? t('security_center.firewall.block') : t('security_center.firewall.allow') }}</td>
               <td class="py-2 text-gray-300">{{ rule.reason }}</td>
               <td class="py-2 text-right">
-                <button class="btn-danger px-3 py-1 text-xs" @click="deleteFirewallRule(rule.ip_address)">Sil</button>
+                <button class="btn-danger px-3 py-1 text-xs" @click="deleteFirewallRule(rule.ip_address)">{{ t('security_center.firewall.delete') }}</button>
               </td>
             </tr>
           </tbody>
@@ -74,76 +72,158 @@
     </div>
 
     <div v-if="activeTab === 'waf'" class="aura-card space-y-4">
-      <h2 class="text-lg font-bold text-white">ML-WAF Test</h2>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <input v-model="wafInput.path" class="aura-input" placeholder="/path" />
-        <input v-model="wafInput.query" class="aura-input" placeholder="query string" />
-        <input v-model="wafInput.user_agent" class="aura-input" placeholder="user-agent" />
-        <input v-model="wafInput.ip" class="aura-input" placeholder="IP" />
+      <h2 class="text-lg font-bold text-white">{{ t('security_center.waf.title') }}</h2>
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <input v-model="wafInput.path" class="aura-input" :placeholder="t('security_center.waf.path')" />
+        <input v-model="wafInput.query" class="aura-input" :placeholder="t('security_center.waf.query')" />
+        <input v-model="wafInput.user_agent" class="aura-input" :placeholder="t('security_center.waf.user_agent')" />
+        <input v-model="wafInput.ip" class="aura-input" :placeholder="t('security_center.waf.ip')" />
       </div>
-      <textarea v-model="wafInput.body" class="aura-input w-full min-h-24" placeholder="request body"></textarea>
-      <button class="btn-primary" @click="runWafTest">WAF Analiz Et</button>
-      <div v-if="wafResult" class="bg-panel-dark border border-panel-border rounded-lg p-4 text-sm">
-        <p><strong>Allowed:</strong> {{ wafResult.allowed }}</p>
-        <p><strong>Score:</strong> {{ wafResult.score }}</p>
-        <p><strong>Reason:</strong> {{ wafResult.reason }}</p>
+      <textarea v-model="wafInput.body" class="aura-input min-h-24 w-full" :placeholder="t('security_center.waf.body')"></textarea>
+      <button class="btn-primary" @click="runWafTest">{{ t('security_center.waf.analyze') }}</button>
+      <div v-if="wafResult" class="rounded-lg border border-panel-border bg-panel-dark p-4 text-sm">
+        <p><strong>{{ t('security_center.waf.allowed') }}:</strong> {{ wafResult.allowed }}</p>
+        <p><strong>{{ t('security_center.waf.score') }}:</strong> {{ wafResult.score }}</p>
+        <p><strong>{{ t('security_center.waf.reason') }}:</strong> {{ wafResult.reason }}</p>
       </div>
     </div>
 
     <div v-if="activeTab === '2fa'" class="aura-card space-y-4">
-      <h2 class="text-lg font-bold text-white">2FA (TOTP)</h2>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <input v-model="totp.account_name" class="aura-input md:col-span-2" placeholder="Account name (admin@aurapanel)" />
-        <button class="btn-primary" @click="setup2fa">Setup 2FA</button>
+      <h2 class="text-lg font-bold text-white">{{ t('security_center.twofa.title') }}</h2>
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <input v-model="totp.account_name" class="aura-input md:col-span-2" :placeholder="t('security_center.twofa.account_name')" />
+        <button class="btn-primary" @click="setup2fa">{{ t('security_center.twofa.setup') }}</button>
       </div>
-      <div v-if="totp.secret" class="bg-panel-dark border border-panel-border rounded-lg p-4 space-y-3">
-        <p class="text-sm"><strong>Secret:</strong> <span class="font-mono">{{ totp.secret }}</span></p>
-        <img v-if="totp.qr_base64" :src="`data:image/png;base64,${totp.qr_base64}`" alt="2FA QR" class="w-40 h-40 border border-panel-border rounded" />
+      <div v-if="totp.secret" class="space-y-3 rounded-lg border border-panel-border bg-panel-dark p-4">
+        <p class="text-sm"><strong>{{ t('security_center.twofa.secret') }}:</strong> <span class="font-mono">{{ totp.secret }}</span></p>
+        <img v-if="totp.qr_base64" :src="`data:image/png;base64,${totp.qr_base64}`" :alt="t('security_center.twofa.qr_alt')" class="h-40 w-40 rounded border border-panel-border" />
         <div class="flex gap-3">
-          <input v-model="totp.token" class="aura-input" placeholder="Enter OTP token" />
-          <button class="btn-secondary" @click="verify2fa">Verify</button>
+          <input v-model="totp.token" class="aura-input" :placeholder="t('security_center.twofa.token')" />
+          <button class="btn-secondary" @click="verify2fa">{{ t('security_center.twofa.verify') }}</button>
         </div>
         <p v-if="totp.verifyResult !== null" :class="totp.verifyResult ? 'text-green-400' : 'text-red-400'">
-          {{ totp.verifyResult ? 'Token dogrulandi' : 'Token gecersiz' }}
+          {{ totp.verifyResult ? t('security_center.twofa.verified') : t('security_center.twofa.invalid') }}
         </p>
       </div>
     </div>
 
     <div v-if="activeTab === 'ssh'" class="aura-card space-y-4">
-      <h2 class="text-lg font-bold text-white">SSH Key Manager</h2>
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <input v-model="ssh.user" class="aura-input" placeholder="user" />
-        <input v-model="ssh.title" class="aura-input" placeholder="title" />
-        <input v-model="ssh.public_key" class="aura-input md:col-span-2" placeholder="ssh-ed25519 AAAA..." />
+      <h2 class="text-lg font-bold text-white">{{ t('security_center.ssh.title') }}</h2>
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
+        <input v-model="ssh.user" class="aura-input" :placeholder="t('security_center.ssh.user')" />
+        <input v-model="ssh.title" class="aura-input" :placeholder="t('security_center.ssh.title_label')" />
+        <input v-model="ssh.public_key" class="aura-input md:col-span-2" :placeholder="t('security_center.ssh.public_key')" />
       </div>
       <div class="flex gap-3">
-        <button class="btn-primary" @click="addSshKey">Key Ekle</button>
-        <button class="btn-secondary" @click="loadSshKeys">Listele</button>
+        <button class="btn-primary" @click="addSshKey">{{ t('security_center.ssh.add_key') }}</button>
+        <button class="btn-secondary" @click="loadSshKeys">{{ t('security_center.ssh.list') }}</button>
       </div>
       <div class="space-y-2">
-        <div v-for="key in sshKeys" :key="key.id" class="bg-panel-dark border border-panel-border rounded-lg p-3 flex items-center justify-between gap-3">
+        <div v-for="key in sshKeys" :key="key.id" class="flex items-center justify-between gap-3 rounded-lg border border-panel-border bg-panel-dark p-3">
           <div>
             <p class="text-sm text-white">{{ key.user }} · {{ key.title }}</p>
-            <p class="text-xs text-gray-400 font-mono break-all">{{ key.public_key }}</p>
+            <p class="break-all font-mono text-xs text-gray-400">{{ key.public_key }}</p>
           </div>
-          <button class="btn-danger px-3 py-1 text-xs" @click="deleteSshKey(key)">Sil</button>
+          <button class="btn-danger px-3 py-1 text-xs" @click="deleteSshKey(key)">{{ t('security_center.ssh.delete') }}</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="activeTab === 'malware'" class="space-y-4">
+      <div class="aura-card space-y-4">
+        <h2 class="text-lg font-bold text-white">Malware Scanner</h2>
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
+          <input v-model="malwareForm.path" class="aura-input md:col-span-2" placeholder="/home/site/public_html" />
+          <select v-model="malwareForm.engine" class="aura-input">
+            <option value="auto">Auto (ClamAV/Yara/Fallback)</option>
+            <option value="clamav">ClamAV</option>
+            <option value="yara">Yara</option>
+            <option value="signature">Signature Fallback</option>
+          </select>
+          <button class="btn-primary" :disabled="malwareStarting" @click="startMalwareScan">
+            {{ malwareStarting ? 'Tarama baslatiliyor...' : 'Taramayi Baslat' }}
+          </button>
+        </div>
+      </div>
+
+      <div class="aura-card space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-base font-semibold text-white">Scan Jobs</h3>
+          <button class="btn-secondary" @click="loadMalwareJobs">Yenile</button>
+        </div>
+        <div v-if="malwareJobs.length === 0" class="text-sm text-gray-400">Tarama kaydi bulunmuyor.</div>
+        <div v-for="job in malwareJobs" :key="job.id" class="rounded-lg border border-panel-border bg-panel-dark p-4 space-y-3">
+          <div class="flex flex-wrap items-center gap-2 text-sm">
+            <span class="font-mono text-gray-300">{{ job.id }}</span>
+            <span class="text-gray-500">|</span>
+            <span :class="scanStatusClass(job.status)">{{ job.status }}</span>
+            <span class="text-gray-500">|</span>
+            <span class="text-gray-300">%{{ job.progress || 0 }}</span>
+            <span class="text-gray-500">|</span>
+            <span class="text-gray-300">{{ job.infected_files || 0 }} bulgu</span>
+            <button class="btn-secondary ml-auto text-xs px-2 py-1" @click="loadMalwareStatus(job.id)">Detay</button>
+          </div>
+          <p class="text-xs text-gray-400 break-all">Hedef: {{ job.target_path }}</p>
+          <div class="h-2 rounded bg-[#0f172a] overflow-hidden">
+            <div class="h-full bg-gradient-to-r from-emerald-500 to-cyan-500" :style="{ width: `${job.progress || 0}%` }"></div>
+          </div>
+          <div v-if="job.findings?.length" class="space-y-2">
+            <p class="text-sm text-white font-semibold">Tespit Edilen Dosyalar</p>
+            <div v-for="finding in job.findings" :key="finding.id" class="rounded border border-panel-border p-2 text-xs">
+              <p class="text-gray-200 break-all font-mono">{{ finding.file_path }}</p>
+              <p class="text-yellow-300 mt-1">{{ finding.signature }} ({{ finding.engine }})</p>
+              <div class="mt-2 flex gap-2">
+                <button
+                  class="btn-danger text-xs px-2 py-1"
+                  :disabled="finding.quarantined"
+                  @click="quarantineMalwareFinding(job.id, finding.id)"
+                >
+                  {{ finding.quarantined ? 'Karantinada' : 'Karantinaya Al' }}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div v-if="job.logs?.length" class="rounded border border-panel-border p-2">
+            <p class="text-xs text-gray-400 mb-1">Scan Log</p>
+            <pre class="max-h-32 overflow-auto text-[11px] text-gray-300 whitespace-pre-wrap">{{ job.logs.join('\n') }}</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="aura-card space-y-3">
+        <div class="flex items-center justify-between">
+          <h3 class="text-base font-semibold text-white">Karantina Yoneticisi</h3>
+          <button class="btn-secondary" @click="loadQuarantineRecords">Yenile</button>
+        </div>
+        <div v-if="quarantineRecords.length === 0" class="text-sm text-gray-400">Karantina kaydi bulunmuyor.</div>
+        <div v-for="item in quarantineRecords" :key="item.id" class="rounded-lg border border-panel-border bg-panel-dark p-3 text-xs space-y-1">
+          <p class="text-gray-200 font-mono break-all">Orijinal: {{ item.original_path }}</p>
+          <p class="text-gray-400 font-mono break-all">Karantina: {{ item.quarantine_path }}</p>
+          <p class="text-gray-500">Job: {{ item.job_id }} • Finding: {{ item.finding_id }}</p>
+          <button
+            class="btn-secondary text-xs px-2 py-1 mt-2"
+            :disabled="!!item.restored_at"
+            @click="restoreQuarantineRecord(item.id)"
+          >
+            {{ item.restored_at ? 'Geri Yuklendi' : 'Geri Yukle' }}
+          </button>
         </div>
       </div>
     </div>
 
     <div v-if="activeTab === 'hardening'" class="aura-card space-y-4">
-      <h2 class="text-lg font-bold text-white">One-Click Hardening</h2>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <h2 class="text-lg font-bold text-white">{{ t('security_center.hardening.title') }}</h2>
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
         <select v-model="hardening.stack" class="aura-input">
-          <option value="wordpress">WordPress</option>
-          <option value="laravel">Laravel</option>
-          <option value="generic">Generic</option>
+          <option value="wordpress">{{ t('security_center.hardening.stacks.wordpress') }}</option>
+          <option value="laravel">{{ t('security_center.hardening.stacks.laravel') }}</option>
+          <option value="generic">{{ t('security_center.hardening.stacks.generic') }}</option>
         </select>
-        <input v-model="hardening.domain" class="aura-input md:col-span-2" placeholder="example.com" />
+        <input v-model="hardening.domain" class="aura-input md:col-span-2" :placeholder="t('security_center.hardening.domain')" />
       </div>
-      <button class="btn-primary" @click="applyHardening">Hardening Uygula</button>
-      <div v-if="hardeningResult" class="bg-panel-dark border border-panel-border rounded-lg p-4">
-        <p class="text-sm text-white mb-2"><strong>{{ hardeningResult.domain }}</strong> icin uygulanan kurallar:</p>
+      <button class="btn-primary" @click="applyHardening">{{ t('security_center.hardening.apply') }}</button>
+      <div v-if="hardeningResult" class="rounded-lg border border-panel-border bg-panel-dark p-4">
+        <p class="mb-2 text-sm text-white"><strong>{{ t('security_center.hardening.rules_for', { domain: hardeningResult.domain }) }}</strong></p>
         <ul class="list-disc pl-5 text-sm text-gray-300">
           <li v-for="rule in hardeningResult.applied_rules" :key="rule">{{ rule }}</li>
         </ul>
@@ -151,19 +231,19 @@
     </div>
 
     <div v-if="activeTab === 'kernel'" class="aura-card space-y-4">
-      <h2 class="text-lg font-bold text-white">Kernel Security</h2>
+      <h2 class="text-lg font-bold text-white">{{ t('security_center.kernel.title') }}</h2>
       <div class="flex gap-3">
-        <button class="btn-secondary" @click="loadImmutableStatus">Immutable Status</button>
-        <button class="btn-secondary" @click="loadEbpfEvents">eBPF Events</button>
+        <button class="btn-secondary" @click="loadImmutableStatus">{{ t('security_center.kernel.immutable_status') }}</button>
+        <button class="btn-secondary" @click="loadEbpfEvents">{{ t('security_center.kernel.ebpf_events') }}</button>
       </div>
       <div class="flex gap-3">
-        <input v-model="livePatchTarget" class="aura-input" placeholder="kernel" />
-        <button class="btn-primary" @click="runLivePatch">Live Patch</button>
+        <input v-model="livePatchTarget" class="aura-input" :placeholder="t('security_center.kernel.live_patch_target')" />
+        <button class="btn-primary" @click="runLivePatch">{{ t('security_center.kernel.live_patch') }}</button>
       </div>
-      <pre v-if="immutableStatus" class="bg-panel-dark border border-panel-border rounded-lg p-3 text-xs text-gray-300 overflow-auto">{{ JSON.stringify(immutableStatus, null, 2) }}</pre>
+      <pre v-if="immutableStatus" class="overflow-auto rounded-lg border border-panel-border bg-panel-dark p-3 text-xs text-gray-300">{{ JSON.stringify(immutableStatus, null, 2) }}</pre>
       <div class="space-y-2">
-        <div v-for="(ev, idx) in ebpfEvents" :key="idx" class="bg-panel-dark border border-panel-border rounded-lg p-3 text-sm text-gray-300">
-          {{ ev }}
+        <div v-for="(eventItem, index) in ebpfEvents" :key="index" class="rounded-lg border border-panel-border bg-panel-dark p-3 text-sm text-gray-300">
+          {{ eventItem }}
         </div>
       </div>
     </div>
@@ -171,21 +251,26 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 import api from '../services/api'
 
+const { t } = useI18n({ useScope: 'global' })
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 
 const tabs = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'firewall', label: 'Firewall' },
-  { id: 'waf', label: 'ML-WAF' },
-  { id: '2fa', label: '2FA' },
-  { id: 'ssh', label: 'SSH Keys' },
-  { id: 'hardening', label: 'Hardening' },
-  { id: 'kernel', label: 'Kernel Security' }
+  { id: 'overview', label: t('security_center.tabs.overview') },
+  { id: 'firewall', label: t('security_center.tabs.firewall') },
+  { id: 'waf', label: t('security_center.tabs.waf') },
+  { id: '2fa', label: t('security_center.tabs.twofa') },
+  { id: 'ssh', label: t('security_center.tabs.ssh') },
+  { id: 'malware', label: 'Malware Scanner' },
+  { id: 'hardening', label: t('security_center.tabs.hardening') },
+  { id: 'kernel', label: t('security_center.tabs.kernel') },
 ]
 
 const activeTab = ref(route.query.tab || 'overview')
@@ -197,40 +282,30 @@ const hardeningResult = ref(null)
 const immutableStatus = ref(null)
 const ebpfEvents = ref([])
 const livePatchTarget = ref('kernel')
+const malwareForm = ref({ path: '/home', engine: 'auto' })
+const malwareJobs = ref([])
+const quarantineRecords = ref([])
+const malwareStarting = ref(false)
+let malwarePollTimer = null
 
-const firewallForm = ref({
-  ip_address: '',
-  block: true,
-  reason: ''
-})
-
+const firewallForm = ref({ ip_address: '', block: true, reason: '' })
 const wafInput = ref({
   method: 'GET',
   path: '/',
   query: '',
   body: '',
   user_agent: 'AuraPanel-Security-Test',
-  ip: '127.0.0.1'
+  ip: '127.0.0.1',
 })
-
 const totp = ref({
-  account_name: 'admin@aurapanel',
+  account_name: authStore.user?.email || authStore.user?.username || 'admin@aurapanel',
   secret: '',
   qr_base64: '',
   token: '',
-  verifyResult: null
+  verifyResult: null,
 })
-
-const ssh = ref({
-  user: 'root',
-  title: '',
-  public_key: ''
-})
-
-const hardening = ref({
-  stack: 'wordpress',
-  domain: ''
-})
+const ssh = ref({ user: 'root', title: '', public_key: '' })
+const hardening = ref({ stack: 'wordpress', domain: '' })
 
 const statusCards = computed(() => [
   { key: 'ebpf', label: 'eBPF Monitoring', value: status.value.ebpf_monitoring },
@@ -241,7 +316,7 @@ const statusCards = computed(() => [
   { key: 'livepatch', label: 'Live Patching', value: status.value.live_patching },
   { key: 'hardening', label: 'One-Click Hardening', value: status.value.one_click_hardening },
   { key: 'fw', label: 'nft Firewall', value: status.value.nft_firewall },
-  { key: 'ssh', label: 'SSH Key Manager', value: status.value.ssh_key_manager }
+  { key: 'ssh', label: 'SSH Key Manager', value: status.value.ssh_key_manager },
 ])
 
 function setTab(tab) {
@@ -251,9 +326,9 @@ function setTab(tab) {
 
 watch(
   () => route.query.tab,
-  (tab) => {
+  tab => {
     activeTab.value = tab || 'overview'
-  }
+  },
 )
 
 async function loadStatus() {
@@ -291,8 +366,12 @@ async function setup2fa() {
 }
 
 async function verify2fa() {
-  const res = await api.post('/security/2fa/verify', { secret: totp.value.secret, token: totp.value.token })
+  const res = await api.post('/security/2fa/verify', { token: totp.value.token })
   totp.value.verifyResult = !!res.data.valid
+  if (totp.value.verifyResult) {
+    authStore.updateUser({ two_fa_enabled: true })
+    await loadStatus()
+  }
 }
 
 async function addSshKey() {
@@ -310,10 +389,7 @@ async function loadSshKeys() {
 
 async function deleteSshKey(key) {
   await api.delete('/security/ssh-keys', {
-    params: {
-      user: key.user,
-      key_id: key.id
-    }
+    params: { user: key.user, key_id: key.id },
   })
   await loadSshKeys()
 }
@@ -329,6 +405,7 @@ async function loadImmutableStatus() {
 }
 
 async function loadEbpfEvents() {
+  await api.post('/security/ebpf/collect', { limit: 100 })
   const res = await api.get('/security/ebpf/events')
   ebpfEvents.value = res.data.data || []
 }
@@ -337,9 +414,96 @@ async function runLivePatch() {
   await api.post('/security/live-patch', { target: livePatchTarget.value })
 }
 
+function scanStatusClass(status) {
+  const value = String(status || '').toLowerCase()
+  if (value === 'completed') return 'text-green-400'
+  if (value === 'failed') return 'text-red-400'
+  if (value === 'running') return 'text-blue-400'
+  return 'text-yellow-400'
+}
+
+function stopMalwarePolling() {
+  if (malwarePollTimer) {
+    clearInterval(malwarePollTimer)
+    malwarePollTimer = null
+  }
+}
+
+function startMalwarePolling() {
+  stopMalwarePolling()
+  malwarePollTimer = setInterval(async () => {
+    await loadMalwareJobs()
+  }, 2500)
+}
+
+async function loadMalwareJobs() {
+  const res = await api.get('/security/malware/scan/jobs', { params: { limit: 15 } })
+  malwareJobs.value = res.data.data || []
+  const hasActive = malwareJobs.value.some(job => {
+    const state = String(job.status || '').toLowerCase()
+    return state === 'queued' || state === 'running'
+  })
+  if (hasActive) {
+    if (!malwarePollTimer) {
+      startMalwarePolling()
+    }
+  } else {
+    stopMalwarePolling()
+  }
+}
+
+async function loadMalwareStatus(jobId) {
+  const res = await api.get('/security/malware/scan/status', { params: { id: jobId } })
+  const latest = res.data?.data
+  if (!latest) return
+  const idx = malwareJobs.value.findIndex(job => job.id === latest.id)
+  if (idx >= 0) {
+    malwareJobs.value[idx] = latest
+  } else {
+    malwareJobs.value.unshift(latest)
+  }
+}
+
+async function startMalwareScan() {
+  malwareStarting.value = true
+  try {
+    await api.post('/security/malware/scan/start', malwareForm.value)
+    await loadMalwareJobs()
+    await loadQuarantineRecords()
+  } finally {
+    malwareStarting.value = false
+  }
+}
+
+async function quarantineMalwareFinding(jobId, findingId) {
+  await api.post('/security/malware/quarantine', { job_id: jobId, finding_id: findingId })
+  await loadMalwareStatus(jobId)
+  await loadQuarantineRecords()
+}
+
+async function loadQuarantineRecords() {
+  const res = await api.get('/security/malware/quarantine')
+  quarantineRecords.value = res.data.data || []
+}
+
+async function restoreQuarantineRecord(quarantineId) {
+  await api.post('/security/malware/quarantine/restore', { quarantine_id: quarantineId })
+  await loadQuarantineRecords()
+  await loadMalwareJobs()
+}
+
 async function loadAll() {
-  await Promise.all([loadStatus(), loadFirewallRules(), loadSshKeys()])
+  await Promise.all([
+    loadStatus(),
+    loadFirewallRules(),
+    loadSshKeys(),
+    loadMalwareJobs(),
+    loadQuarantineRecords(),
+  ])
 }
 
 onMounted(loadAll)
+onBeforeUnmount(() => {
+  stopMalwarePolling()
+})
 </script>

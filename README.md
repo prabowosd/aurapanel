@@ -155,15 +155,15 @@ Bu proje **MIT** lisansı altında dağıtılmaktadır. Detaylar için [LICENSE]
 **Genel İlerleme:** `78%`
 
 ```
-[###############################---------] 78%
+[##################################-----] 92%
 ```
 
 | Alan | Tamamlanma |
 |---|---|
 | Core + API + Frontend Lifecycle | 85% |
-| Security + Status + SSL + FTP | 82% |
-| Mail Stack Production Hardening | 74% |
-| Installer + Distribution Hardening | 76% |
+| Security + Status + SSL + FTP | 98% |
+| Mail Stack Production Hardening | 99% |
+| Installer + Distribution Hardening | 98% |
 
 ## Yapimcilar
 

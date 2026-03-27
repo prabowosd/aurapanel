@@ -161,8 +161,11 @@ impl DockerManager {
             .output()
             .map_err(|e| format!("docker logs failed: {}", e))?;
 
-        Ok(String::from_utf8_lossy(&output.stdout).to_string()
-            + &String::from_utf8_lossy(&output.stderr).to_string())
+        Ok(format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
     }
 
     pub fn list_images() -> Result<Vec<ImageInfo>, String> {

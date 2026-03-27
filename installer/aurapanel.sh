@@ -15,7 +15,9 @@ PROJECT_DIR="/opt/aurapanel"
 GATEWAY_ENV_DIR="/etc/aurapanel"
 GATEWAY_ENV_FILE="${GATEWAY_ENV_DIR}/aurapanel.env"
 CORE_ENV_FILE="${GATEWAY_ENV_DIR}/aurapanel-core.env"
+OLS_ADMIN_STATE_FILE="${GATEWAY_ENV_DIR}/aurapanel-ols-admin.env"
 MINIO_ENV_FILE="/etc/default/minio"
+CREDENTIALS_SUMMARY_FILE="/root/aurapanel_credentials.txt"
 REPO_URL="https://github.com/mkoyazilim/aurapanel.git"
 AURAPANEL_GH_OWNER="${AURAPANEL_GH_OWNER:-mkoyazilim}"
 AURAPANEL_GH_REPO="${AURAPANEL_GH_REPO:-aurapanel}"
@@ -38,6 +40,7 @@ MINIO_MC_URL="${AURAPANEL_MINIO_MC_URL:-https://dl.min.io/client/mc/release/linu
 ROUNDCUBE_VERSION="${AURAPANEL_ROUNDCUBE_VERSION:-1.6.11}"
 ROUNDCUBE_ARCHIVE_URL="${AURAPANEL_ROUNDCUBE_ARCHIVE_URL:-https://github.com/roundcube/roundcubemail/releases/download/${ROUNDCUBE_VERSION}/roundcubemail-${ROUNDCUBE_VERSION}-complete.tar.gz}"
 PANEL_PORT_DEFAULT="8090"
+ONE_TIME_PASSWORD_NOTE="NOTE: Passwords are generated only once. Please save them now or change them immediately."
 
 log() {
   echo -e "${BLUE}[$(date '+%H:%M:%S')]${NC} $*"
@@ -130,6 +133,17 @@ upsert_env() {
   else
     printf '%s=%s\n' "${key}" "${value}" >> "${file}"
   fi
+}
+
+read_env_value() {
+  local file="$1"
+  local key="$2"
+
+  if [ ! -f "${file}" ]; then
+    return 1
+  fi
+
+  grep -E "^${key}=" "${file}" | tail -n1 | cut -d'=' -f2- || true
 }
 
 gateway_port() {
@@ -462,6 +476,81 @@ ensure_openlitespeed() {
   systemctl restart lshttpd >/dev/null 2>&1 || true
 }
 
+configure_ols_admin_credentials() {
+  local ols_user="admin"
+  local ols_pass=""
+  local ols_conf_dir="/usr/local/lsws/admin/conf"
+  local ols_htpasswd="${ols_conf_dir}/htpasswd"
+
+  if [ -f "${OLS_ADMIN_STATE_FILE}" ]; then
+    ols_user="$(read_env_value "${OLS_ADMIN_STATE_FILE}" "AURAPANEL_OLS_ADMIN_USER")"
+    ols_pass="$(read_env_value "${OLS_ADMIN_STATE_FILE}" "AURAPANEL_OLS_ADMIN_PASSWORD")"
+    ols_user="${ols_user:-admin}"
+    if [ -n "${ols_pass}" ]; then
+      return
+    fi
+  fi
+
+  ols_pass="$(openssl rand -base64 18 | tr -d '\n')"
+
+  mkdir -p "${GATEWAY_ENV_DIR}" "${ols_conf_dir}"
+  cat <<EOF > "${OLS_ADMIN_STATE_FILE}"
+AURAPANEL_OLS_ADMIN_USER=${ols_user}
+AURAPANEL_OLS_ADMIN_PASSWORD=${ols_pass}
+EOF
+  chmod 600 "${OLS_ADMIN_STATE_FILE}"
+
+  if [ -x /usr/local/lsws/admin/misc/admpass.sh ]; then
+    if printf '%s\n%s\n%s\n' "${ols_user}" "${ols_pass}" "${ols_pass}" | /usr/local/lsws/admin/misc/admpass.sh >/dev/null 2>&1; then
+      ok "OpenLiteSpeed admin password initialized."
+    fi
+  fi
+
+  printf '%s:%s\n' "${ols_user}" "$(openssl passwd -apr1 "${ols_pass}")" > "${ols_htpasswd}"
+  chmod 600 "${ols_htpasswd}"
+
+  systemctl restart lshttpd >/dev/null 2>&1 || true
+}
+
+write_access_summary() {
+  local panel_port panel_user panel_pass ols_user ols_pass
+  panel_port="$(gateway_port)"
+  panel_user="$(read_env_value "${GATEWAY_ENV_FILE}" "AURAPANEL_ADMIN_EMAIL")"
+  panel_pass="$(read_env_value "${GATEWAY_ENV_FILE}" "AURAPANEL_ADMIN_PASSWORD")"
+  ols_user="$(read_env_value "${OLS_ADMIN_STATE_FILE}" "AURAPANEL_OLS_ADMIN_USER")"
+  ols_pass="$(read_env_value "${OLS_ADMIN_STATE_FILE}" "AURAPANEL_OLS_ADMIN_PASSWORD")"
+
+  panel_user="${panel_user:-admin@server.com}"
+  if [ -z "${panel_pass}" ] && [ -f "${PROJECT_DIR}/logs/initial_password.txt" ]; then
+    panel_pass="$(tr -d '\r\n' < "${PROJECT_DIR}/logs/initial_password.txt")"
+  fi
+  ols_user="${ols_user:-admin}"
+
+  if [ ! -f "${CREDENTIALS_SUMMARY_FILE}" ]; then
+    cat <<EOF > "${CREDENTIALS_SUMMARY_FILE}"
+AuraPanel Initial Access
+=======================
+Panel URL: http://YOUR_SERVER_IP:${panel_port}
+Panel Login: ${panel_user}
+Panel Password: ${panel_pass:-<not available>}
+
+OpenLiteSpeed WebAdmin URL: https://YOUR_SERVER_IP:7080
+OpenLiteSpeed Username: ${ols_user}
+OpenLiteSpeed Password: ${ols_pass:-<not available>}
+
+${ONE_TIME_PASSWORD_NOTE}
+EOF
+    chmod 600 "${CREDENTIALS_SUMMARY_FILE}"
+    ok "Access summary written to ${CREDENTIALS_SUMMARY_FILE}"
+  fi
+
+  ok "AuraPanel Login: ${panel_user}"
+  ok "AuraPanel Password: ${panel_pass:-<not available>}"
+  ok "OpenLiteSpeed Username: ${ols_user}"
+  ok "OpenLiteSpeed Password: ${ols_pass:-<not available>}"
+  warn "${ONE_TIME_PASSWORD_NOTE}"
+}
+
 ensure_minio_binaries() {
   if ! command -v minio >/dev/null 2>&1; then
     log "Installing MinIO binary..."
@@ -479,11 +568,13 @@ ensure_minio_binaries() {
 write_core_env_defaults() {
   mkdir -p "${GATEWAY_ENV_DIR}" "${PROJECT_DIR}/logs"
   chmod 700 "${GATEWAY_ENV_DIR}"
+  local shared_jwt_secret=""
 
   if [ ! -f "${GATEWAY_ENV_FILE}" ]; then
     local admin_pass jwt_secret
     admin_pass="$(openssl rand -base64 18 | tr -d '\n')"
     jwt_secret="$(openssl rand -hex 32 | tr -d '\n')"
+    shared_jwt_secret="${jwt_secret}"
 
     cat <<EOF > "${GATEWAY_ENV_FILE}"
 AURAPANEL_ADMIN_EMAIL=admin@server.com
@@ -504,6 +595,10 @@ EOF
     ok "Initial admin password written to ${PROJECT_DIR}/logs/initial_password.txt"
   fi
 
+  if [ -z "${shared_jwt_secret}" ]; then
+    shared_jwt_secret="$(read_env_value "${GATEWAY_ENV_FILE}" "AURAPANEL_JWT_SECRET")"
+  fi
+
   if [ ! -f "${CORE_ENV_FILE}" ]; then
     local restic_pass minio_access minio_secret
     restic_pass="$(openssl rand -hex 24 | tr -d '\n')"
@@ -514,6 +609,7 @@ EOF
 AURAPANEL_RUNTIME_MODE=production
 AURAPANEL_SECURITY_POLICY=fail-closed
 AURAPANEL_GATEWAY_ONLY=1
+AURAPANEL_JWT_SECRET=${shared_jwt_secret}
 AURAPANEL_CORE_BIND_ADDR=127.0.0.1:8000
 AURAPANEL_FEDERATION_MODE=active-passive
 AURAPANEL_FEDERATION_PRIMARY=1
@@ -542,6 +638,9 @@ EOF
   upsert_env "${CORE_ENV_FILE}" "AURAPANEL_RUNTIME_MODE" "production"
   upsert_env "${CORE_ENV_FILE}" "AURAPANEL_SECURITY_POLICY" "fail-closed"
   upsert_env "${CORE_ENV_FILE}" "AURAPANEL_GATEWAY_ONLY" "1"
+  if [ -n "${shared_jwt_secret}" ]; then
+    upsert_env "${CORE_ENV_FILE}" "AURAPANEL_JWT_SECRET" "${shared_jwt_secret}"
+  fi
   upsert_env "${CORE_ENV_FILE}" "AURAPANEL_CORE_BIND_ADDR" "127.0.0.1:8000"
   upsert_env "${CORE_ENV_FILE}" "AURAPANEL_FEDERATION_MODE" "active-passive"
   upsert_env "${CORE_ENV_FILE}" "AURAPANEL_FEDERATION_PRIMARY" "1"
@@ -782,6 +881,7 @@ main() {
   ensure_go
   ensure_node20
   ensure_openlitespeed
+  configure_ols_admin_credentials
   configure_pureftpd
 
   sync_project
@@ -804,6 +904,7 @@ main() {
   ok "Core Health (internal): http://127.0.0.1:8000/api/v1/health"
   ok "OpenLiteSpeed Web: http://YOUR_SERVER_IP (80/443)"
   ok "OpenLiteSpeed Admin: https://YOUR_SERVER_IP:7080"
+  write_access_summary
 }
 
 main "$@"

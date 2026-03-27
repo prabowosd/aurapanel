@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import i18n from '../i18n'
 
 const STORAGE_KEY = 'aura_notifications'
 const MAX_ITEMS = 100
@@ -13,7 +14,7 @@ function safeParse(raw) {
       .filter(item => item && typeof item === 'object' && item.id)
       .map(item => ({
         id: String(item.id),
-        title: String(item.title || 'Bildirim'),
+        title: String(item.title || i18n.global.t('notifications.default_title')),
         message: String(item.message || ''),
         type: normalizeType(item.type),
         source: String(item.source || 'system'),
@@ -55,7 +56,7 @@ export const useNotificationStore = defineStore('notifications', {
     add(notification) {
       const normalized = {
         id: nowId(),
-        title: String(notification?.title || 'Bildirim'),
+        title: String(notification?.title || i18n.global.t('notifications.default_title')),
         message: String(notification?.message || ''),
         type: normalizeType(notification?.type),
         source: String(notification?.source || 'system'),

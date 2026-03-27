@@ -44,6 +44,9 @@
         <div class="flex items-center gap-2 w-full sm:w-auto">
           <span :class="user.active ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-gray-500/10 text-gray-400 border-gray-500/20'"
             class="px-2 py-1 rounded text-xs border">{{ user.active ? t('common.active') : t('common.inactive') }}</span>
+          <button class="btn-secondary p-2" title="Sifre Degistir" @click="openPasswordModal(user)">
+            <KeyRound class="w-4 h-4" />
+          </button>
           <button class="btn-danger p-2" :title="t('common.delete')" @click="deleteUser(user)">
             <UserMinus class="w-4 h-4" />
           </button>
@@ -93,13 +96,36 @@
         </div>
       </div>
     </Teleport>
+
+    <!-- Change Password Modal -->
+    <Teleport to="body">
+      <div v-if="showPasswordModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div class="bg-panel-card border border-panel-border rounded-2xl p-8 w-full max-w-md shadow-2xl">
+          <h2 class="text-xl font-bold text-white mb-2">Kullanici Sifresi Degistir</h2>
+          <p class="text-sm text-gray-400 mb-6">
+            Kullanici: <span class="text-white font-mono">{{ passwordForm.username }}</span>
+          </p>
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">Yeni Sifre</label>
+            <input v-model="passwordForm.new_password" type="password" class="aura-input w-full" placeholder="En az 8 karakter" />
+          </div>
+          <div class="flex gap-3 mt-8">
+            <button class="btn-secondary flex-1" @click="closePasswordModal">{{ t('common.cancel') }}</button>
+            <button class="btn-primary flex-1" :disabled="passwordLoading" @click="changePassword">
+              <Loader2 v-if="passwordLoading" class="w-4 h-4 animate-spin mr-2 inline" />
+              Kaydet
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { UserPlus, UserMinus, Globe, Loader2 } from 'lucide-vue-next'
+import { UserPlus, UserMinus, Globe, Loader2, KeyRound } from 'lucide-vue-next'
 import api from '../services/api'
 
 const { t } = useI18n()
@@ -108,6 +134,9 @@ const loading = ref(true)
 const error = ref(null)
 const showAddModal = ref(false)
 const addLoading = ref(false)
+const showPasswordModal = ref(false)
+const passwordLoading = ref(false)
+const passwordForm = ref({ username: '', new_password: '' })
 const form = ref({ username: '', email: '', password: '', role: 'user', package: '' })
 
 async function loadUsers() {
@@ -145,6 +174,35 @@ async function deleteUser(user) {
     await loadUsers()
   } catch (e) {
     error.value = t('common.error')
+  }
+}
+
+function openPasswordModal(user) {
+  passwordForm.value = {
+    username: user.username,
+    new_password: '',
+  }
+  showPasswordModal.value = true
+}
+
+function closePasswordModal() {
+  showPasswordModal.value = false
+  passwordForm.value = { username: '', new_password: '' }
+}
+
+async function changePassword() {
+  if (!passwordForm.value.username || !passwordForm.value.new_password) return
+  passwordLoading.value = true
+  try {
+    await api.post('/users/change-password', {
+      username: passwordForm.value.username,
+      new_password: passwordForm.value.new_password,
+    })
+    closePasswordModal()
+  } catch (e) {
+    error.value = e?.response?.data?.message || t('common.error')
+  } finally {
+    passwordLoading.value = false
   }
 }
 

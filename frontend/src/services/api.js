@@ -1,4 +1,5 @@
 import axios from 'axios'
+import i18n from '../i18n'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationStore } from '../stores/notifications'
 
@@ -28,7 +29,7 @@ function extractErrorMessage(error) {
   if (typeof error?.message === 'string' && error.message.trim()) {
     return error.message.trim()
   }
-  return 'Unknown API error'
+  return i18n.global.t('api_messages.unknown_error')
 }
 
 api.interceptors.request.use(config => {
@@ -36,7 +37,7 @@ api.interceptors.request.use(config => {
   if (authStore.token && authStore.isTokenExpired(authStore.token)) {
     authStore.logout()
     window.location.href = '/login'
-    return Promise.reject(new Error('Session expired'))
+    return Promise.reject(new Error(i18n.global.t('api_messages.session_expired')))
   }
   if (authStore.token) {
     config.headers.Authorization = `Bearer ${authStore.token}`
@@ -54,8 +55,8 @@ api.interceptors.response.use(response => response, error => {
 
   if (status === 401 && !isLoginRequest) {
     notificationStore.add({
-      title: 'Session Ended',
-      message: 'Your session expired. Please sign in again.',
+      title: i18n.global.t('api_messages.session_ended_title'),
+      message: i18n.global.t('api_messages.session_ended_message'),
       type: 'warning',
       source: 'auth',
     })
@@ -65,9 +66,9 @@ api.interceptors.response.use(response => response, error => {
   }
 
   if (!silentError) {
-    const statusText = status > 0 ? `HTTP ${status}` : 'Network Error'
+    const statusText = status > 0 ? `HTTP ${status}` : i18n.global.t('api_messages.network_error')
     notificationStore.add({
-      title: `API Error - ${statusText}`,
+      title: i18n.global.t('api_messages.api_error_title', { status: statusText }),
       message: reqUrl ? `${reqUrl}: ${extractErrorMessage(error)}` : extractErrorMessage(error),
       type: 'error',
       source: 'api',

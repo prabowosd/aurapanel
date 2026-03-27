@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod manager;
 pub mod nitro;
 pub mod apps;
@@ -17,6 +18,11 @@ pub mod cloudflare;
 pub mod filemanager;
 pub mod php;
 pub mod status;
+pub mod cgroups;
 pub mod packages;
 pub mod websites;
 pub mod ols_tuning;
+pub mod wordpress;
+pub mod migration;
+pub mod analytics;
+pub mod malware;

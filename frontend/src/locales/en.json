@@ -1,4 +1,13 @@
 {
+  "terminal": {
+    "title": "Web Terminal",
+    "subtitle": "Access your server securely via browser",
+    "connect": "Connect",
+    "connected": "Connected",
+    "connecting": "Connecting to terminal...",
+    "connected_msg": "Terminal connected successfully.",
+    "disconnected": "Terminal disconnected."
+  },
   "menu": {
     "dashboard": "Dashboard",
     "websites": "Websites",
@@ -90,11 +99,16 @@
     "domains": "Domains",
     "databases": "Databases",
     "emails": "Emails",
+    "cpu_limit": "CPU Limit",
+    "ram_limit": "RAM Limit",
+    "io_limit": "I/O Limit",
     "type_hosting": "Hosting Plan",
     "type_reseller": "Reseller Plan",
     "unlimited": "Unlimited",
+    "edit": "Edit Package",
     "add_success": "Package created",
-    "delete_success": "Package deleted"
+    "delete_success": "Package deleted",
+    "update_success": "Package updated"
   },
   "databases": {
     "title": "Databases",
@@ -138,11 +152,23 @@
     "manage_records": "Manage Records",
     "default_ns": "Default NS"
   },
-  "filemanager": {
+  "file_manager": {
     "title": "File Manager",
+    "subtitle": "Manage server files",
+    "compress": "Compress",
+    "trash": "Move to Trash",
+    "upload": "Upload",
     "new_file": "New File",
     "new_folder": "New Folder",
-    "upload": "Upload",
+    "name": "Name",
+    "size": "Size",
+    "permissions": "Permissions",
+    "modified": "Modified",
+    "actions": "Actions",
+    "extract": "Extract Here",
+    "empty_dir": "Folder is empty",
+    "drag_drop": "Drag and drop files here",
+    "compress_title": "Create Archive",
     "save": "Save",
     "rename": "Rename",
     "delete": "Delete",
@@ -219,5 +245,47 @@
     "exited": "Exited",
     "install_app": "Install",
     "app_installed": "Installed"
+  },
+  "activity_log": {
+    "title": "Activity Log",
+    "subtitle": "Track all panel actions and events",
+    "user": "User",
+    "action": "Action",
+    "detail": "Detail",
+    "ip": "IP Address",
+    "timestamp": "Time",
+    "no_data": "No activity recorded yet",
+    "filter_user": "Filter by user",
+    "filter_all": "All users"
+  },
+  "db_backup": {
+    "title": "Database Backup",
+    "subtitle": "Backup and restore your databases",
+    "create_backup": "Create Backup",
+    "restore": "Restore",
+    "download": "Download",
+    "backup_history": "Backup History",
+    "no_backups": "No backups yet",
+    "backup_created": "Backup created successfully",
+    "restore_confirm": "Restore this backup? Current data will be overwritten."
+  },
+  "cms_installer": {
+    "title": "CMS Installer",
+    "subtitle": "One-click install for WordPress and Laravel",
+    "app_type": "Application",
+    "domain": "Domain",
+    "db_name": "Database Name",
+    "db_user": "Database User",
+    "db_pass": "Database Password",
+    "admin_email": "Admin Email",
+    "admin_user": "Admin Username",
+    "admin_pass": "Admin Password",
+    "install": "Install",
+    "installing": "Installing...",
+    "success": "Installation completed successfully"
+  },
+  "app_runtime": {
+    "title": "App Runtime",
+    "subtitle": "Node.js, Python and CMS application management"
   }
 }

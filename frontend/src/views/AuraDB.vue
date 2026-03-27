@@ -2,25 +2,25 @@
   <div class="space-y-6">
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-bold text-white">AuraDB Explorer</h1>
-        <p class="text-gray-400 mt-1">Veritabani tablolari ve sorgu calistirma</p>
+        <h1 class="text-2xl font-bold text-white">{{ t('auradb.title') }}</h1>
+        <p class="text-gray-400 mt-1">{{ t('auradb.subtitle') }}</p>
       </div>
-      <button class="btn-secondary" @click="listTables">Tablolari Yenile</button>
+      <button class="btn-secondary" @click="listTables">{{ t('auradb.refresh_tables') }}</button>
     </div>
 
     <div v-if="bridgeMode" class="aura-card border-brand-500/30 bg-brand-500/10">
-      <h2 class="text-lg font-semibold text-white">Secure Bridge Aktif</h2>
+      <h2 class="text-lg font-semibold text-white">{{ t('auradb.bridge_active') }}</h2>
       <p class="text-sm text-gray-300 mt-2">
-        Domain: <span class="font-mono text-white">{{ bridgeProfile?.domain }}</span>
-        | Engine: <span class="font-mono text-white">{{ bridgeProfile?.engine }}</span>
-        | DB: <span class="font-mono text-white">{{ bridgeProfile?.db_name }}</span>
-        | User: <span class="font-mono text-white">{{ bridgeProfile?.db_user }}</span>
+        {{ t('auradb.bridge_domain') }}: <span class="font-mono text-white">{{ bridgeProfile?.domain }}</span>
+        | {{ t('auradb.bridge_engine') }}: <span class="font-mono text-white">{{ bridgeProfile?.engine }}</span>
+        | {{ t('auradb.bridge_db') }}: <span class="font-mono text-white">{{ bridgeProfile?.db_name }}</span>
+        | {{ t('auradb.bridge_user') }}: <span class="font-mono text-white">{{ bridgeProfile?.db_user }}</span>
       </p>
       <p v-if="bridgeError" class="text-sm text-red-400 mt-2">{{ bridgeError }}</p>
     </div>
 
     <div class="aura-card space-y-3">
-      <h2 class="text-lg font-bold text-white">Baglanti</h2>
+      <h2 class="text-lg font-bold text-white">{{ t('auradb.connection') }}</h2>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <select v-model="dbType" class="aura-input" :disabled="bridgeMode">
           <option value="mariadb">MariaDB</option>
@@ -30,25 +30,25 @@
           v-model="connectionString"
           class="aura-input"
           :disabled="bridgeMode"
-          :placeholder="bridgeMode ? 'bridge://ticket' : 'host=127.0.0.1;db=app'"
+          :placeholder="bridgeMode ? t('auradb.bridge_placeholder') : t('auradb.connection_placeholder')"
         />
       </div>
     </div>
 
     <div class="aura-card space-y-3">
-      <h2 class="text-lg font-bold text-white">Sorgu</h2>
-      <textarea v-model="query" class="aura-input min-h-28" placeholder="SELECT * FROM users LIMIT 10;"></textarea>
-      <button class="btn-primary" @click="runQuery">Calistir</button>
+      <h2 class="text-lg font-bold text-white">{{ t('auradb.query') }}</h2>
+      <textarea v-model="query" class="aura-input min-h-28" :placeholder="t('auradb.query_placeholder')"></textarea>
+      <button class="btn-primary" @click="runQuery">{{ t('auradb.run_query') }}</button>
       <pre class="bg-panel-dark border border-panel-border rounded-lg p-3 text-xs text-gray-300 overflow-auto max-h-72">{{ queryResult }}</pre>
     </div>
 
     <div class="aura-card">
-      <h2 class="text-lg font-bold text-white mb-3">Tablolar</h2>
+      <h2 class="text-lg font-bold text-white mb-3">{{ t('auradb.tables') }}</h2>
       <div class="flex flex-wrap gap-2">
-        <span v-for="t in tables" :key="t" class="px-3 py-1 rounded-full bg-brand-500/10 border border-brand-500/20 text-brand-300 text-sm">
-          {{ t }}
+        <span v-for="tName in tables" :key="tName" class="px-3 py-1 rounded-full bg-brand-500/10 border border-brand-500/20 text-brand-300 text-sm">
+          {{ tName }}
         </span>
-        <span v-if="tables.length === 0" class="text-gray-400 text-sm">Tablo yok</span>
+        <span v-if="tables.length === 0" class="text-gray-400 text-sm">{{ t('auradb.empty_tables') }}</span>
       </div>
     </div>
   </div>
@@ -56,8 +56,11 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import api from '../services/api'
+
+const { t } = useI18n({ useScope: 'global' })
 
 const route = useRoute()
 const dbType = ref('mariadb')
@@ -117,7 +120,7 @@ async function loadBridge() {
     if (!profile) {
       bridgeMode.value = false
       bridgeProfile.value = null
-      bridgeError.value = 'Bridge profili alinamadi.'
+      bridgeError.value = t('auradb.bridge_profile_failed')
       return
     }
 
@@ -129,7 +132,7 @@ async function loadBridge() {
   } catch (error) {
     bridgeMode.value = false
     bridgeProfile.value = null
-    bridgeError.value = error?.response?.data?.message || error?.message || 'Bridge dogrulamasi basarisiz.'
+    bridgeError.value = error?.response?.data?.message || error?.message || t('auradb.bridge_validation_failed')
   }
 }
 

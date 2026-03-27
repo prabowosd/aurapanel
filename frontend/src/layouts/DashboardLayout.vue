@@ -13,229 +13,332 @@
       </div>
       
       <nav class="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+        <button
+          class="sticky top-0 z-[5] mb-3 flex w-full items-center justify-between rounded-xl border border-panel-border bg-panel-card/95 px-3 py-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-gray-300 shadow-lg shadow-black/10 backdrop-blur-sm transition hover:border-brand-500/30 hover:text-white"
+          @click="toggleAllMenus"
+        >
+          <div class="flex items-center gap-2">
+            <component :is="allMenusExpanded ? ChevronsUp : ChevronsDown" class="h-4 w-4 text-brand-400" />
+            <span>{{ allMenusExpanded ? t('layout.toggle_all_close') : t('layout.toggle_all_open') }}</span>
+          </div>
+          <span class="text-[10px] tracking-[0.2em] text-gray-500">{{ t('layout.toggle_all_label') }}</span>
+        </button>
+
         <router-link to="/" class="sidebar-link" exact-active-class="sidebar-link-active">
           <LayoutDashboard class="w-5 h-5 mr-3" />
           <span>{{ t('menu.dashboard') }}</span>
         </router-link>
-        
-        <router-link to="/websites" class="sidebar-link" active-class="sidebar-link-active">
-          <Globe class="w-5 h-5 mr-3" />
-          <span>{{ t('menu.websites') }}</span>
-        </router-link>
 
-        <router-link to="/packages" class="sidebar-link" active-class="sidebar-link-active">
-          <Box class="w-5 h-5 mr-3" />
-          <span>{{ t('menu.packages') }}</span>
-        </router-link>
-
-        <router-link to="/users" class="sidebar-link" active-class="sidebar-link-active">
-          <Users class="w-5 h-5 mr-3" />
-          <span>{{ t('menu.users') }}</span>
-        </router-link>
-
-        <router-link to="/databases" class="sidebar-link" active-class="sidebar-link-active">
-          <Database class="w-5 h-5 mr-3" />
-          <span>{{ t('menu.databases') }}</span>
-        </router-link>
-
-        <router-link to="/auradb" class="sidebar-link" active-class="sidebar-link-active">
-          <Table2 class="w-5 h-5 mr-3" />
-          <span>AuraDB Explorer</span>
-        </router-link>
-
-        <router-link to="/emails" class="sidebar-link" active-class="sidebar-link-active">
-          <Mail class="w-5 h-5 mr-3" />
-          <span>{{ t('menu.emails') }}</span>
-        </router-link>
-
-        <router-link to="/ftp" class="sidebar-link" active-class="sidebar-link-active">
-          <KeyRound class="w-5 h-5 mr-3" />
-          <span>FTP</span>
-        </router-link>
-
-        <router-link to="/sftp" class="sidebar-link" active-class="sidebar-link-active">
-          <KeyRound class="w-5 h-5 mr-3" />
-          <span>SFTP</span>
-        </router-link>
-
-        <router-link to="/backups" class="sidebar-link" active-class="sidebar-link-active">
-          <HardDrive class="w-5 h-5 mr-3" />
-          <span>Backups</span>
-        </router-link>
-
-        <router-link to="/dns" class="sidebar-link" active-class="sidebar-link-active">
-          <Network class="w-5 h-5 mr-3" />
-          <span>{{ t('menu.dns') }}</span>
-        </router-link>
-
-        <div class="mt-2">
-          <button @click="sslMenuOpen = !sslMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isSslRoute }">
+        <div class="mt-3">
+          <button @click="hostingMenuOpen = !hostingMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isHostingRoute }">
             <div class="flex items-center">
-              <Lock class="w-5 h-5 mr-3" />
-              <span>SSL</span>
+              <Box class="w-5 h-5 mr-3" />
+              <span>{{ t('layout.groups.hosting') }}</span>
             </div>
-            <ChevronDown class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': sslMenuOpen }" />
+            <ChevronDown class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': hostingMenuOpen }" />
           </button>
 
           <transition name="accordion">
-            <div v-show="sslMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
-              <router-link
-                :to="{ path: '/ssl', query: { tab: 'manage' } }"
-                class="sidebar-sub-link"
-                :class="{ 'sidebar-sub-link-active': isSslTabActive('manage') }"
-              >
-                <span>Manage SSL</span>
+            <div v-show="hostingMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
+              <router-link to="/websites" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('menu.websites') }}</span>
               </router-link>
-              <router-link
-                :to="{ path: '/ssl', query: { tab: 'hostname' } }"
-                class="sidebar-sub-link"
-                :class="{ 'sidebar-sub-link-active': isSslTabActive('hostname') }"
-              >
-                <span>Hostname SSL</span>
+              <router-link to="/migration" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>Migration Wizard</span>
               </router-link>
-              <router-link
-                :to="{ path: '/ssl', query: { tab: 'mail' } }"
-                class="sidebar-sub-link"
-                :class="{ 'sidebar-sub-link-active': isSslTabActive('mail') }"
-              >
-                <span>MailServer SSL</span>
+              <router-link to="/packages" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('menu.packages') }}</span>
+              </router-link>
+              <router-link to="/users" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('menu.users') }}</span>
+              </router-link>
+              <router-link to="/reseller" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('layout.links.reseller_acl') }}</span>
               </router-link>
             </div>
           </transition>
         </div>
 
-        <router-link to="/cloudflare" class="sidebar-link" active-class="sidebar-link-active">
-          <Cloud class="w-5 h-5 mr-3" />
-          <span>CloudFlare</span>
-        </router-link>
-
-        <router-link to="/filemanager" class="sidebar-link" active-class="sidebar-link-active">
-          <FolderOpen class="w-5 h-5 mr-3" />
-          <span>File Manager</span>
-        </router-link>
-
-        <router-link to="/php" class="sidebar-link" active-class="sidebar-link-active">
-          <Code class="w-5 h-5 mr-3" />
-          <span>PHP Yonetimi</span>
-        </router-link>
-
-        <router-link to="/ols-tuning" class="sidebar-link" active-class="sidebar-link-active">
-          <Settings2 class="w-5 h-5 mr-3" />
-          <span>OLS Tuning</span>
-        </router-link>
-
-        <router-link to="/reseller" class="sidebar-link" active-class="sidebar-link-active">
-          <Users class="w-5 h-5 mr-3" />
-          <span>Reseller & ACL</span>
-        </router-link>
-
-        <router-link to="/server-status" class="sidebar-link" active-class="sidebar-link-active">
-          <Activity class="w-5 h-5 mr-3" />
-          <span>Server Status</span>
-        </router-link>
-
-        <router-link to="/panel-port" class="sidebar-link" active-class="sidebar-link-active">
-          <Settings2 class="w-5 h-5 mr-3" />
-          <span>Panel Port</span>
-        </router-link>
-
-        <router-link to="/app-runtime" class="sidebar-link" active-class="sidebar-link-active">
-          <TerminalSquare class="w-5 h-5 mr-3" />
-          <span>App Runtime</span>
-        </router-link>
-
-        <router-link to="/minio" class="sidebar-link" active-class="sidebar-link-active">
-          <HardDrive class="w-5 h-5 mr-3" />
-          <span>MinIO</span>
-        </router-link>
-
-        <router-link to="/cron-jobs" class="sidebar-link" active-class="sidebar-link-active">
-          <Clock3 class="w-5 h-5 mr-3" />
-          <span>Cron Jobs</span>
-        </router-link>
-
-        <router-link to="/log-viewer" class="sidebar-link" active-class="sidebar-link-active">
-          <ScrollText class="w-5 h-5 mr-3" />
-          <span>Log Viewer</span>
-        </router-link>
-
-        <router-link to="/federated" class="sidebar-link" active-class="sidebar-link-active">
-          <Network class="w-5 h-5 mr-3" />
-          <span>Federated</span>
-        </router-link>
-
-        <!-- Security Accordion Menu -->
         <div class="mt-2">
-          <button @click="securityMenuOpen = !securityMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isSecurityRoute }">
+          <button @click="webAppsMenuOpen = !webAppsMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isWebAppsRoute }">
+            <div class="flex items-center">
+              <Globe class="w-5 h-5 mr-3" />
+              <span>{{ t('layout.groups.web_apps') }}</span>
+            </div>
+            <ChevronDown class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': webAppsMenuOpen }" />
+          </button>
+
+          <transition name="accordion">
+            <div v-show="webAppsMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
+              <router-link to="/dns" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('menu.dns') }}</span>
+              </router-link>
+
+              <button @click="sslMenuOpen = !sslMenuOpen" class="sidebar-sub-link w-full justify-between" :class="{ 'sidebar-sub-link-active': isSslRoute }">
+                <div class="flex items-center">
+                  <Lock class="w-4 h-4 mr-2" />
+                  <span>SSL</span>
+                </div>
+                <ChevronDown class="w-3.5 h-3.5 transition-transform duration-200" :class="{ 'rotate-180': sslMenuOpen }" />
+              </button>
+
+              <transition name="accordion">
+                <div v-show="sslMenuOpen" class="ml-3 mt-1 space-y-0.5 border-l border-panel-border/40 pl-3">
+                  <router-link
+                    :to="{ path: '/ssl', query: { tab: 'manage' } }"
+                    class="sidebar-sub-link"
+                    :class="{ 'sidebar-sub-link-active': isSslTabActive('manage') }"
+                  >
+                    <span>{{ t('layout.links.ssl_manage') }}</span>
+                  </router-link>
+                  <router-link
+                    :to="{ path: '/ssl', query: { tab: 'hostname' } }"
+                    class="sidebar-sub-link"
+                    :class="{ 'sidebar-sub-link-active': isSslTabActive('hostname') }"
+                  >
+                    <span>{{ t('layout.links.ssl_hostname') }}</span>
+                  </router-link>
+                  <router-link
+                    :to="{ path: '/ssl', query: { tab: 'mail' } }"
+                    class="sidebar-sub-link"
+                    :class="{ 'sidebar-sub-link-active': isSslTabActive('mail') }"
+                  >
+                    <span>{{ t('layout.links.ssl_mail') }}</span>
+                  </router-link>
+                </div>
+              </transition>
+
+              <router-link to="/cloudflare" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('routes.CloudFlare') }}</span>
+              </router-link>
+              <router-link to="/wordpress" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('layout.links.wordpress_manager') }}</span>
+              </router-link>
+              <router-link to="/app-runtime" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('layout.links.app_runtime') }}</span>
+              </router-link>
+              <router-link to="/php" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('routes.PHP') }}</span>
+              </router-link>
+              <router-link to="/filemanager" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('layout.links.file_manager') }}</span>
+              </router-link>
+              <router-link to="/terminal" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('layout.links.terminal') }}</span>
+              </router-link>
+            </div>
+          </transition>
+        </div>
+
+        <div class="mt-2">
+          <button @click="dataAccessMenuOpen = !dataAccessMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isDataAccessRoute }">
+            <div class="flex items-center">
+              <Database class="w-5 h-5 mr-3" />
+              <span>{{ t('layout.groups.data_access') }}</span>
+            </div>
+            <ChevronDown class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': dataAccessMenuOpen }" />
+          </button>
+
+          <transition name="accordion">
+            <div v-show="dataAccessMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
+              <router-link to="/databases" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('menu.databases') }}</span>
+              </router-link>
+              <router-link to="/emails" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('menu.emails') }}</span>
+              </router-link>
+              <router-link to="/minio" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('routes.MinIO') }}</span>
+              </router-link>
+
+              <button @click="ftpMenuOpen = !ftpMenuOpen" class="sidebar-sub-link w-full justify-between" :class="{ 'sidebar-sub-link-active': isFtpRoute }">
+                <div class="flex items-center">
+                  <KeyRound class="w-4 h-4 mr-2" />
+                  <span>{{ t('layout.groups.ftp_sftp') }}</span>
+                </div>
+                <ChevronDown class="w-3.5 h-3.5 transition-transform duration-200" :class="{ 'rotate-180': ftpMenuOpen }" />
+              </button>
+
+              <transition name="accordion">
+                <div v-show="ftpMenuOpen" class="ml-3 mt-1 space-y-0.5 border-l border-panel-border/40 pl-3">
+                  <router-link to="/ftp" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>FTP</span>
+                  </router-link>
+                  <router-link to="/sftp" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>SFTP</span>
+                  </router-link>
+                </div>
+              </transition>
+
+              <button @click="backupsMenuOpen = !backupsMenuOpen" class="sidebar-sub-link w-full justify-between" :class="{ 'sidebar-sub-link-active': isBackupsRoute }">
+                <div class="flex items-center">
+                  <HardDrive class="w-4 h-4 mr-2" />
+                  <span>{{ t('layout.groups.backups') }}</span>
+                </div>
+                <ChevronDown class="w-3.5 h-3.5 transition-transform duration-200" :class="{ 'rotate-180': backupsMenuOpen }" />
+              </button>
+
+              <transition name="accordion">
+                <div v-show="backupsMenuOpen" class="ml-3 mt-1 space-y-0.5 border-l border-panel-border/40 pl-3">
+                  <router-link to="/backups" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('layout.links.file_backups') }}</span>
+                  </router-link>
+                  <router-link to="/db-backup" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('routes.DbBackup') }}</span>
+                  </router-link>
+                </div>
+              </transition>
+            </div>
+          </transition>
+        </div>
+
+        <div class="mt-2">
+          <button @click="securityLogsMenuOpen = !securityLogsMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isSecurityLogsRoute }">
             <div class="flex items-center">
               <Shield class="w-5 h-5 mr-3" />
-              <span>{{ t('menu.security') }}</span>
+              <span>{{ t('layout.groups.security_logs') }}</span>
             </div>
-            <ChevronDown class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': securityMenuOpen }" />
+            <ChevronDown class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': securityLogsMenuOpen }" />
           </button>
 
           <transition name="accordion">
-            <div v-show="securityMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
-              <router-link :to="{ path: '/security', query: { tab: 'overview' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                <span>Overview</span>
+            <div v-show="securityLogsMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
+              <button @click="securityMenuOpen = !securityMenuOpen" class="sidebar-sub-link w-full justify-between" :class="{ 'sidebar-sub-link-active': isSecurityRoute }">
+                <div class="flex items-center">
+                  <Shield class="w-4 h-4 mr-2" />
+                  <span>{{ t('menu.security') }}</span>
+                </div>
+                <ChevronDown class="w-3.5 h-3.5 transition-transform duration-200" :class="{ 'rotate-180': securityMenuOpen }" />
+              </button>
+
+              <transition name="accordion">
+                <div v-show="securityMenuOpen" class="ml-3 mt-1 space-y-0.5 border-l border-panel-border/40 pl-3">
+                  <router-link :to="{ path: '/security', query: { tab: 'overview' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('layout.links.overview') }}</span>
+                  </router-link>
+                  <router-link :to="{ path: '/security', query: { tab: 'firewall' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('layout.links.firewall') }}</span>
+                  </router-link>
+                  <router-link :to="{ path: '/security', query: { tab: 'waf' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('layout.links.ml_waf') }}</span>
+                  </router-link>
+                  <router-link :to="{ path: '/security', query: { tab: '2fa' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('layout.links.totp') }}</span>
+                  </router-link>
+                  <router-link :to="{ path: '/security', query: { tab: 'ssh' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('layout.links.ssh_keys') }}</span>
+                  </router-link>
+                  <router-link :to="{ path: '/security', query: { tab: 'hardening' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('layout.links.hardening') }}</span>
+                  </router-link>
+                </div>
+              </transition>
+
+              <button @click="logsMenuOpen = !logsMenuOpen" class="sidebar-sub-link w-full justify-between" :class="{ 'sidebar-sub-link-active': isLogsRoute }">
+                <div class="flex items-center">
+                  <ScrollText class="w-4 h-4 mr-2" />
+                  <span>{{ t('layout.groups.logs') }}</span>
+                </div>
+                <ChevronDown class="w-3.5 h-3.5 transition-transform duration-200" :class="{ 'rotate-180': logsMenuOpen }" />
+              </button>
+
+              <transition name="accordion">
+                <div v-show="logsMenuOpen" class="ml-3 mt-1 space-y-0.5 border-l border-panel-border/40 pl-3">
+                  <router-link to="/activity-log" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('layout.links.activity_log') }}</span>
+                  </router-link>
+                  <router-link to="/log-viewer" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('layout.links.log_viewer') }}</span>
+                  </router-link>
+                </div>
+              </transition>
+            </div>
+          </transition>
+        </div>
+
+        <div class="mt-2">
+          <button @click="devopsMenuOpen = !devopsMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isDevopsRoute }">
+            <div class="flex items-center">
+              <Container class="w-5 h-5 mr-3" />
+              <span>{{ t('layout.groups.devops') }}</span>
+            </div>
+            <ChevronDown class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': devopsMenuOpen }" />
+          </button>
+
+          <transition name="accordion">
+            <div v-show="devopsMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
+              <button @click="dockerMenuOpen = !dockerMenuOpen" class="sidebar-sub-link w-full justify-between" :class="{ 'sidebar-sub-link-active': isDockerRoute }">
+                <div class="flex items-center">
+                  <Container class="w-4 h-4 mr-2" />
+                  <span>{{ t('menu.docker') }}</span>
+                </div>
+                <ChevronDown class="w-3.5 h-3.5 transition-transform duration-200" :class="{ 'rotate-180': dockerMenuOpen }" />
+              </button>
+
+              <transition name="accordion">
+                <div v-show="dockerMenuOpen" class="ml-3 mt-1 space-y-0.5 border-l border-panel-border/40 pl-3">
+                  <div class="pt-1 pb-1">
+                    <span class="px-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">{{ t('layout.labels.manager') }}</span>
+                  </div>
+                  <router-link to="/docker/images" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('layout.links.image_manager') }}</span>
+                  </router-link>
+                  <router-link to="/docker/containers" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('layout.links.container_manager') }}</span>
+                  </router-link>
+                  <router-link to="/docker/create" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('layout.links.create_container') }}</span>
+                  </router-link>
+                  <div class="pt-2 pb-1">
+                    <span class="px-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">{{ t('layout.labels.apps') }}</span>
+                  </div>
+                  <router-link to="/docker/apps" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('layout.links.app_store') }}</span>
+                  </router-link>
+                  <router-link to="/docker/apps/installed" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('layout.links.installed_apps') }}</span>
+                  </router-link>
+                  <router-link to="/docker/apps/packages" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                    <span>{{ t('layout.links.docker_packages') }}</span>
+                  </router-link>
+                </div>
+              </transition>
+
+              <router-link to="/cron-jobs" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('layout.links.cron_jobs') }}</span>
               </router-link>
-              <router-link :to="{ path: '/security', query: { tab: 'firewall' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                <span>Firewall</span>
+              <router-link to="/federated" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('routes.Federated') }}</span>
               </router-link>
-              <router-link :to="{ path: '/security', query: { tab: 'waf' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                <span>ML-WAF</span>
+              <router-link to="/auradb" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('routes.AuraDB') }}</span>
               </router-link>
-              <router-link :to="{ path: '/security', query: { tab: '2fa' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                <span>2FA (TOTP)</span>
-              </router-link>
-              <router-link :to="{ path: '/security', query: { tab: 'ssh' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                <span>SSH Keys</span>
-              </router-link>
-              <router-link :to="{ path: '/security', query: { tab: 'hardening' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                <span>Hardening</span>
+              <router-link to="/ops-center" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>Ops Center</span>
               </router-link>
             </div>
           </transition>
         </div>
 
-        <!-- Docker Accordion Menu -->
         <div class="mt-2">
-          <button @click="dockerMenuOpen = !dockerMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isDockerRoute }">
+          <button @click="systemMenuOpen = !systemMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isSystemRoute }">
             <div class="flex items-center">
-              <Container class="w-5 h-5 mr-3" />
-              <span>Docker</span>
+              <Settings2 class="w-5 h-5 mr-3" />
+              <span>{{ t('layout.groups.system') }}</span>
             </div>
-            <ChevronDown class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': dockerMenuOpen }" />
+            <ChevronDown class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': systemMenuOpen }" />
           </button>
 
           <transition name="accordion">
-            <div v-show="dockerMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
-              <!-- Docker Manager Sub-group -->
-              <div class="pt-1 pb-1">
-                <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold px-2">Manager</span>
-              </div>
-              <router-link to="/docker/images" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                <span>Manage Images</span>
+            <div v-show="systemMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
+              <router-link to="/server-status" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('routes.ServerStatus') }}</span>
               </router-link>
-              <router-link to="/docker/containers" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                <span>Manage Containers</span>
+              <router-link to="/ols-tuning" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('routes.OlsTuning') }}</span>
               </router-link>
-              <router-link to="/docker/create" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                <span>Create Container</span>
-              </router-link>
-
-              <!-- Docker Apps Sub-group -->
-              <div class="pt-2 pb-1">
-                <span class="text-[10px] uppercase tracking-wider text-gray-500 font-semibold px-2">Apps</span>
-              </div>
-              <router-link to="/docker/apps" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                <span>App Store</span>
-              </router-link>
-              <router-link to="/docker/apps/installed" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                <span>Installed Apps</span>
-              </router-link>
-              <router-link to="/docker/apps/packages" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                <span>Docker Packages</span>
+              <router-link to="/panel-port" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('layout.links.panel_port') }}</span>
               </router-link>
             </div>
           </transition>
@@ -245,9 +348,9 @@
       <div class="p-4 border-t border-panel-border text-sm text-gray-400">
         <div class="flex items-center gap-2 mb-2">
           <ShieldAlert class="w-4 h-4 text-brand-500" />
-          <span>Zero-Trust Active</span>
+          <span>{{ t('layout.footer.zero_trust') }}</span>
         </div>
-        <div>Server Load: <span class="text-brand-400">0.45</span></div>
+        <div>{{ t('layout.footer.server_load') }}: <span class="text-brand-400">0.45</span></div>
       </div>
     </aside>
 
@@ -256,15 +359,17 @@
       <!-- Topbar -->
       <header class="h-16 bg-panel-dark/50 backdrop-blur-md border-b border-panel-border flex items-center justify-between px-8 sticky top-0 z-10">
         <div class="flex items-center">
-          <h1 class="text-xl font-semibold text-white">{{ $route.name }}</h1>
+          <h1 class="text-xl font-semibold text-white">{{ pageTitle }}</h1>
         </div>
         
         <div class="flex items-center gap-4">
+          <LanguageSwitcher />
+
           <div class="relative">
             <button
               class="relative text-gray-400 hover:text-white transition-colors"
               @click="notificationOpen = !notificationOpen"
-              title="Notifications"
+              :title="t('layout.notifications.title')"
             >
               <Bell class="w-5 h-5" />
               <span
@@ -281,21 +386,21 @@
             >
               <div class="px-4 py-3 border-b border-panel-border flex items-center justify-between">
                 <div>
-                  <p class="text-sm font-semibold text-white">Notifications</p>
-                  <p class="text-xs text-gray-400">{{ unreadCount }} unread</p>
+                  <p class="text-sm font-semibold text-white">{{ t('layout.notifications.title') }}</p>
+                  <p class="text-xs text-gray-400">{{ t('layout.notifications.unread', { count: unreadCount }) }}</p>
                 </div>
                 <div class="flex items-center gap-2">
                   <button class="text-xs text-brand-400 hover:text-brand-300 transition-colors" @click="markAllNotificationsRead">
-                    Mark all read
+                    {{ t('layout.notifications.mark_all_read') }}
                   </button>
                   <button class="text-xs text-red-400 hover:text-red-300 transition-colors" @click="clearNotifications">
-                    Clear
+                    {{ t('layout.notifications.clear') }}
                   </button>
                 </div>
               </div>
 
               <div v-if="notifications.length === 0" class="px-4 py-8 text-center text-sm text-gray-500">
-                No notifications yet.
+                {{ t('layout.notifications.empty') }}
               </div>
 
               <div v-else class="max-h-[380px] overflow-auto">
@@ -312,7 +417,7 @@
                       <p class="text-xs text-gray-400 mt-0.5 break-words">{{ item.message }}</p>
                       <p class="text-[11px] text-gray-500 mt-1">{{ formatNotificationTime(item.createdAt) }}</p>
                     </div>
-                    <span v-if="!item.read" class="text-[10px] text-brand-400 font-semibold">NEW</span>
+                    <span v-if="!item.read" class="text-[10px] text-brand-400 font-semibold">{{ t('layout.notifications.new') }}</span>
                   </div>
                 </button>
               </div>
@@ -332,7 +437,7 @@
             <!-- Dropdown -->
             <div v-show="toggleMenu" class="absolute top-12 right-0 w-48 bg-panel-card border border-panel-border rounded-lg shadow-xl py-2 z-50">
               <button @click="handleLogout" class="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-panel-dark transition-colors">
-                GÃ¼venli Ã‡Ä±kÄ±ÅŸ (Logout)
+                {{ t('layout.user_menu.secure_logout') }}
               </button>
             </div>
           </div>
@@ -358,7 +463,7 @@
             <input
               v-model="commandQuery"
               class="aura-input"
-              placeholder="Ctrl+K ile hizli gecis... (orn: dns, security, logs)"
+              :placeholder="t('layout.command_palette.placeholder')"
             />
           </div>
           <div class="max-h-96 overflow-auto p-2 space-y-1">
@@ -384,44 +489,57 @@ import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationStore } from '../stores/notifications'
-import { 
-  Activity, 
-  LayoutDashboard, 
-  Globe, 
-  Database, 
-  Mail, 
-  Users, 
+import LanguageSwitcher from '../components/LanguageSwitcher.vue'
+import {
+  Activity,
+  LayoutDashboard,
+  Globe,
+  Database,
+  Mail,
+  Users,
   Box,
   Network,
   Container,
-  Bell, 
+  Bell,
+  ChevronsDown,
+  ChevronsUp,
   ChevronDown,
   ShieldAlert,
   Cloud,
   FolderOpen,
-  Code
-  ,
+  Code,
   Shield,
   TerminalSquare,
+  PanelTop,
   HardDrive,
   Clock3,
-  ScrollText
-  ,
+  ScrollText,
   Table2,
   Settings2,
   Lock,
-  KeyRound
+  KeyRound,
+  BookOpen,
+  DatabaseBackup
 } from 'lucide-vue-next'
 
-const { t } = useI18n()
+const { t, locale } = useI18n({ useScope: 'global' })
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const notificationStore = useNotificationStore()
 const toggleMenu = ref(false)
+const hostingMenuOpen = ref(false)
+const webAppsMenuOpen = ref(false)
+const dataAccessMenuOpen = ref(false)
+const securityLogsMenuOpen = ref(false)
+const devopsMenuOpen = ref(false)
+const systemMenuOpen = ref(false)
 const dockerMenuOpen = ref(false)
 const securityMenuOpen = ref(false)
 const sslMenuOpen = ref(false)
+const ftpMenuOpen = ref(false)
+const backupsMenuOpen = ref(false)
+const logsMenuOpen = ref(false)
 const commandOpen = ref(false)
 const commandQuery = ref('')
 const notificationOpen = ref(false)
@@ -429,41 +547,124 @@ const notificationOpen = ref(false)
 const notifications = computed(() => notificationStore.orderedItems.slice(0, 50))
 const unreadCount = computed(() => notificationStore.unreadCount)
 
-const commandItems = [
-  { label: 'Dashboard', path: '/' },
-  { label: 'Websites', path: '/websites' },
-  { label: 'Users', path: '/users' },
-  { label: 'Packages', path: '/packages' },
-  { label: 'Databases', path: '/databases' },
-  { label: 'AuraDB Explorer', path: '/auradb' },
-  { label: 'Emails', path: '/emails' },
-  { label: 'FTP', path: '/ftp' },
-  { label: 'SFTP', path: '/sftp' },
-  { label: 'Backups', path: '/backups' },
-  { label: 'DNS', path: '/dns' },
-  { label: 'Manage SSL', path: '/ssl?tab=manage' },
-  { label: 'Hostname SSL', path: '/ssl?tab=hostname' },
-  { label: 'MailServer SSL', path: '/ssl?tab=mail' },
-  { label: 'Security', path: '/security' },
-  { label: 'App Runtime', path: '/app-runtime' },
-  { label: 'MinIO', path: '/minio' },
-  { label: 'Cron Jobs', path: '/cron-jobs' },
-  { label: 'Log Viewer', path: '/log-viewer' },
-  { label: 'Federated', path: '/federated' },
-  { label: 'File Manager', path: '/filemanager' },
-  { label: 'PHP', path: '/php' },
-  { label: 'OLS Tuning', path: '/ols-tuning' },
-  { label: 'Reseller & ACL', path: '/reseller' },
-  { label: 'Server Status', path: '/server-status' },
-  { label: 'Panel Port', path: '/panel-port' },
-  { label: 'Docker Images', path: '/docker/images' },
-  { label: 'Docker Containers', path: '/docker/containers' },
-  { label: 'Docker App Store', path: '/docker/apps' }
-]
+const routeTitleKeys = {
+  Dashboard: 'routes.Dashboard',
+  Websites: 'routes.Websites',
+  WebsiteManage: 'routes.WebsiteManage',
+  Packages: 'routes.Packages',
+  Users: 'routes.Users',
+  Databases: 'routes.Databases',
+  Emails: 'routes.Emails',
+  FTP: 'routes.FTP',
+  SFTP: 'routes.SFTP',
+  DNS: 'routes.DNS',
+  SSL: 'routes.SSL',
+  Security: 'routes.Security',
+  AppRuntime: 'routes.AppRuntime',
+  WordPressManager: 'routes.WordPressManager',
+  MinIO: 'routes.MinIO',
+  CronJobs: 'routes.CronJobs',
+  LogViewer: 'routes.LogViewer',
+  Federated: 'routes.Federated',
+  AuraDB: 'routes.AuraDB',
+  FileManager: 'routes.FileManager',
+  PHP: 'routes.PHP',
+  ServerStatus: 'routes.ServerStatus',
+  PanelPort: 'routes.PanelPort',
+  Backups: 'routes.Backups',
+  OlsTuning: 'routes.OlsTuning',
+  Reseller: 'routes.Reseller',
+  ActivityLog: 'routes.ActivityLog',
+  DbBackup: 'routes.DbBackup',
+  'Docker Images': 'routes.Docker Images',
+  'Docker Containers': 'routes.Docker Containers',
+  'Docker Create': 'routes.Docker Create',
+  'Docker App Store': 'routes.Docker App Store',
+  'Docker Installed Apps': 'routes.Docker Installed Apps',
+  'Docker Packages': 'routes.Docker Packages',
+  CloudFlare: 'routes.CloudFlare',
+  OpsCenter: 'Ops Center',
+}
+
+const pageTitle = computed(() => {
+  const routeName = String(route.name || '')
+  const key = routeTitleKeys[routeName]
+  return key ? t(key) : routeName
+})
+
+const commandItems = computed(() => [
+  { label: t('routes.Dashboard'), path: '/' },
+  { label: t('routes.Websites'), path: '/websites' },
+  { label: 'Migration Wizard', path: '/migration' },
+  { label: t('routes.Users'), path: '/users' },
+  { label: t('routes.Packages'), path: '/packages' },
+  { label: t('routes.Databases'), path: '/databases' },
+  { label: t('routes.AuraDB'), path: '/auradb' },
+  { label: t('routes.Emails'), path: '/emails' },
+  { label: t('routes.FTP'), path: '/ftp' },
+  { label: t('routes.SFTP'), path: '/sftp' },
+  { label: t('routes.Backups'), path: '/backups' },
+  { label: t('routes.DNS'), path: '/dns' },
+  { label: t('layout.links.ssl_manage'), path: '/ssl?tab=manage' },
+  { label: t('layout.links.ssl_hostname'), path: '/ssl?tab=hostname' },
+  { label: t('layout.links.ssl_mail'), path: '/ssl?tab=mail' },
+  { label: t('routes.Security'), path: '/security' },
+  { label: t('routes.AppRuntime'), path: '/app-runtime' },
+  { label: t('routes.WordPressManager'), path: '/wordpress' },
+  { label: t('routes.MinIO'), path: '/minio' },
+  { label: t('routes.CronJobs'), path: '/cron-jobs' },
+  { label: t('routes.LogViewer'), path: '/log-viewer' },
+  { label: t('routes.Federated'), path: '/federated' },
+  { label: t('routes.FileManager'), path: '/filemanager' },
+  { label: 'Ops Center', path: '/ops-center' },
+  { label: t('routes.PHP'), path: '/php' },
+  { label: t('routes.OlsTuning'), path: '/ols-tuning' },
+  { label: t('layout.links.reseller_acl'), path: '/reseller' },
+  { label: t('routes.ServerStatus'), path: '/server-status' },
+  { label: t('layout.links.panel_port'), path: '/panel-port' },
+  { label: t('routes.Docker Images'), path: '/docker/images' },
+  { label: t('routes.Docker Containers'), path: '/docker/containers' },
+  { label: t('routes.Docker App Store'), path: '/docker/apps' },
+  { label: t('routes.ActivityLog'), path: '/activity-log' },
+  { label: t('routes.DbBackup'), path: '/db-backup' },
+])
 
 const isDockerRoute = computed(() => route.path.startsWith('/docker'))
 const isSecurityRoute = computed(() => route.path.startsWith('/security'))
 const isSslRoute = computed(() => route.path.startsWith('/ssl'))
+const isFtpRoute = computed(() => route.path === '/ftp' || route.path === '/sftp')
+const isBackupsRoute = computed(() => route.path === '/backups' || route.path === '/db-backup')
+const isLogsRoute = computed(() => route.path === '/activity-log' || route.path === '/log-viewer')
+const isHostingRoute = computed(() => ['/websites', '/migration', '/packages', '/users', '/reseller'].some(prefix => route.path.startsWith(prefix)))
+const isWebAppsRoute = computed(() =>
+  ['/dns', '/ssl', '/cloudflare', '/wordpress', '/app-runtime', '/php', '/filemanager'].some(prefix => route.path.startsWith(prefix))
+)
+const isDataAccessRoute = computed(() =>
+  ['/databases', '/emails', '/ftp', '/sftp', '/backups', '/db-backup', '/minio'].some(prefix => route.path.startsWith(prefix))
+)
+const isSecurityLogsRoute = computed(() =>
+  ['/security', '/activity-log', '/log-viewer'].some(prefix => route.path.startsWith(prefix))
+)
+const isDevopsRoute = computed(() =>
+  ['/docker', '/cron-jobs', '/federated', '/auradb', '/ops-center'].some(prefix => route.path.startsWith(prefix))
+)
+const isSystemRoute = computed(() =>
+  ['/server-status', '/ols-tuning', '/panel-port'].some(prefix => route.path.startsWith(prefix))
+)
+const allMenusExpanded = computed(() =>
+  hostingMenuOpen.value &&
+  webAppsMenuOpen.value &&
+  dataAccessMenuOpen.value &&
+  securityLogsMenuOpen.value &&
+  devopsMenuOpen.value &&
+  systemMenuOpen.value &&
+  dockerMenuOpen.value &&
+  securityMenuOpen.value &&
+  sslMenuOpen.value &&
+  ftpMenuOpen.value &&
+  backupsMenuOpen.value &&
+  logsMenuOpen.value
+)
 const isSslTabActive = (tab) => {
   if (!isSslRoute.value) return false
   const selectedTab = typeof route.query.tab === 'string' ? route.query.tab : 'manage'
@@ -471,23 +672,74 @@ const isSslTabActive = (tab) => {
 }
 const filteredCommandItems = computed(() => {
   const q = commandQuery.value.trim().toLowerCase()
-  if (!q) return commandItems
-  return commandItems.filter(i => i.label.toLowerCase().includes(q) || i.path.toLowerCase().includes(q))
+  if (!q) return commandItems.value
+  return commandItems.value.filter(i => i.label.toLowerCase().includes(q) || i.path.toLowerCase().includes(q))
 })
 
-// Auto-open docker menu if on a docker route
-if (route.path.startsWith('/docker')) {
-  dockerMenuOpen.value = true
+const syncMenuState = () => {
+  if (isHostingRoute.value) {
+    hostingMenuOpen.value = true
+  }
+  if (isWebAppsRoute.value) {
+    webAppsMenuOpen.value = true
+  }
+  if (isDataAccessRoute.value) {
+    dataAccessMenuOpen.value = true
+  }
+  if (isSecurityLogsRoute.value) {
+    securityLogsMenuOpen.value = true
+  }
+  if (isDevopsRoute.value) {
+    devopsMenuOpen.value = true
+  }
+  if (isSystemRoute.value) {
+    systemMenuOpen.value = true
+  }
+  if (isDockerRoute.value) {
+    dockerMenuOpen.value = true
+    devopsMenuOpen.value = true
+  }
+  if (isSecurityRoute.value) {
+    securityMenuOpen.value = true
+    securityLogsMenuOpen.value = true
+  }
+  if (isSslRoute.value) {
+    sslMenuOpen.value = true
+    webAppsMenuOpen.value = true
+  }
+  if (isFtpRoute.value) {
+    ftpMenuOpen.value = true
+    dataAccessMenuOpen.value = true
+  }
+  if (isBackupsRoute.value) {
+    backupsMenuOpen.value = true
+    dataAccessMenuOpen.value = true
+  }
+  if (isLogsRoute.value) {
+    logsMenuOpen.value = true
+    securityLogsMenuOpen.value = true
+  }
 }
 
-// Auto-open security menu if on a security route
-if (route.path.startsWith('/security')) {
-  securityMenuOpen.value = true
+syncMenuState()
+
+const setAllMenus = (value) => {
+  hostingMenuOpen.value = value
+  webAppsMenuOpen.value = value
+  dataAccessMenuOpen.value = value
+  securityLogsMenuOpen.value = value
+  devopsMenuOpen.value = value
+  systemMenuOpen.value = value
+  dockerMenuOpen.value = value
+  securityMenuOpen.value = value
+  sslMenuOpen.value = value
+  ftpMenuOpen.value = value
+  backupsMenuOpen.value = value
+  logsMenuOpen.value = value
 }
 
-// Auto-open SSL menu if on an SSL route
-if (route.path.startsWith('/ssl')) {
-  sslMenuOpen.value = true
+const toggleAllMenus = () => {
+  setAllMenus(!allMenusExpanded.value)
 }
 
 const handleLogout = () => {
@@ -507,13 +759,14 @@ const formatNotificationTime = (timestamp) => {
   if (!value) return '-'
   const diffMs = Date.now() - value
   const diffMin = Math.floor(diffMs / 60000)
-  if (diffMin < 1) return 'just now'
-  if (diffMin < 60) return `${diffMin} min ago`
+  const formatter = new Intl.RelativeTimeFormat(locale.value, { numeric: 'auto' })
+  if (diffMin < 1) return formatter.format(0, 'minute')
+  if (diffMin < 60) return formatter.format(-diffMin, 'minute')
   const diffHour = Math.floor(diffMin / 60)
-  if (diffHour < 24) return `${diffHour} h ago`
+  if (diffHour < 24) return formatter.format(-diffHour, 'hour')
   const diffDay = Math.floor(diffHour / 24)
-  if (diffDay < 7) return `${diffDay} d ago`
-  return new Date(value).toLocaleString()
+  if (diffDay < 7) return formatter.format(-diffDay, 'day')
+  return new Date(value).toLocaleString(locale.value)
 }
 
 const openNotification = (id) => {
@@ -552,6 +805,7 @@ const openCommandRoute = (path) => {
 watch(() => route.fullPath, () => {
   toggleMenu.value = false
   notificationOpen.value = false
+  syncMenuState()
 })
 
 onMounted(() => {
@@ -604,4 +858,3 @@ onBeforeUnmount(() => {
   transform: translateY(10px);
 }
 </style>
-

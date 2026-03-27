@@ -2,6 +2,7 @@
 use std::process::Command;
 
 pub mod auradb;
+pub mod backup;
 pub mod ops;
 
 // ¦¦¦ Ortak Yapılar ¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦¦
@@ -13,6 +14,8 @@ pub struct DbConfig {
     pub db_pass: String,
     pub host: Option<String>,
     pub site_domain: Option<String>,
+    #[serde(default)]
+    pub owner: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

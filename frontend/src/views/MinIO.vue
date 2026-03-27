@@ -2,39 +2,39 @@
   <div class="space-y-6">
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-bold text-white">MinIO Storage</h1>
-        <p class="text-gray-400 mt-1">S3 uyumlu bucket ve erisim yonetimi</p>
+        <h1 class="text-2xl font-bold text-white">{{ t('minio.title') }}</h1>
+        <p class="text-gray-400 mt-1">{{ t('minio.subtitle') }}</p>
       </div>
-      <button class="btn-secondary" @click="loadBuckets">Yenile</button>
+      <button class="btn-secondary" @click="loadBuckets">{{ t('minio.refresh') }}</button>
     </div>
 
     <div class="aura-card space-y-3">
-      <h2 class="text-lg font-bold text-white">Bucket Olustur</h2>
+      <h2 class="text-lg font-bold text-white">{{ t('minio.create_bucket') }}</h2>
       <div class="flex gap-3">
-        <input v-model="bucketName" class="aura-input" placeholder="bucket-name" />
-        <button class="btn-primary" @click="createBucket">Olustur</button>
+        <input v-model="bucketName" class="aura-input" :placeholder="t('minio.bucket_placeholder')" />
+        <button class="btn-primary" @click="createBucket">{{ t('minio.create') }}</button>
       </div>
     </div>
 
     <div class="aura-card space-y-3">
-      <h2 class="text-lg font-bold text-white">Kullanici Credentials</h2>
+      <h2 class="text-lg font-bold text-white">{{ t('minio.credentials') }}</h2>
       <div class="flex gap-3">
-        <input v-model="credUser" class="aura-input" placeholder="kullanici" />
-        <button class="btn-primary" @click="createCredentials">Uret</button>
+        <input v-model="credUser" class="aura-input" :placeholder="t('minio.user_placeholder')" />
+        <button class="btn-primary" @click="createCredentials">{{ t('minio.generate') }}</button>
       </div>
       <div v-if="creds" class="bg-panel-dark border border-panel-border rounded-lg p-3 text-sm">
-        <p><strong>Access Key:</strong> {{ creds.access_key }}</p>
-        <p><strong>Secret Key:</strong> {{ creds.secret_key }}</p>
+        <p><strong>{{ t('minio.access_key') }}:</strong> {{ creds.access_key }}</p>
+        <p><strong>{{ t('minio.secret_key') }}:</strong> {{ creds.secret_key }}</p>
       </div>
     </div>
 
     <div class="aura-card">
-      <h2 class="text-lg font-bold text-white mb-3">Bucket Listesi</h2>
+      <h2 class="text-lg font-bold text-white mb-3">{{ t('minio.bucket_list') }}</h2>
       <div class="space-y-2">
         <div v-for="bucket in buckets" :key="bucket" class="bg-panel-dark border border-panel-border rounded-lg p-3 text-white">
           {{ bucket }}
         </div>
-        <div v-if="buckets.length === 0" class="text-gray-400 text-sm">Bucket yok</div>
+        <div v-if="buckets.length === 0" class="text-gray-400 text-sm">{{ t('minio.empty') }}</div>
       </div>
     </div>
   </div>
@@ -42,7 +42,10 @@
 
 <script setup>
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '../services/api'
+
+const { t } = useI18n({ useScope: 'global' })
 
 const bucketName = ref('')
 const credUser = ref('admin')

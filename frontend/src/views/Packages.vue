@@ -5,7 +5,7 @@
         <h1 class="text-2xl font-bold text-white">{{ t('packages.title') }}</h1>
         <p class="text-gray-400 mt-1">{{ t('packages.subtitle') }}</p>
       </div>
-      <button class="btn-primary" @click="showAddModal = true">
+      <button class="btn-primary" @click="openAddModal">
         <Plus class="w-5 h-5" />
         {{ t('packages.add_new') }}
       </button>
@@ -54,6 +54,9 @@
         </ul>
 
         <div class="flex items-center gap-3">
+          <button class="btn-secondary p-2 flex-1" :title="t('common.edit')" @click="openEditModal(pkg)">
+            <Pencil class="w-4 h-4 mx-auto" />
+          </button>
           <button class="btn-danger p-2" :title="t('common.delete')" @click="deletePackage(pkg)">
             <Trash2 class="w-4 h-4" />
           </button>
@@ -64,11 +67,13 @@
       </div>
     </div>
 
-    <!-- Add Modal -->
+    <!-- Add / Edit Modal -->
     <Teleport to="body">
-      <div v-if="showAddModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div v-if="showModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
         <div class="bg-panel-card border border-panel-border rounded-2xl p-8 w-full max-w-md shadow-2xl">
-          <h2 class="text-xl font-bold text-white mb-6">{{ t('packages.add_new') }}</h2>
+          <h2 class="text-xl font-bold text-white mb-6">
+            {{ isEditing ? t('packages.edit') : t('packages.add_new') }}
+          </h2>
           <div class="space-y-4">
             <div>
               <label class="block text-sm text-gray-400 mb-1">{{ t('packages.plan_name') }}</label>
@@ -84,27 +89,45 @@
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="block text-sm text-gray-400 mb-1">{{ t('packages.disk') }} (GB)</label>
-                <input v-model.number="form.disk_gb" type="number" class="aura-input w-full" placeholder="0=Sınırsız" />
+                <input v-model.number="form.disk_gb" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
               </div>
               <div>
                 <label class="block text-sm text-gray-400 mb-1">{{ t('packages.bandwidth') }} (GB)</label>
-                <input v-model.number="form.bandwidth_gb" type="number" class="aura-input w-full" placeholder="0=Sınırsız" />
+                <input v-model.number="form.bandwidth_gb" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
               </div>
               <div>
                 <label class="block text-sm text-gray-400 mb-1">{{ t('packages.domains') }}</label>
-                <input v-model.number="form.domains" type="number" class="aura-input w-full" placeholder="0=Sınırsız" />
+                <input v-model.number="form.domains" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
               </div>
               <div>
                 <label class="block text-sm text-gray-400 mb-1">{{ t('packages.databases') }}</label>
-                <input v-model.number="form.databases" type="number" class="aura-input w-full" placeholder="0=Sınırsız" />
+                <input v-model.number="form.databases" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
+              </div>
+              <div class="col-span-2">
+                <label class="block text-sm text-gray-400 mb-1">{{ t('packages.emails') }}</label>
+                <input v-model.number="form.emails" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm text-gray-400 mb-1">{{ t('packages.cpu_limit') }} (%)</label>
+                <input v-model.number="form.cpu_limit" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
+              </div>
+              <div>
+                <label class="block text-sm text-gray-400 mb-1">{{ t('packages.ram_limit') }} (MB)</label>
+                <input v-model.number="form.ram_mb" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
+              </div>
+              <div class="col-span-2">
+                <label class="block text-sm text-gray-400 mb-1">{{ t('packages.io_limit') }} (MB/s)</label>
+                <input v-model.number="form.io_limit" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
               </div>
             </div>
           </div>
           <div class="flex gap-3 mt-8">
-            <button class="btn-secondary flex-1" @click="showAddModal = false">{{ t('common.cancel') }}</button>
-            <button class="btn-primary flex-1" :disabled="addLoading" @click="addPackage">
-              <Loader2 v-if="addLoading" class="w-4 h-4 animate-spin mr-2 inline" />
-              {{ t('common.create') }}
+            <button class="btn-secondary flex-1" @click="closeModal">{{ t('common.cancel') }}</button>
+            <button class="btn-primary flex-1" :disabled="saveLoading" @click="savePackage">
+              <Loader2 v-if="saveLoading" class="w-4 h-4 animate-spin mr-2 inline" />
+              {{ isEditing ? t('common.save') : t('common.create') }}
             </button>
           </div>
         </div>
@@ -116,15 +139,18 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, HardDrive, Activity, Globe, Database, Mail, Trash2, Loader2 } from 'lucide-vue-next'
+import { Plus, HardDrive, Activity, Globe, Database, Mail, Trash2, Loader2, Pencil } from 'lucide-vue-next'
 import api from '../services/api'
 
 const { t } = useI18n()
 const packages = ref([])
 const loading = ref(true)
-const showAddModal = ref(false)
-const addLoading = ref(false)
-const form = ref({ name: '', plan_type: 'hosting', disk_gb: 10, bandwidth_gb: 0, domains: 1, databases: 3, emails: 10 })
+const showModal = ref(false)
+const saveLoading = ref(false)
+const isEditing = ref(false)
+
+const emptyForm = () => ({ id: null, name: '', plan_type: 'hosting', disk_gb: 10, bandwidth_gb: 0, domains: 1, databases: 3, emails: 10, cpu_limit: 100, ram_mb: 1024, io_limit: 10 })
+const form = ref(emptyForm())
 
 async function loadPackages() {
   loading.value = true
@@ -136,15 +162,35 @@ async function loadPackages() {
   }
 }
 
-async function addPackage() {
+function openAddModal() {
+  form.value = emptyForm()
+  isEditing.value = false
+  showModal.value = true
+}
+
+function openEditModal(pkg) {
+  form.value = { ...pkg }
+  isEditing.value = true
+  showModal.value = true
+}
+
+function closeModal() {
+  showModal.value = false
+}
+
+async function savePackage() {
   if (!form.value.name) return
-  addLoading.value = true
+  saveLoading.value = true
   try {
-    await api.post('/packages/create', form.value)
-    showAddModal.value = false
+    if (isEditing.value) {
+      await api.post('/packages/update', form.value)
+    } else {
+      await api.post('/packages/create', form.value)
+    }
+    closeModal()
     await loadPackages()
   } finally {
-    addLoading.value = false
+    saveLoading.value = false
   }
 }
 

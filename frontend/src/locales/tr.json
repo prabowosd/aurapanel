@@ -1,4 +1,13 @@
 {
+  "terminal": {
+    "title": "Web Terminal",
+    "subtitle": "Tarayıcı üzerinden sunucuya güvenli erişim",
+    "connect": "Bağlan",
+    "connected": "Bağlandı",
+    "connecting": "Terminal'e bağlanılıyor...",
+    "connected_msg": "Terminal bağlantısı başarılı.",
+    "disconnected": "Terminal bağlantısı kesildi."
+  },
   "menu": {
     "dashboard": "Ana Sayfa",
     "websites": "Web Siteleri",
@@ -90,11 +99,16 @@
     "domains": "Domain",
     "databases": "Veritabanı",
     "emails": "E-Posta",
+    "cpu_limit": "CPU Limiti",
+    "ram_limit": "RAM Limiti",
+    "io_limit": "I/O Limiti",
     "type_hosting": "Hosting Planı",
     "type_reseller": "Reseller Planı",
     "unlimited": "Sınırsız",
+    "edit": "Paketi Düzenle",
     "add_success": "Paket oluşturuldu",
-    "delete_success": "Paket silindi"
+    "delete_success": "Paket silindi",
+    "update_success": "Paket güncellendi"
   },
   "databases": {
     "title": "Veritabanları",
@@ -138,11 +152,23 @@
     "manage_records": "DNS Kayıtları",
     "default_ns": "Varsayılan NS"
   },
-  "filemanager": {
+  "file_manager": {
     "title": "Dosya Yöneticisi",
+    "subtitle": "Sunucu dosyalarını yönetin",
+    "compress": "Arşive Ekle",
+    "trash": "Çöp Kutusuna Gönder",
+    "upload": "Yükle",
     "new_file": "Yeni Dosya",
     "new_folder": "Yeni Klasör",
-    "upload": "Dosya Yükle",
+    "name": "İsim",
+    "size": "Boyut",
+    "permissions": "İzin",
+    "modified": "Değiştirilme",
+    "actions": "İşlem",
+    "extract": "Buraya Çıkart",
+    "empty_dir": "Klasör boş",
+    "drag_drop": "Dosyalarınızı buraya sürükleyin",
+    "compress_title": "Arşiv Oluştur",
     "save": "Kaydet",
     "rename": "Yeniden Adlandır",
     "delete": "Sil",
@@ -219,5 +245,47 @@
     "exited": "Durduruldu",
     "install_app": "Yükle",
     "app_installed": "Kuruldu"
+  },
+  "activity_log": {
+    "title": "Aktivite Günlüğü",
+    "subtitle": "Tüm panel işlemlerini ve olayları takip edin",
+    "user": "Kullanıcı",
+    "action": "İşlem",
+    "detail": "Detay",
+    "ip": "IP Adresi",
+    "timestamp": "Zaman",
+    "no_data": "Henüz aktivite kaydı yok",
+    "filter_user": "Kullanıcıya göre filtrele",
+    "filter_all": "Tüm kullanıcılar"
+  },
+  "db_backup": {
+    "title": "Veritabanı Yedekleme",
+    "subtitle": "Veritabanlarınızı yedekleyin ve geri yükleyin",
+    "create_backup": "Yedek Al",
+    "restore": "Geri Yükle",
+    "download": "İndir",
+    "backup_history": "Yedek Geçmişi",
+    "no_backups": "Henüz yedek yok",
+    "backup_created": "Yedek başarıyla oluşturuldu",
+    "restore_confirm": "Bu yedeği geri yüklemek istiyor musunuz? Mevcut veriler silinecektir."
+  },
+  "cms_installer": {
+    "title": "CMS Kurulum",
+    "subtitle": "WordPress ve Laravel için tek tıkla kurulum",
+    "app_type": "Uygulama",
+    "domain": "Alan Adı",
+    "db_name": "Veritabanı Adı",
+    "db_user": "Veritabanı Kullanıcısı",
+    "db_pass": "Veritabanı Şifresi",
+    "admin_email": "Admin E-Posta",
+    "admin_user": "Admin Kullanıcı Adı",
+    "admin_pass": "Admin Şifresi",
+    "install": "Kur",
+    "installing": "Kuruluyor...",
+    "success": "Kurulum başarıyla tamamlandı"
+  },
+  "app_runtime": {
+    "title": "App Runtime",
+    "subtitle": "Node.js, Python ve CMS uygulama yönetimi"
   }
 }

@@ -1,11 +1,18 @@
 use axum::{
+    extract::{Multipart, Request},
+    middleware::{from_fn, Next},
     routing::{get, post},
+    Extension,
+    response::{IntoResponse, Response},
+    http::{header, HeaderMap, StatusCode},
     Router,
     Json,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::api::terminal::terminal_ws_handler;
+use crate::auth::jwt;
 use crate::services::nitro::{NitroEngine, VHostConfig, VHostUpdateConfig};
 use crate::services::dns::{PowerDnsManager, DnsZoneConfig};
 use crate::services::db::{DbConfig, MariaDbManager, PostgresManager, auradb::DbExplorerManager};
@@ -34,6 +41,12 @@ use crate::services::mail::{
 use crate::services::perf::{PerfManager, RedisConfig};
 use crate::services::security::{SecurityManager, FirewallRule, HardeningRequest};
 use crate::services::security::waf::{MlWaf, HttpRequest as WafHttpRequest};
+use crate::services::malware::{
+    MalwareScanner,
+    MalwareScanStartRequest,
+    MalwareQuarantineRequest,
+    MalwareRestoreRequest,
+};
 use crate::services::monitor::MonitorManager;
 use crate::services::apps::{AppManager, CmsInstallConfig, NodeAppRequest, PythonAppRequest};
 use crate::services::federated::{FederatedManager, WireguardConfig};
@@ -62,9 +75,20 @@ use crate::services::filemanager::FileManager;
 use crate::services::ols_tuning::{OlsTuningConfig, OlsTuningManager};
 use crate::services::php::PhpManager;
 use crate::services::status::StatusManager;
-use crate::services::users::{UserManager, CreateUserRequest};
+use crate::services::users::{UserManager, PanelUser, CreateUserRequest, ChangePasswordRequest};
 use crate::services::users::reseller::{AclAssignment, AclPolicy, ResellerManager, ResellerQuota, WhiteLabelConfig};
-use crate::services::packages::{PackageManager, CreatePackageRequest};
+use crate::services::audit::AuditLogger;
+use crate::services::db::backup::{DbBackupManager, DbBackupRequest, DbRestoreRequest};
+use crate::services::packages::{PackageManager, CreatePackageRequest, UpdatePackageRequest};
+use crate::services::wordpress::{
+    WordPressManager,
+    WordPressExtensionActionRequest,
+    WordPressBackupRequest,
+    WordPressBackupRestoreRequest,
+    WordPressStagingRequest,
+};
+use crate::services::migration::{MigrationAnalyzeRequest, MigrationImportRequest, MigrationManager};
+use crate::services::analytics::{AnalyticsManager, TrafficQuery};
 use crate::services::websites::{
     WebsitesManager,
     CreateSubdomainRequest,
@@ -85,9 +109,233 @@ struct StatusResponse {
     version: String,
 }
 
+#[derive(Clone, Debug)]
+struct AuthContext {
+    username: String,
+    role: String,
+}
+
+#[derive(Deserialize)]
+struct LoginRequest {
+    email: String,
+    password: String,
+    #[serde(default)]
+    totp_token: Option<String>,
+}
+
+fn public_user_view(user: &PanelUser) -> serde_json::Value {
+    json!({
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "role": user.role,
+        "package": user.package,
+        "sites": user.sites,
+        "active": user.active,
+        "two_fa_enabled": user.totp_enabled,
+    })
+}
+
+fn bearer_token(headers: &HeaderMap) -> Result<&str, String> {
+    let value = headers
+        .get(header::AUTHORIZATION)
+        .ok_or_else(|| "Authorization header gerekli.".to_string())?
+        .to_str()
+        .map_err(|_| "Authorization header gecersiz.".to_string())?;
+
+    value
+        .strip_prefix("Bearer ")
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| "Bearer token gerekli.".to_string())
+}
+
+async fn auth_middleware(mut request: Request, next: Next) -> Response {
+    // Check header first, fallback to query for websockets
+    let token = match bearer_token(request.headers()) {
+        Ok(token) => token.to_string(),
+        Err(_) => {
+            // Check query string
+            let query = request.uri().query().unwrap_or("");
+            let token_opt = query.split('&').find(|p| p.starts_with("token=")).map(|p| p.trim_start_matches("token="));
+            match token_opt {
+                Some(t) if !t.is_empty() => t.to_string(),
+                _ => return (StatusCode::UNAUTHORIZED, Json(json!({
+                    "status": "error",
+                    "message": "Authorization header or token query parameter gerekli.",
+                }))).into_response(),
+            }
+        }
+    };
+
+    let claims = match jwt::verify_token(&token) {
+        Ok(claims) => claims,
+        Err(message) => {
+            return (StatusCode::UNAUTHORIZED, Json(json!({
+                "status": "error",
+                "message": message,
+            }))).into_response()
+        }
+    };
+
+    if !claims.role.eq_ignore_ascii_case("admin") {
+        return (StatusCode::FORBIDDEN, Json(json!({
+            "status": "error",
+            "message": "Bu panel surumunde yalnizca admin hesaplari yetkilidir.",
+        }))).into_response()
+    }
+
+    request.extensions_mut().insert(AuthContext {
+        username: claims.sub,
+        role: claims.role,
+    });
+
+    next.run(request).await
+}
+
+async fn auth_login_handler(Json(payload): Json<LoginRequest>) -> impl IntoResponse {
+    let identity = payload.email.trim();
+    if identity.is_empty() || payload.password.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "status": "error",
+                "message": "email/kullanici adi ve sifre zorunludur.",
+            })),
+        )
+    }
+
+    let user = match UserManager::find_by_identity(identity) {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({
+                    "status": "error",
+                    "message": "Giris basarisiz. Bilgilerinizi kontrol edin.",
+                })),
+            )
+        }
+        Err(message) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "status": "error",
+                    "message": message,
+                })),
+            )
+        }
+    };
+
+    if !user.active {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "status": "error",
+                "message": "Bu hesap pasif durumda.",
+            })),
+        )
+    }
+
+    if !user.role.eq_ignore_ascii_case("admin") {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "status": "error",
+                "message": "Bu panel surumunde yalnizca admin hesaplari giris yapabilir.",
+            })),
+        )
+    }
+
+    let password_ok = match UserManager::verify_password(&user.username, &payload.password) {
+        Ok(valid) => valid,
+        Err(message) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({
+                    "status": "error",
+                    "message": message,
+                })),
+            )
+        }
+    };
+
+    if !password_ok {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "status": "error",
+                "message": "Giris basarisiz. Bilgilerinizi kontrol edin.",
+            })),
+        )
+    }
+
+    if user.totp_enabled {
+        let token = payload.totp_token.as_deref().unwrap_or("").trim().to_string();
+        if token.is_empty() {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({
+                    "status": "error",
+                    "message": "2FA kodu gerekli.",
+                    "requires_2fa": true,
+                })),
+            )
+        }
+
+        let secret = user.totp_secret.clone().unwrap_or_default();
+        let valid = match SecurityManager::verify_totp(&secret, &token) {
+            Ok(valid) => valid,
+            Err(message) => {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({
+                        "status": "error",
+                        "message": message,
+                        "requires_2fa": true,
+                    })),
+                )
+            }
+        };
+
+        if !valid {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({
+                    "status": "error",
+                    "message": "2FA kodu gecersiz.",
+                    "requires_2fa": true,
+                })),
+            )
+        }
+    }
+
+    let token = match jwt::create_token(&user.username, &user.role) {
+        Ok(token) => token,
+        Err(message) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "status": "error",
+                    "message": message,
+                })),
+            )
+        }
+    };
+
+    AuditLogger::log(&user.username, "auth.login", identity, "panel");
+    (
+        StatusCode::OK,
+        Json(json!({
+            "status": "success",
+            "token": token,
+            "user": public_user_view(&user),
+        })),
+    )
+}
+
 pub fn routes() -> Router {
-    Router::new()
-        .route("/health", get(health_check))
+    let protected = Router::new()
         // VHost / Sites
         .route("/vhost", post(create_vhost_handler))
         .route("/vhost/list", get(vhost_list_handler))
@@ -164,9 +412,11 @@ pub fn routes() -> Router {
         .route("/users/list", get(users_list_handler))
         .route("/users/create", post(users_create_handler))
         .route("/users/delete", post(users_delete_handler))
+        .route("/users/change-password", post(users_change_password_handler))
         // Packages
         .route("/packages/list", get(packages_list_handler))
         .route("/packages/create", post(packages_create_handler))
+        .route("/packages/update", post(packages_update_handler))
         .route("/packages/delete", post(packages_delete_handler))
         .route("/perf/redis", post(create_redis_handler))
         .route("/security/firewall", post(firewall_rule_handler))
@@ -184,6 +434,12 @@ pub fn routes() -> Router {
         .route("/security/live-patch", post(security_live_patch_handler))
         .route("/security/ebpf/events", get(security_ebpf_events_handler))
         .route("/security/ebpf/collect", post(security_ebpf_collect_handler))
+        .route("/security/malware/scan/start", post(security_malware_scan_start_handler))
+        .route("/security/malware/scan/status", get(security_malware_scan_status_handler))
+        .route("/security/malware/scan/jobs", get(security_malware_scan_jobs_handler))
+        .route("/security/malware/quarantine", post(security_malware_quarantine_handler))
+        .route("/security/malware/quarantine", get(security_malware_quarantine_list_handler))
+        .route("/security/malware/quarantine/restore", post(security_malware_restore_handler))
         .route("/monitor/sre", get(sre_metrics_handler))
         .route("/monitor/sre/log-query", post(sre_log_query_handler))
         .route("/monitor/sre/optimize", get(sre_optimize_handler))
@@ -192,6 +448,20 @@ pub fn routes() -> Router {
         .route("/monitor/cron/jobs", axum::routing::delete(cron_jobs_delete_handler))
         .route("/monitor/logs/site", get(site_logs_handler))
         .route("/apps/install", post(install_cms_handler))
+        .route("/wordpress/sites", get(wordpress_sites_list_handler))
+        .route("/wordpress/scan", post(wordpress_scan_handler))
+        .route("/wordpress/plugins", get(wordpress_plugins_list_handler))
+        .route("/wordpress/plugins/update", post(wordpress_plugins_update_handler))
+        .route("/wordpress/plugins", axum::routing::delete(wordpress_plugins_delete_handler))
+        .route("/wordpress/themes", get(wordpress_themes_list_handler))
+        .route("/wordpress/themes/update", post(wordpress_themes_update_handler))
+        .route("/wordpress/themes", axum::routing::delete(wordpress_themes_delete_handler))
+        .route("/wordpress/staging", get(wordpress_staging_list_handler))
+        .route("/wordpress/staging", post(wordpress_staging_create_handler))
+        .route("/wordpress/backups", get(wordpress_backups_list_handler))
+        .route("/wordpress/backups", post(wordpress_backups_create_handler))
+        .route("/wordpress/backups/restore", post(wordpress_backups_restore_handler))
+        .route("/wordpress/backups/download", get(wordpress_backups_download_handler))
         .route("/apps/runtime/list", get(runtime_apps_list_handler))
         .route("/apps/runtime/node/install-deps", post(node_install_deps_handler))
         .route("/apps/runtime/node/start", post(node_start_handler))
@@ -261,6 +531,16 @@ pub fn routes() -> Router {
         .route("/files/create_dir", post(file_create_dir_handler))
         .route("/files/delete", post(file_delete_handler))
         .route("/files/rename", post(file_rename_handler))
+        .route("/files/compress", post(file_compress_handler))
+        .route("/files/extract", post(file_extract_handler))
+        .route("/files/trash", post(file_trash_handler))
+        // Migration / Transfer Wizard
+        .route("/migration/upload", post(migration_upload_handler))
+        .route("/migration/analyze", post(migration_analyze_handler))
+        .route("/migration/import/start", post(migration_import_start_handler))
+        .route("/migration/import/status", get(migration_import_status_handler))
+        // Website analytics
+        .route("/analytics/website-traffic", get(website_traffic_handler))
         // PHP Management API
         .route("/php/versions", get(php_list_versions))
         .route("/php/install", post(php_install_handler))
@@ -289,6 +569,25 @@ pub fn routes() -> Router {
         .route("/acl/assignments", post(acl_assignments_upsert_handler))
         .route("/acl/assignments", axum::routing::delete(acl_assignments_delete_handler))
         .route("/acl/effective", get(acl_effective_permissions_handler))
+        // Activity / Audit Log
+        .route("/activity/log", get(activity_log_handler))
+        // Database Backup
+        .route("/db/backup/list", get(db_backup_list_handler))
+        .route("/db/backup/create", post(db_backup_create_handler))
+        .route("/db/backup/restore", post(db_backup_restore_handler))
+        .route("/db/backup/delete", post(db_backup_delete_handler))
+        .route("/db/backup/download", get(db_backup_download_handler))
+        // Web Terminal
+        .route("/terminal/ws", get(terminal_ws_handler))
+        // SSL Wildcard
+        .route("/ssl/wildcard/issue", post(issue_wildcard_ssl_handler))
+        .route("/auth/me", get(auth_me_handler))
+        .route_layer(from_fn(auth_middleware));
+
+    Router::new()
+        .route("/health", get(health_check))
+        .route("/auth/login", post(auth_login_handler))
+        .merge(protected)
 }
 
 async fn health_check() -> Json<StatusResponse> {
@@ -297,6 +596,20 @@ async fn health_check() -> Json<StatusResponse> {
         uptime: 0,
         version: "1.0.0-alpha".to_string(),
     })
+}
+
+async fn auth_me_handler(Extension(auth): Extension<AuthContext>) -> impl IntoResponse {
+    let user = match UserManager::find_by_identity(&auth.username) {
+        Ok(Some(u)) => u,
+        _ => return (StatusCode::UNAUTHORIZED, Json(json!({ "status": "error", "message": "Unauthorized" }))).into_response(),
+    };
+
+    (StatusCode::OK, Json(json!({
+        "id": user.id,
+        "name": user.username,
+        "email": user.email,
+        "role": user.role
+    }))).into_response()
 }
 
 // Handler for Federated Join Node
@@ -452,6 +765,213 @@ async fn install_cms_handler(
     }
 }
 
+#[derive(Deserialize)]
+struct WordPressDomainQuery {
+    domain: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct WordPressBackupDownloadQuery {
+    id: String,
+}
+
+async fn wordpress_sites_list_handler() -> Json<serde_json::Value> {
+    match WordPressManager::list_sites() {
+        Ok(items) => Json(json!({ "status": "success", "data": items })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn wordpress_scan_handler() -> Json<serde_json::Value> {
+    match WordPressManager::scan_sites() {
+        Ok(items) => Json(json!({ "status": "success", "data": items })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn wordpress_plugins_list_handler(
+    axum::extract::Query(query): axum::extract::Query<WordPressDomainQuery>,
+) -> Json<serde_json::Value> {
+    let domain = match query.domain {
+        Some(domain) if !domain.trim().is_empty() => domain,
+        _ => return Json(json!({ "status": "error", "message": "domain zorunludur." })),
+    };
+    match WordPressManager::list_plugins(&domain) {
+        Ok(items) => Json(json!({ "status": "success", "data": items })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn wordpress_plugins_update_handler(
+    Extension(auth): Extension<AuthContext>,
+    Json(payload): Json<WordPressExtensionActionRequest>,
+) -> Json<serde_json::Value> {
+    match WordPressManager::update_plugins(&payload) {
+        Ok(msg) => {
+            AuditLogger::log(&auth.username, "wordpress.plugins.update", &payload.domain, "panel");
+            Json(json!({ "status": "success", "message": msg }))
+        }
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn wordpress_plugins_delete_handler(
+    Extension(auth): Extension<AuthContext>,
+    Json(payload): Json<WordPressExtensionActionRequest>,
+) -> Json<serde_json::Value> {
+    match WordPressManager::delete_plugins(&payload) {
+        Ok(msg) => {
+            AuditLogger::log(&auth.username, "wordpress.plugins.delete", &payload.domain, "panel");
+            Json(json!({ "status": "success", "message": msg }))
+        }
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn wordpress_themes_list_handler(
+    axum::extract::Query(query): axum::extract::Query<WordPressDomainQuery>,
+) -> Json<serde_json::Value> {
+    let domain = match query.domain {
+        Some(domain) if !domain.trim().is_empty() => domain,
+        _ => return Json(json!({ "status": "error", "message": "domain zorunludur." })),
+    };
+    match WordPressManager::list_themes(&domain) {
+        Ok(items) => Json(json!({ "status": "success", "data": items })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn wordpress_themes_update_handler(
+    Extension(auth): Extension<AuthContext>,
+    Json(payload): Json<WordPressExtensionActionRequest>,
+) -> Json<serde_json::Value> {
+    match WordPressManager::update_themes(&payload) {
+        Ok(msg) => {
+            AuditLogger::log(&auth.username, "wordpress.themes.update", &payload.domain, "panel");
+            Json(json!({ "status": "success", "message": msg }))
+        }
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn wordpress_themes_delete_handler(
+    Extension(auth): Extension<AuthContext>,
+    Json(payload): Json<WordPressExtensionActionRequest>,
+) -> Json<serde_json::Value> {
+    match WordPressManager::delete_themes(&payload) {
+        Ok(msg) => {
+            AuditLogger::log(&auth.username, "wordpress.themes.delete", &payload.domain, "panel");
+            Json(json!({ "status": "success", "message": msg }))
+        }
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn wordpress_staging_list_handler(
+    axum::extract::Query(query): axum::extract::Query<WordPressDomainQuery>,
+) -> Json<serde_json::Value> {
+    match WordPressManager::list_staging(query.domain.as_deref()) {
+        Ok(items) => Json(json!({ "status": "success", "data": items })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn wordpress_staging_create_handler(
+    Extension(auth): Extension<AuthContext>,
+    Json(payload): Json<WordPressStagingRequest>,
+) -> Json<serde_json::Value> {
+    match WordPressManager::create_staging(&payload) {
+        Ok(entry) => {
+            AuditLogger::log(&auth.username, "wordpress.staging.create", &payload.source_domain, "panel");
+            Json(json!({ "status": "success", "data": entry }))
+        }
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn wordpress_backups_list_handler(
+    axum::extract::Query(query): axum::extract::Query<WordPressDomainQuery>,
+) -> Json<serde_json::Value> {
+    match WordPressManager::list_backups(query.domain.as_deref()) {
+        Ok(items) => Json(json!({ "status": "success", "data": items })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn wordpress_backups_create_handler(
+    Extension(auth): Extension<AuthContext>,
+    Json(payload): Json<WordPressBackupRequest>,
+) -> Json<serde_json::Value> {
+    match WordPressManager::create_backup(&payload) {
+        Ok(entry) => {
+            AuditLogger::log(&auth.username, "wordpress.backup.create", &payload.domain, "panel");
+            Json(json!({ "status": "success", "data": entry }))
+        }
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn wordpress_backups_restore_handler(
+    Extension(auth): Extension<AuthContext>,
+    Json(payload): Json<WordPressBackupRestoreRequest>,
+) -> Json<serde_json::Value> {
+    match WordPressManager::restore_backup(&payload) {
+        Ok(msg) => {
+            AuditLogger::log(&auth.username, "wordpress.backup.restore", &payload.id, "panel");
+            Json(json!({ "status": "success", "message": msg }))
+        }
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn wordpress_backups_download_handler(
+    axum::extract::Query(q): axum::extract::Query<WordPressBackupDownloadQuery>,
+) -> axum::response::Response {
+    use axum::body::Body;
+    use axum::http::{header, HeaderValue, StatusCode};
+    use axum::response::IntoResponse;
+
+    let path = match WordPressManager::backup_file_path(&q.id) {
+        Ok(p) => p,
+        Err(e) => {
+            return (StatusCode::NOT_FOUND, Json(json!({ "status": "error", "message": e })))
+                .into_response()
+        }
+    };
+
+    let data = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "status": "error",
+                    "message": format!("Backup dosyasi okunamadi: {}", e),
+                })),
+            )
+                .into_response()
+        }
+    };
+
+    let filename = path
+        .file_name()
+        .and_then(|v| v.to_str())
+        .unwrap_or("wordpress-backup.tar.gz");
+    let disposition = format!("attachment; filename=\"{}\"", filename);
+
+    let mut response = Body::from(data).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    if let Ok(v) = HeaderValue::from_str(&disposition) {
+        response
+            .headers_mut()
+            .insert(header::CONTENT_DISPOSITION, v);
+    }
+    response
+}
+
 async fn runtime_apps_list_handler() -> Json<serde_json::Value> {
     match AppManager::list_runtime_apps() {
         Ok(apps) => Json(json!({ "status": "success", "data": apps })),
@@ -543,10 +1063,19 @@ async fn firewall_rule_handler(
     }
 }
 
-async fn security_status_handler() -> Json<serde_json::Value> {
+async fn security_status_handler(
+    Extension(auth): Extension<AuthContext>,
+) -> Json<serde_json::Value> {
+    let mut status = SecurityManager::status();
+    status.totp_2fa = UserManager::get_user(&auth.username)
+        .ok()
+        .flatten()
+        .map(|u| u.totp_enabled)
+        .unwrap_or(false);
+
     Json(json!({
         "status": "success",
-        "data": SecurityManager::status(),
+        "data": status,
     }))
 }
 
@@ -623,14 +1152,20 @@ struct TwoFaSetupPayload {
 
 #[derive(Deserialize)]
 struct TwoFaVerifyPayload {
-    secret: String,
     token: String,
 }
 
 async fn security_2fa_setup_handler(
+    Extension(auth): Extension<AuthContext>,
     Json(payload): Json<TwoFaSetupPayload>,
 ) -> Json<serde_json::Value> {
-    match SecurityManager::setup_totp(&payload.account_name) {
+    let account_name = if payload.account_name.trim().is_empty() {
+        auth.username.clone()
+    } else {
+        payload.account_name.trim().to_string()
+    };
+
+    match SecurityManager::setup_totp_for_user(&auth.username, &account_name) {
         Ok((secret, qr_base64)) => Json(json!({
             "status": "success",
             "data": {
@@ -643,9 +1178,10 @@ async fn security_2fa_setup_handler(
 }
 
 async fn security_2fa_verify_handler(
+    Extension(auth): Extension<AuthContext>,
     Json(payload): Json<TwoFaVerifyPayload>,
 ) -> Json<serde_json::Value> {
-    match SecurityManager::verify_totp(&payload.secret, &payload.token) {
+    match SecurityManager::verify_totp_for_user(&auth.username, &payload.token) {
         Ok(valid) => Json(json!({ "status": "success", "valid": valid })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
@@ -702,15 +1238,219 @@ async fn security_ebpf_collect_handler(
     }
 }
 
+async fn security_malware_scan_start_handler(
+    Json(payload): Json<MalwareScanStartRequest>,
+) -> Json<serde_json::Value> {
+    match MalwareScanner::start_scan(payload).await {
+        Ok(job) => Json(json!({ "status": "success", "data": job })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct MalwareScanStatusQuery {
+    id: String,
+}
+
+async fn security_malware_scan_status_handler(
+    axum::extract::Query(query): axum::extract::Query<MalwareScanStatusQuery>,
+) -> Json<serde_json::Value> {
+    match MalwareScanner::get_scan_status(&query.id) {
+        Ok(job) => Json(json!({ "status": "success", "data": job })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct MalwareScanJobsQuery {
+    limit: Option<usize>,
+}
+
+async fn security_malware_scan_jobs_handler(
+    axum::extract::Query(query): axum::extract::Query<MalwareScanJobsQuery>,
+) -> Json<serde_json::Value> {
+    match MalwareScanner::list_scan_jobs(query.limit) {
+        Ok(jobs) => Json(json!({ "status": "success", "data": jobs })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn security_malware_quarantine_handler(
+    Json(payload): Json<MalwareQuarantineRequest>,
+) -> Json<serde_json::Value> {
+    match MalwareScanner::quarantine_finding(payload) {
+        Ok(record) => Json(json!({ "status": "success", "data": record })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn security_malware_quarantine_list_handler() -> Json<serde_json::Value> {
+    match MalwareScanner::list_quarantine() {
+        Ok(records) => Json(json!({ "status": "success", "data": records })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn security_malware_restore_handler(
+    Json(payload): Json<MalwareRestoreRequest>,
+) -> Json<serde_json::Value> {
+    match MalwareScanner::restore_quarantine(payload) {
+        Ok(message) => Json(json!({ "status": "success", "message": message })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+fn normalize_name_token(value: &str) -> String {
+    value.trim().trim_matches('.').to_ascii_lowercase()
+}
+
+fn resolve_owner_by_domain(domain: &str) -> Option<String> {
+    let target = normalize_name_token(domain);
+    if target.is_empty() {
+        return None;
+    }
+
+    NitroEngine::list_vhosts().ok()?.into_iter().find_map(|site| {
+        let site_domain = site
+            .get("domain")
+            .and_then(|v| v.as_str())
+            .map(normalize_name_token)?;
+        if site_domain != target {
+            return None;
+        }
+        site
+            .get("owner")
+            .or_else(|| site.get("user"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_ascii_lowercase())
+            .filter(|s| !s.is_empty())
+    })
+}
+
+fn resolve_effective_owner(owner: Option<&str>, domain_hint: Option<&str>) -> Option<String> {
+    if let Some(owner) = owner {
+        let cleaned = owner.trim();
+        if !cleaned.is_empty() {
+            return Some(cleaned.to_ascii_lowercase());
+        }
+    }
+    domain_hint.and_then(resolve_owner_by_domain)
+}
+
+fn owner_domain_set(owner: &str) -> std::collections::HashSet<String> {
+    NitroEngine::list_vhosts()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|site| {
+            let site_owner = site
+                .get("owner")
+                .or_else(|| site.get("user"))
+                .and_then(|v| v.as_str())?;
+            if !site_owner.trim().eq_ignore_ascii_case(owner.trim()) {
+                return None;
+            }
+            site
+                .get("domain")
+                .and_then(|v| v.as_str())
+                .map(normalize_name_token)
+        })
+        .filter(|d| !d.is_empty())
+        .collect()
+}
+
+fn count_owner_mailboxes(owner: &str) -> u32 {
+    let domains = owner_domain_set(owner);
+    if domains.is_empty() {
+        return 0;
+    }
+
+    MailManager::list_mailboxes()
+        .into_iter()
+        .filter(|mb| domains.contains(&normalize_name_token(&mb.domain)))
+        .count() as u32
+}
+
+fn normalize_db_engine_quota(engine: &str) -> Option<&'static str> {
+    match engine.trim().to_ascii_lowercase().as_str() {
+        "mariadb" | "mysql" => Some("mariadb"),
+        "postgres" | "postgresql" => Some("postgresql"),
+        _ => None,
+    }
+}
+
+fn count_owner_databases(owner: &str, engine: &str) -> usize {
+    let Some(engine) = normalize_db_engine_quota(engine) else {
+        return 0;
+    };
+    let domains = owner_domain_set(owner);
+    let owner_prefix = format!("{}_", owner.trim().to_ascii_lowercase());
+
+    let linked_count = WebsitesManager::list_db_links(None)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|link| {
+            normalize_db_engine_quota(&link.engine) == Some(engine)
+                && domains.contains(&normalize_name_token(&link.domain))
+        })
+        .count();
+
+    // Legacy fallback: some databases may be created before db-link metadata.
+    let prefixed_count = match engine {
+        "mariadb" => MariaDbManager::list_databases()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|db| db.name.to_ascii_lowercase().starts_with(&owner_prefix))
+            .count(),
+        "postgresql" => PostgresManager::list_databases()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|db| db.name.to_ascii_lowercase().starts_with(&owner_prefix))
+            .count(),
+        _ => 0,
+    };
+
+    linked_count.max(prefixed_count)
+}
+
 // Handler for creating a new mailbox
 async fn create_mailbox_handler(
     Json(payload): Json<MailboxConfig>,
 ) -> Json<serde_json::Value> {
+    let effective_owner = resolve_effective_owner(payload.owner.as_deref(), Some(&payload.domain));
+
+    // Quota enforcement: owner bazli email limitini kontrol et
+    if let Some(owner) = effective_owner.as_deref() {
+        let quota_exceeded = || -> Option<(u32, u32)> {
+            let users = crate::services::users::UserManager::list_users().ok()?;
+            let user = users.iter().find(|u| u.username == owner)?;
+            let pkg = crate::services::packages::PackageManager::get_package_by_name(&user.package).ok()??;
+            if pkg.emails == 0 { return None; } // 0 = limitsiz
+            let count = count_owner_mailboxes(owner);
+            Some((count, pkg.emails))
+        };
+        if let Some((count, limit)) = quota_exceeded() {
+            if count >= limit {
+                return Json(json!({
+                    "status": "error",
+                    "message": format!("Email kotasi doldu ({}/{}).", count, limit),
+                }));
+            }
+        }
+    }
+
     match MailManager::create_mailbox(&payload).await {
-        Ok(_) => Json(json!({
-            "status": "success",
-            "message": format!("Mailbox {}@{} created.", payload.username, payload.domain),
-        })),
+        Ok(_) => {
+            AuditLogger::log(
+                effective_owner.as_deref().unwrap_or("admin"),
+                "mail.create",
+                &format!("{}@{}", payload.username, payload.domain),
+                "panel",
+            );
+            Json(json!({
+                "status": "success",
+                "message": format!("Mailbox {}@{} created.", payload.username, payload.domain),
+            }))
+        }
         Err(e) => Json(json!({
             "status": "error",
             "message": e,
@@ -728,12 +1468,42 @@ async fn mariadb_list_handler() -> Json<serde_json::Value> {
 }
 
 async fn mariadb_create_handler(Json(payload): Json<DbConfig>) -> Json<serde_json::Value> {
+    let effective_owner = resolve_effective_owner(payload.owner.as_deref(), payload.site_domain.as_deref());
+
+    // Quota enforcement (owner bazli)
+    if let Some(owner) = effective_owner.as_deref() {
+        let quota_exceeded = || -> Option<(usize, u32)> {
+            let users = crate::services::users::UserManager::list_users().ok()?;
+            let user = users.iter().find(|u| u.username == owner)?;
+            let pkg = crate::services::packages::PackageManager::get_package_by_name(&user.package).ok()??;
+            if pkg.databases == 0 { return None; }
+            let count = count_owner_databases(owner, "mariadb");
+            Some((count, pkg.databases))
+        };
+        if let Some((count, limit)) = quota_exceeded() {
+            if count as u32 >= limit {
+                return Json(json!({
+                    "status": "error",
+                    "message": format!("Veritabani kotasi doldu ({}/{}).", count, limit),
+                }));
+            }
+        }
+    }
+
     match MariaDbManager::create_database(&payload) {
-        Ok(result) => Json(json!({
-            "status": "success",
-            "message": result.message,
-            "data": result,
-        })),
+        Ok(result) => {
+            AuditLogger::log(
+                effective_owner.as_deref().unwrap_or("admin"),
+                "db.mariadb.create",
+                &payload.db_name,
+                "panel",
+            );
+            Json(json!({
+                "status": "success",
+                "message": result.message,
+                "data": result,
+            }))
+        }
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
@@ -799,12 +1569,42 @@ async fn postgres_list_handler() -> Json<serde_json::Value> {
 }
 
 async fn postgres_create_handler(Json(payload): Json<DbConfig>) -> Json<serde_json::Value> {
+    let effective_owner = resolve_effective_owner(payload.owner.as_deref(), payload.site_domain.as_deref());
+
+    // Quota enforcement (owner bazli)
+    if let Some(owner) = effective_owner.as_deref() {
+        let quota_exceeded = || -> Option<(usize, u32)> {
+            let users = crate::services::users::UserManager::list_users().ok()?;
+            let user = users.iter().find(|u| u.username == owner)?;
+            let pkg = crate::services::packages::PackageManager::get_package_by_name(&user.package).ok()??;
+            if pkg.databases == 0 { return None; }
+            let count = count_owner_databases(owner, "postgresql");
+            Some((count, pkg.databases))
+        };
+        if let Some((count, limit)) = quota_exceeded() {
+            if count as u32 >= limit {
+                return Json(json!({
+                    "status": "error",
+                    "message": format!("Veritabani kotasi doldu ({}/{}).", count, limit),
+                }));
+            }
+        }
+    }
+
     match PostgresManager::create_database(&payload) {
-        Ok(result) => Json(json!({
-            "status": "success",
-            "message": result.message,
-            "data": result,
-        })),
+        Ok(result) => {
+            AuditLogger::log(
+                effective_owner.as_deref().unwrap_or("admin"),
+                "db.postgres.create",
+                &payload.db_name,
+                "panel",
+            );
+            Json(json!({
+                "status": "success",
+                "message": result.message,
+                "data": result,
+            }))
+        }
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
@@ -1114,6 +1914,31 @@ async fn create_vhost_handler(
         }));
     }
 
+    // ── Package quota check ────────────────────────────────────────────────
+    if let Ok(users) = UserManager::list_users() {
+        if let Some(user) = users.iter().find(|u| u.username == owner) {
+            if let Ok(Some(pkg)) = PackageManager::get_package_by_name(&user.package) {
+                if pkg.domains > 0 {
+                    // Count existing sites for this user
+                    let existing = NitroEngine::list_vhosts()
+                        .unwrap_or_default()
+                        .iter()
+                        .filter(|s| s.get("owner").and_then(|v| v.as_str()) == Some(&owner))
+                        .count() as u32;
+                    if existing >= pkg.domains {
+                        return Json(json!({
+                            "status": "error",
+                            "message": format!(
+                                "Paket limiti asild: '{}' paketi en fazla {} domain'e izin veriyor.",
+                                pkg.name, pkg.domains
+                            ),
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
     let config = VHostConfig {
         domain: domain.clone(),
         user: owner.clone(),
@@ -1166,6 +1991,7 @@ async fn create_vhost_handler(
                 warnings.push("Apache backend toggle secildi; runtime backend switch sonraki fazda tamamlanacak.".to_string());
             }
 
+            AuditLogger::log("admin", "vhost.create", &domain, "panel");
             Json(json!({
                 "status": "success",
                 "message": format!("VHost for {} created successfully.", domain),
@@ -1184,10 +2010,13 @@ async fn issue_ssl_handler(
     Json(payload): Json<SslConfig>,
 ) -> Json<serde_json::Value> {
     match SslManager::issue_certificate(&payload).await {
-        Ok(_) => Json(json!({
-            "status": "success",
-            "message": format!("SSL certificate for {} issued successfully.", payload.domain),
-        })),
+        Ok(_) => {
+            AuditLogger::log("admin", "ssl.issue", &payload.domain, "panel");
+            Json(json!({
+                "status": "success",
+                "message": format!("SSL certificate for {} issued successfully.", payload.domain),
+            }))
+        }
         Err(e) => Json(json!({
             "status": "error",
             "message": e,
@@ -1811,6 +2640,19 @@ struct FileRenamePayload {
     new_path: String,
 }
 
+#[derive(Deserialize)]
+struct FileCompressPayload {
+    format: String,
+    dest_path: String,
+    sources: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct FileExtractPayload {
+    archive_path: String,
+    dest_dir: String,
+}
+
 async fn file_list_handler(Json(payload): Json<FilePathPayload>) -> Json<serde_json::Value> {
     match FileManager::list_dir(&payload.path) {
         Ok(items) => Json(json!({ "status": "success", "data": items })),
@@ -1853,8 +2695,136 @@ async fn file_rename_handler(Json(payload): Json<FileRenamePayload>) -> Json<ser
     }
 }
 
+async fn file_compress_handler(Json(payload): Json<FileCompressPayload>) -> Json<serde_json::Value> {
+    match FileManager::compress_items(&payload.format, &payload.dest_path, payload.sources) {
+        Ok(_) => Json(json!({ "status": "success", "message": "Dosyalar basariyla sikistirildi." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn file_extract_handler(Json(payload): Json<FileExtractPayload>) -> Json<serde_json::Value> {
+    match FileManager::extract_item(&payload.archive_path, &payload.dest_dir) {
+        Ok(_) => Json(json!({ "status": "success", "message": "Arsiv basariyla cikarildi." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn file_trash_handler(Json(payload): Json<FilePathPayload>) -> Json<serde_json::Value> {
+    match FileManager::trash_item(&payload.path) {
+        Ok(_) => Json(json!({ "status": "success", "message": "Oge cop kutusuna tasindi." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
 // ─── PHP Management Handlers ────────────────────────────────
 
+fn sanitize_upload_filename(name: &str) -> String {
+    let cleaned = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == '-' || *c == '_')
+        .collect::<String>();
+    if cleaned.is_empty() {
+        format!("migration-{}.tar.gz", chrono::Utc::now().timestamp())
+    } else {
+        cleaned
+    }
+}
+
+async fn migration_upload_handler(mut multipart: Multipart) -> Json<serde_json::Value> {
+    let mut saved_path: Option<String> = None;
+    loop {
+        let next = match multipart.next_field().await {
+            Ok(v) => v,
+            Err(e) => {
+                return Json(json!({
+                    "status": "error",
+                    "message": format!("Multipart okunamadi: {}", e),
+                }))
+            }
+        };
+
+        let Some(field) = next else { break };
+        let file_name = field
+            .file_name()
+            .map(sanitize_upload_filename)
+            .unwrap_or_else(|| format!("migration-{}.tar.gz", chrono::Utc::now().timestamp()));
+        let data = match field.bytes().await {
+            Ok(v) => v,
+            Err(e) => {
+                return Json(json!({
+                    "status": "error",
+                    "message": format!("Dosya okunamadi: {}", e),
+                }))
+            }
+        };
+
+        let upload_dir = MigrationManager::upload_dir();
+        if let Err(e) = std::fs::create_dir_all(&upload_dir) {
+            return Json(json!({
+                "status": "error",
+                "message": format!("Upload dizini olusturulamadi: {}", e),
+            }));
+        }
+        let path = upload_dir.join(file_name);
+        match tokio::fs::write(&path, &data).await {
+            Ok(_) => {
+                saved_path = Some(path.to_string_lossy().to_string());
+            }
+            Err(e) => {
+                return Json(json!({
+                    "status": "error",
+                    "message": format!("Dosya kaydedilemedi: {}", e),
+                }))
+            }
+        }
+    }
+
+    match saved_path {
+        Some(path) => Json(json!({ "status": "success", "data": { "archive_path": path } })),
+        None => Json(json!({ "status": "error", "message": "Yuklenecek dosya bulunamadi." })),
+    }
+}
+
+async fn migration_analyze_handler(
+    Json(payload): Json<MigrationAnalyzeRequest>,
+) -> Json<serde_json::Value> {
+    match MigrationManager::analyze_backup(&payload) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn migration_import_start_handler(
+    Json(payload): Json<MigrationImportRequest>,
+) -> Json<serde_json::Value> {
+    match MigrationManager::start_import(payload).await {
+        Ok(job) => Json(json!({ "status": "success", "data": job })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct MigrationStatusQuery {
+    id: String,
+}
+
+async fn migration_import_status_handler(
+    axum::extract::Query(query): axum::extract::Query<MigrationStatusQuery>,
+) -> Json<serde_json::Value> {
+    match MigrationManager::get_import_job(&query.id) {
+        Ok(job) => Json(json!({ "status": "success", "data": job })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn website_traffic_handler(
+    axum::extract::Query(query): axum::extract::Query<TrafficQuery>,
+) -> Json<serde_json::Value> {
+    match AnalyticsManager::website_traffic(&query) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
 #[derive(Deserialize)]
 struct PhpVersionPayload {
     version: String,
@@ -2058,7 +3028,7 @@ async fn vhost_list_handler(
                     "page": page,
                     "per_page": per_page,
                     "total": total,
-                    "total_pages": if total == 0 { 0 } else { (total + per_page - 1) / per_page },
+                    "total_pages": total.div_ceil(per_page),
                 }
             }))
         }
@@ -2095,6 +3065,7 @@ async fn vhost_delete_handler(Json(payload): Json<DomainPayload>) -> Json<serde_
                 warnings.push(format!("Website workflow cleanup warning: {}", e));
             }
 
+            AuditLogger::log("admin", "vhost.delete", &payload.domain, "panel");
             Json(json!({
                 "status": "success",
                 "message": msg,
@@ -2896,7 +3867,10 @@ async fn users_list_handler() -> Json<serde_json::Value> {
 
 async fn users_create_handler(Json(payload): Json<CreateUserRequest>) -> Json<serde_json::Value> {
     match UserManager::create_user(&payload) {
-        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Ok(msg) => {
+            AuditLogger::log("admin", "user.create", &payload.username, "panel");
+            Json(json!({ "status": "success", "message": msg }))
+        }
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
@@ -2908,7 +3882,10 @@ struct UsernamePayload {
 
 async fn users_delete_handler(Json(payload): Json<UsernamePayload>) -> Json<serde_json::Value> {
     match UserManager::delete_user(&payload.username) {
-        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Ok(msg) => {
+            AuditLogger::log("admin", "user.delete", &payload.username, "panel");
+            Json(json!({ "status": "success", "message": msg }))
+        }
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
@@ -2934,6 +3911,13 @@ struct PackageIdPayload {
     id: u64,
 }
 
+async fn packages_update_handler(Json(payload): Json<UpdatePackageRequest>) -> Json<serde_json::Value> {
+    match PackageManager::update_package(&payload) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
 async fn packages_delete_handler(Json(payload): Json<PackageIdPayload>) -> Json<serde_json::Value> {
     match PackageManager::delete_package(payload.id) {
         Ok(msg) => Json(json!({ "status": "success", "message": msg })),
@@ -2941,12 +3925,177 @@ async fn packages_delete_handler(Json(payload): Json<PackageIdPayload>) -> Json<
     }
 }
 
+// ─── Users — Change Password ──────────────────────────────────────────────────
+
+async fn users_change_password_handler(
+    Json(payload): Json<ChangePasswordRequest>,
+) -> Json<serde_json::Value> {
+    match UserManager::change_password(&payload) {
+        Ok(msg) => {
+            AuditLogger::log("admin", "user.change_password", &payload.username, "panel");
+            Json(json!({ "status": "success", "message": msg }))
+        }
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+// ─── Activity Log ─────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ActivityLogQuery {
+    user: Option<String>,
+    page: Option<usize>,
+    per_page: Option<usize>,
+}
+
+async fn activity_log_handler(
+    axum::extract::Query(q): axum::extract::Query<ActivityLogQuery>,
+) -> Json<serde_json::Value> {
+    let page = q.page.unwrap_or(0);
+    let per_page = q.per_page.unwrap_or(50).min(200);
+    match AuditLogger::list(q.user.as_deref(), page, per_page) {
+        Ok((entries, total)) => Json(json!({
+            "status": "success",
+            "data": entries,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+        })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+// ─── Database Backup ──────────────────────────────────────────────────────────
+
+async fn db_backup_list_handler() -> Json<serde_json::Value> {
+    let entries = DbBackupManager::list_backups();
+    Json(json!({ "status": "success", "data": entries }))
+}
+
+async fn db_backup_create_handler(
+    Json(payload): Json<DbBackupRequest>,
+) -> Json<serde_json::Value> {
+    match DbBackupManager::create_backup(&payload) {
+        Ok(entry) => Json(json!({ "status": "success", "data": entry })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn db_backup_restore_handler(
+    Json(payload): Json<DbRestoreRequest>,
+) -> Json<serde_json::Value> {
+    match DbBackupManager::restore_backup(&payload.backup_id) {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct BackupIdPayload {
+    backup_id: String,
+}
+
+#[derive(Deserialize)]
+struct BackupDownloadQuery {
+    id: String,
+}
+
+async fn db_backup_delete_handler(
+    Json(payload): Json<BackupIdPayload>,
+) -> Json<serde_json::Value> {
+    match DbBackupManager::delete_backup(&payload.backup_id) {
+        Ok(()) => Json(json!({ "status": "success", "message": "Backup silindi." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn db_backup_download_handler(
+    axum::extract::Query(q): axum::extract::Query<BackupDownloadQuery>,
+) -> axum::response::Response {
+    use axum::body::Body;
+    use axum::http::{header, HeaderValue, StatusCode};
+    use axum::response::IntoResponse;
+
+    let path = match DbBackupManager::backup_file_path(&q.id) {
+        Ok(p) => p,
+        Err(e) => {
+            return (StatusCode::NOT_FOUND, Json(json!({ "status": "error", "message": e })))
+                .into_response()
+        }
+    };
+
+    let data = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "status": "error",
+                    "message": format!("Backup dosyasi okunamadi: {}", e),
+                })),
+            )
+                .into_response()
+        }
+    };
+
+    let filename = path
+        .file_name()
+        .and_then(|v| v.to_str())
+        .unwrap_or("backup.sql.gz");
+    let disposition = format!("attachment; filename=\"{}\"", filename);
+
+    let mut response = Body::from(data).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/gzip"),
+    );
+    if let Ok(v) = HeaderValue::from_str(&disposition) {
+        response
+            .headers_mut()
+            .insert(header::CONTENT_DISPOSITION, v);
+    }
+    response
+}
+
+// ─── SSL Wildcard ─────────────────────────────────────────────────────────────
+
+async fn issue_wildcard_ssl_handler(
+    Json(payload): Json<SslConfig>,
+) -> Json<serde_json::Value> {
+    match SslManager::issue_wildcard_certificate(&payload).await {
+        Ok(msg) => Json(json!({ "status": "success", "message": msg })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::auth::jwt;
     use super::routes;
+    use crate::services::users::{CreateUserRequest, UserManager};
     use axum::body::Body;
     use axum::http::{Method, Request, StatusCode};
+    use serde_json::json;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use tower::util::ServiceExt;
+
+    fn setup_env(test_name: &str) -> std::path::PathBuf {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!("aurapanel-api-test-{}-{}", test_name, now));
+        std::fs::create_dir_all(&path).expect("temp state dir");
+        std::env::set_var("AURAPANEL_STATE_DIR", &path);
+        std::env::set_var("AURAPANEL_JWT_SECRET", "test-secret");
+        path
+    }
+
+    fn teardown_env(path: &std::path::Path) {
+        std::env::remove_var("AURAPANEL_STATE_DIR");
+        std::env::remove_var("AURAPANEL_JWT_SECRET");
+        let _ = std::fs::remove_dir_all(path);
+    }
 
     #[tokio::test]
     async fn health_route_is_reachable() {
@@ -2966,7 +4115,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn status_services_route_is_reachable() {
+    async fn protected_routes_require_auth() {
         let app = routes();
         let response = app
             .oneshot(
@@ -2979,17 +4128,60 @@ mod tests {
             .await
             .expect("response");
 
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
-    async fn status_panel_port_route_is_reachable() {
+    async fn login_route_returns_token_for_valid_credentials() {
+        let state_dir = setup_env("login");
+        UserManager::create_user(&CreateUserRequest {
+            username: "admin".to_string(),
+            email: "admin@example.com".to_string(),
+            password: "supersecret".to_string(),
+            role: "admin".to_string(),
+            package: "default".to_string(),
+        })
+        .expect("create user");
+
+        let app = routes();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/auth/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"email":"admin@example.com","password":"supersecret"}"#,
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        teardown_env(&state_dir);
+    }
+
+    #[tokio::test]
+    async fn status_panel_port_route_is_reachable_with_auth() {
+        let state_dir = setup_env("panel-port");
+        UserManager::create_user(&CreateUserRequest {
+            username: "admin".to_string(),
+            email: "admin@example.com".to_string(),
+            password: "supersecret".to_string(),
+            role: "admin".to_string(),
+            package: "default".to_string(),
+        })
+        .expect("create user");
+        let token = jwt::create_token("admin", "admin").expect("token");
+
         let app = routes();
         let response = app
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
                     .uri("/status/panel-port")
+                    .header("authorization", format!("Bearer {}", token))
                     .body(Body::empty())
                     .expect("request"),
             )
@@ -2997,6 +4189,135 @@ mod tests {
             .expect("response");
 
         assert_eq!(response.status(), StatusCode::OK);
+        teardown_env(&state_dir);
+    }
+
+    fn route_specs_from_source() -> Vec<(Method, String)> {
+        let source = include_str!("routes.rs");
+        let mut out = Vec::new();
+
+        for line in source.lines() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with(".route(\"") {
+                continue;
+            }
+
+            let method = if trimmed.contains(", get(") {
+                Method::GET
+            } else if trimmed.contains(", post(") {
+                Method::POST
+            } else if trimmed.contains(", axum::routing::delete(") {
+                Method::DELETE
+            } else {
+                continue;
+            };
+
+            let path_start = match trimmed.find(".route(\"") {
+                Some(idx) => idx + ".route(\"".len(),
+                None => continue,
+            };
+            let rest = &trimmed[path_start..];
+            let path_end = match rest.find('"') {
+                Some(idx) => idx,
+                None => continue,
+            };
+            let raw_path = &rest[..path_end];
+
+            let normalized_path = raw_path
+                .split('/')
+                .map(|seg| {
+                    if seg.starts_with(':') && seg.len() > 1 {
+                        "example.com"
+                    } else {
+                        seg
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("/");
+
+            out.push((method, normalized_path));
+        }
+
+        out
+    }
+
+    #[tokio::test]
+    async fn all_defined_routes_are_reachable_without_404_405_or_5xx() {
+        let state_dir = setup_env("all-routes-smoke");
+        UserManager::create_user(&CreateUserRequest {
+            username: "admin".to_string(),
+            email: "admin@example.com".to_string(),
+            password: "supersecret".to_string(),
+            role: "admin".to_string(),
+            package: "default".to_string(),
+        })
+        .expect("create user");
+        let token = jwt::create_token("admin", "admin").expect("token");
+
+        let route_specs = route_specs_from_source();
+        assert!(!route_specs.is_empty(), "route specs must not be empty");
+
+        for (method, path) in route_specs {
+            let mut uri = path.clone();
+            if path == "/terminal/ws" {
+                uri = format!("/terminal/ws?token={}", token);
+            }
+
+            let body = if method == Method::POST || method == Method::DELETE {
+                if path == "/auth/login" {
+                    Body::from(
+                        json!({
+                            "email": "admin@example.com",
+                            "password": "supersecret"
+                        })
+                        .to_string(),
+                    )
+                } else {
+                    Body::from("{}")
+                }
+            } else {
+                Body::empty()
+            };
+
+            let mut req = Request::builder().method(method.clone()).uri(uri);
+            if path != "/health" && path != "/auth/login" {
+                req = req.header("authorization", format!("Bearer {}", token));
+            }
+            if method == Method::POST || method == Method::DELETE {
+                req = req.header("content-type", "application/json");
+            }
+
+            let response = routes()
+                .oneshot(req.body(body).expect("request"))
+                .await
+                .expect("response");
+            let status = response.status();
+
+            assert_ne!(
+                status,
+                StatusCode::NOT_FOUND,
+                "{} {} returned 404",
+                method,
+                path
+            );
+            assert_ne!(
+                status,
+                StatusCode::METHOD_NOT_ALLOWED,
+                "{} {} returned 405",
+                method,
+                path
+            );
+            assert!(
+                !status.is_server_error(),
+                "{} {} returned server error {}",
+                method,
+                path,
+                status
+            );
+        }
+
+        teardown_env(&state_dir);
     }
 }
+
 

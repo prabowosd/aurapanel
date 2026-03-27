@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::services::packages::PackageManager;
+use crate::services::users::UserManager;
+
 fn state_dir() -> PathBuf {
     if let Ok(path) = std::env::var("AURAPANEL_STATE_DIR") {
         return PathBuf::from(path);
@@ -460,11 +463,15 @@ extprocessor {domain}_php {{
                         });
 
                         let disk = Self::dir_size_human(&domain_entry.path());
+
+                        // Resolve quota from the user's assigned package
+                        let quota_label = Self::resolve_quota_label(&meta.owner, &meta.package);
+
                         sites.push(json!({
                             "domain": domain,
                             "ssl": has_ssl,
                             "disk_usage": disk,
-                            "quota": "10 GB",
+                            "quota": quota_label,
                             "php": meta.php_version,
                             "php_version": meta.php_version,
                             "user": meta.owner,
@@ -607,6 +614,32 @@ extprocessor {domain}_php {{
             package,
             email,
         })
+    }
+
+    /// Resolves a human-readable quota label for a domain by looking up the
+    /// owning user's package. Falls back to "Unlimited" if the package is not
+    /// found or has disk_gb == 0 (meaning unlimited).
+    fn resolve_quota_label(owner: &str, package_name: &str) -> String {
+        // First try the explicit package name attached to the vhost metadata
+        let pkg_name = if package_name.is_empty() || package_name == "default" {
+            // Fall back to the package assigned to the owning user
+            UserManager::list_users()
+                .ok()
+                .and_then(|users| {
+                    users
+                        .into_iter()
+                        .find(|u| u.username == owner)
+                        .map(|u| u.package)
+                })
+                .unwrap_or_else(|| "default".to_string())
+        } else {
+            package_name.to_string()
+        };
+
+        match PackageManager::get_package_by_name(&pkg_name) {
+            Ok(Some(pkg)) if pkg.disk_gb > 0 => format!("{} GB", pkg.disk_gb),
+            _ => "Unlimited".to_string(),
+        }
     }
 
     fn dir_size_human(path: &Path) -> String {

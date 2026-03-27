@@ -1,24 +1,24 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 import './style.css'
 import App from './App.vue'
 import router from './router'
-
-import en from './locales/en.json'
-import tr from './locales/tr.json'
-
-const i18n = createI18n({
-  legacy: false,
-  locale: 'tr',
-  fallbackLocale: 'en',
-  messages: { en, tr }
-})
+import i18n from './i18n'
+import { useAuthStore } from './stores/auth'
 
 const app = createApp(App)
+const pinia = createPinia()
 
-app.use(createPinia())
+app.use(pinia)
 app.use(router)
 app.use(i18n)
 
-app.mount('#app')
+async function bootstrap() {
+  const authStore = useAuthStore(pinia)
+  if (authStore.token) {
+    await authStore.refreshUserFromServer()
+  }
+  app.mount('#app')
+}
+
+bootstrap()

@@ -34,6 +34,11 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Gateway-only mode: {}", runtime::gateway_only_enabled());
     let bind_addr = runtime::core_bind_addr();
 
+    // Bootstrap users
+    if let Err(e) = services::users::UserManager::seed_default_admin() {
+        tracing::warn!("Failed to seed default admin: {}", e);
+    }
+
     // build our application with a route
     let app = Router::new()
         .route("/", get(|| async { "AuraPanel Core - System is healthy." }))

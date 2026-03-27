@@ -16,6 +16,11 @@ pub struct CmsInstallConfig {
     pub db_name: String,
     pub db_user: String,
     pub db_pass: String,
+    pub owner: Option<String>,      // system user that owns the vhost
+    pub admin_email: Option<String>,
+    pub admin_user: Option<String>,
+    pub admin_pass: Option<String>,
+    pub site_title: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -62,40 +67,103 @@ fn command_available(cmd: &str) -> bool {
 pub struct AppManager;
 
 impl AppManager {
-    /// Tek tıklamayla WordPress, Laravel veya benzeri CMS'leri indirip kurar
+    /// Tek tıklamayla WordPress veya Laravel kurar.
+    /// WordPress: wp core download → wp config create → wp core install
     pub async fn install_cms(config: &CmsInstallConfig) -> Result<(), String> {
-        let public_html = format!("/home/aurapanel/public_html/{}", config.domain);
+        let domain = config.domain.trim().to_lowercase();
+        if domain.is_empty() {
+            return Err("domain zorunludur.".to_string());
+        }
+
+        // Resolve install path: /home/<owner>/public_html/<domain>
+        let owner = config
+            .owner
+            .as_deref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "aura".to_string());
+        let public_html = format!("/home/{}/public_html/{}", owner, domain);
 
         match config.app_type.as_str() {
             "wordpress" => {
                 if !command_available("wp") {
-                    return Err("wp-cli is not installed.".to_string());
+                    return Err("wp-cli kurulu degil.".to_string());
                 }
-                std::fs::create_dir_all(&public_html)
-                    .map_err(|e| format!("Failed to create target directory: {}", e))?;
 
-                let output = Command::new("wp")
-                    .args(["core", "download", "--allow-root", "--path"])
-                    .arg(&public_html)
+                std::fs::create_dir_all(&public_html)
+                    .map_err(|e| format!("Dizin olusturulamadi: {}", e))?;
+
+                // 1. Download WordPress core
+                let dl = Command::new("wp")
+                    .args(["core", "download", "--allow-root", "--path", &public_html])
                     .output()
-                    .map_err(|e| format!("Failed to run wp-cli: {}", e))?;
-                if !output.status.success() {
-                    return Err(String::from_utf8_lossy(&output.stderr).to_string());
+                    .map_err(|e| format!("wp core download basarisiz: {}", e))?;
+                if !dl.status.success() {
+                    return Err(String::from_utf8_lossy(&dl.stderr).to_string());
                 }
-            },
+
+                // 2. Create wp-config.php
+                let db_host = "localhost";
+                let cfg = Command::new("wp")
+                    .args([
+                        "config", "create",
+                        "--allow-root",
+                        &format!("--path={}", public_html),
+                        &format!("--dbname={}", config.db_name),
+                        &format!("--dbuser={}", config.db_user),
+                        &format!("--dbpass={}", config.db_pass),
+                        &format!("--dbhost={}", db_host),
+                    ])
+                    .output()
+                    .map_err(|e| format!("wp config create basarisiz: {}", e))?;
+                if !cfg.status.success() {
+                    return Err(String::from_utf8_lossy(&cfg.stderr).to_string());
+                }
+
+                // 3. Install WordPress (creates DB tables, sets admin credentials)
+                let admin_email = config
+                    .admin_email
+                    .as_deref()
+                    .unwrap_or("admin@example.com");
+                let admin_user = config.admin_user.as_deref().unwrap_or("admin");
+                let admin_pass = config.admin_pass.as_deref().unwrap_or("changeme123!");
+                let site_title = config.site_title.as_deref().unwrap_or("My Website");
+
+                let install = Command::new("wp")
+                    .args([
+                        "core", "install",
+                        "--allow-root",
+                        &format!("--path={}", public_html),
+                        &format!("--url=https://{}", domain),
+                        &format!("--title={}", site_title),
+                        &format!("--admin_user={}", admin_user),
+                        &format!("--admin_password={}", admin_pass),
+                        &format!("--admin_email={}", admin_email),
+                    ])
+                    .output()
+                    .map_err(|e| format!("wp core install basarisiz: {}", e))?;
+                if !install.status.success() {
+                    return Err(String::from_utf8_lossy(&install.stderr).to_string());
+                }
+            }
             "laravel" => {
                 if !command_available("composer") {
-                    return Err("composer is not installed.".to_string());
+                    return Err("composer kurulu degil.".to_string());
                 }
                 let output = Command::new("composer")
-                    .args(["create-project", "--prefer-dist", "--no-interaction", "laravel/laravel"])
-                    .arg(&public_html)
+                    .args([
+                        "create-project",
+                        "--prefer-dist",
+                        "--no-interaction",
+                        "laravel/laravel",
+                        &public_html,
+                    ])
                     .output()
-                    .map_err(|e| format!("Failed to run composer: {}", e))?;
+                    .map_err(|e| format!("composer basarisiz: {}", e))?;
                 if !output.status.success() {
                     return Err(String::from_utf8_lossy(&output.stderr).to_string());
                 }
-            },
+            }
             _ => return Err(format!("Desteklenmeyen uygulama tipi: {}", config.app_type)),
         }
 

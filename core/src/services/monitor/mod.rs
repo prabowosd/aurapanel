@@ -281,7 +281,7 @@ impl MonitorManager {
             return Err("domain is required.".to_string());
         }
 
-        let take = lines.max(1).min(500) as usize;
+        let take = lines.clamp(1, 500) as usize;
         let candidates = candidate_site_logs_by_kind(domain, kind);
 
         for file in candidates {

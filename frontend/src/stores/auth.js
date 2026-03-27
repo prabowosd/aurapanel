@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import api from '../services/api'
+import i18n from '../i18n'
 import { useNotificationStore } from './notifications'
 
 const TOKEN_KEY = 'aura_token'
@@ -74,21 +75,44 @@ export const useAuthStore = defineStore('auth', {
       }
       return !!this.token
     },
-    async login(email, password, remember = false) {
+    async login(email, password, remember = false, totpToken = '') {
       try {
-        const response = await api.post('/auth/login', { email, password })
+        const response = await api.post('/auth/login', {
+          email,
+          password,
+          totp_token: totpToken || undefined,
+        })
         this.setAuth(response.data.token, response.data.user, remember)
         const notificationStore = useNotificationStore()
         notificationStore.add({
-          title: 'Welcome',
-          message: `Signed in as ${response.data.user?.email || email}`,
+          title: i18n.global.t('auth_messages.welcome_title'),
+          message: i18n.global.t('auth_messages.welcome_message', { email: response.data.user?.email || email }),
           type: 'success',
           source: 'auth',
         })
         return true
       } catch (error) {
         console.error('Login Error', error)
-        throw new Error(error.response?.data?.message || 'Giris basarisiz. Bilgilerinizi kontrol edin.')
+        const err = new Error(error.response?.data?.message || i18n.global.t('auth_messages.login_error'))
+        err.requires2fa = !!error.response?.data?.requires_2fa
+        throw err
+      }
+    },
+    async refreshUserFromServer() {
+      if (!this.token) return null
+      try {
+        const response = await api.get('/auth/me', {
+          headers: { 'X-Aura-Silent-Error': '1' },
+        })
+        const user = response.data?.data || null
+        if (!user) return null
+        this.user = user
+        const target = this.persistent ? localStorage : sessionStorage
+        target.setItem(USER_KEY, JSON.stringify(user))
+        return user
+      } catch {
+        this.logout()
+        return null
       }
     },
     setAuth(token, user, persistent = false) {
@@ -113,12 +137,19 @@ export const useAuthStore = defineStore('auth', {
       if (hadSession) {
         const notificationStore = useNotificationStore()
         notificationStore.add({
-          title: 'Signed Out',
-          message: 'Your session was closed securely.',
+          title: i18n.global.t('auth_messages.signed_out_title'),
+          message: i18n.global.t('auth_messages.signed_out_message'),
           type: 'info',
           source: 'auth',
         })
       }
+    },
+    updateUser(patch) {
+      if (!this.user) return
+      const nextUser = { ...this.user, ...patch }
+      this.user = nextUser
+      const target = this.persistent ? localStorage : sessionStorage
+      target.setItem(USER_KEY, JSON.stringify(nextUser))
     }
   }
 })

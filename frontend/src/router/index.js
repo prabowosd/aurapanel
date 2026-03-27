@@ -83,6 +83,11 @@ const routes = [
         component: () => import('../views/AppRuntime.vue')
       },
       {
+        path: 'wordpress',
+        name: 'WordPressManager',
+        component: () => import('../views/WordPressManager.vue')
+      },
+      {
         path: 'minio',
         name: 'MinIO',
         component: () => import('../views/MinIO.vue')
@@ -106,6 +111,12 @@ const routes = [
         path: 'auradb',
         name: 'AuraDB',
         component: () => import('../views/AuraDB.vue')
+      },
+      {
+        path: 'ops-center',
+        name: 'OpsCenter',
+        component: () => import('../views/OpsCenter.vue'),
+        meta: { title: 'Ops Center' }
       },
       // Docker Manager routes
       {
@@ -188,6 +199,30 @@ const routes = [
         path: 'reseller',
         name: 'Reseller',
         component: () => import('../views/Reseller.vue')
+      },
+      {
+        path: 'activity-log',
+        name: 'ActivityLog',
+        component: () => import('../views/ActivityLog.vue'),
+        meta: { title: 'Activity Log' }
+      },
+      {
+        path: 'db-backup',
+        name: 'DbBackup',
+        component: () => import('../views/DbBackup.vue'),
+        meta: { title: 'DB Backup' }
+      },
+      {
+        path: 'terminal',
+        name: 'Terminal',
+        component: () => import('../views/Terminal.vue'),
+        meta: { title: 'Web Terminal' }
+      },
+      {
+        path: 'migration',
+        name: 'Migration',
+        component: () => import('../views/MigrationWizard.vue'),
+        meta: { title: 'Migration Wizard' }
       }
     ]
   }

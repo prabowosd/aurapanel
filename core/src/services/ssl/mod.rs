@@ -134,7 +134,123 @@ impl SslManager {
     pub async fn issue_certificate(config: &SslConfig) -> Result<(), String> {
         Self::issue_certificate_only(config).await?;
         Self::bind_ssl_to_ols(&Self::normalize_domain(&config.domain))?;
+        Self::reload_ols()?;
+        // Best-effort: ensure auto-renewal cron is in place after first successful issuance
+        let _ = Self::ensure_renewal_cron();
         Ok(())
+    }
+
+    /// Ensures a system cron job exists for automatic certificate renewal.
+    /// Runs certbot renew daily at 03:00, then reloads OLS.
+    pub fn ensure_renewal_cron() -> Result<(), String> {
+        let cron_path = "/etc/cron.d/aurapanel-ssl-renew";
+        // Idempotent: skip if a managed cron already exists
+        if let Ok(existing) = fs::read_to_string(cron_path) {
+            if existing.contains("certbot renew") {
+                return Ok(());
+            }
+        }
+        let content = concat!(
+            "# Managed by AuraPanel — do not edit manually\n",
+            "SHELL=/bin/bash\n",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n",
+            "\n",
+            "0 3 * * * root certbot renew --quiet",
+            " --post-hook \"/usr/local/lsws/bin/lswsctrl restart\"",
+            " >> /var/log/aurapanel-ssl-renew.log 2>&1\n",
+        );
+        fs::write(cron_path, content).map_err(|e| format!("SSL renew cron yazilamadi: {}", e))
+    }
+
+    /// Issues a wildcard certificate (`*.domain.tld`) using DNS-01 challenge.
+    ///
+    /// Requires either:
+    ///   - `certbot-dns-cloudflare` (if `CLOUDFLARE_API_TOKEN` env is set), or
+    ///   - `certbot-dns-powerdns` plugin, or
+    ///   - Manual mode (returns instructions instead of auto-completing).
+    ///
+    /// On success the wildcard cert is stored in
+    /// `/etc/letsencrypt/live/<domain>/fullchain.pem` and bound to OLS.
+    pub async fn issue_wildcard_certificate(config: &SslConfig) -> Result<String, String> {
+        let domain = Self::normalize_domain(&config.domain);
+        let email = config.email.trim();
+        if domain.is_empty() || email.is_empty() {
+            return Err("domain ve email zorunludur.".to_string());
+        }
+        if !Path::new("/usr/bin/certbot").exists() {
+            return Err("certbot kurulu degil.".to_string());
+        }
+
+        // Prefer automatic DNS plugins when available
+        let cf_credentials = format!("/etc/aurapanel/cloudflare-{}.ini", domain);
+        let pdns_credentials = "/etc/aurapanel/pdns-credentials.ini";
+
+        if Path::new(&cf_credentials).exists() {
+            // certbot-dns-cloudflare
+            let output = Command::new("certbot")
+                .args([
+                    "certonly",
+                    "--dns-cloudflare",
+                    "--dns-cloudflare-credentials",
+                    &cf_credentials,
+                    "-d",
+                    &domain,
+                    "-d",
+                    &format!("*.{}", domain),
+                    "--email",
+                    email,
+                    "--agree-tos",
+                    "--non-interactive",
+                ])
+                .output()
+                .map_err(|e| format!("certbot calistirilamadi: {}", e))?;
+
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).to_string());
+            }
+            Self::bind_ssl_to_ols(&domain)?;
+            Self::reload_ols()?;
+            let _ = Self::ensure_renewal_cron();
+            return Ok(format!("*.{} icin wildcard sertifika basariyla alindi.", domain));
+        }
+
+        if Path::new(pdns_credentials).exists() {
+            // certbot-dns-rfc2136 (compatible with PowerDNS)
+            let output = Command::new("certbot")
+                .args([
+                    "certonly",
+                    "--dns-rfc2136",
+                    "--dns-rfc2136-credentials",
+                    pdns_credentials,
+                    "-d",
+                    &domain,
+                    "-d",
+                    &format!("*.{}", domain),
+                    "--email",
+                    email,
+                    "--agree-tos",
+                    "--non-interactive",
+                ])
+                .output()
+                .map_err(|e| format!("certbot calistirilamadi: {}", e))?;
+
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).to_string());
+            }
+            Self::bind_ssl_to_ols(&domain)?;
+            Self::reload_ols()?;
+            let _ = Self::ensure_renewal_cron();
+            return Ok(format!("*.{} icin wildcard sertifika basariyla alindi.", domain));
+        }
+
+        // No DNS plugin: return manual instructions
+        Err(format!(
+            "Wildcard sertifika icin DNS-01 dogrulama gereklidir. \
+            Lutfen DNS saglayiciniz icin bir credentials dosyasi olusturun:\n\
+            - Cloudflare: /etc/aurapanel/cloudflare-{domain}.ini\n\
+            - PowerDNS (RFC2136): /etc/aurapanel/pdns-credentials.ini\n\
+            Daha fazla bilgi: https://certbot.eff.org/docs/using.html#dns-plugins"
+        ))
     }
 
     pub async fn issue_hostname_certificate(config: &SslConfig) -> Result<(), String> {
@@ -281,8 +397,9 @@ vhssl {{
 
         let vhconf_path = format!("/usr/local/lsws/conf/vhosts/{}/vhconf.conf", domain);
         if Path::new(&vhconf_path).exists() {
-            let mut content = fs::read_to_string(&vhconf_path)
+            let content = fs::read_to_string(&vhconf_path)
                 .map_err(|e| format!("vhconf read failed: {}", e))?;
+            let mut content = Self::strip_vhssl_blocks(&content);
             content.push_str(&ssl_block);
             fs::write(&vhconf_path, content).map_err(|e| format!("vhconf write failed: {}", e))?;
         } else {
@@ -290,6 +407,51 @@ vhssl {{
         }
 
         Ok(())
+    }
+
+    fn strip_vhssl_blocks(content: &str) -> String {
+        let mut result = Vec::new();
+        let mut skipping = false;
+        let mut depth = 0i32;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if !skipping && trimmed.starts_with("vhssl") && trimmed.contains('{') {
+                skipping = true;
+                depth = line.matches('{').count() as i32 - line.matches('}').count() as i32;
+                continue;
+            }
+
+            if skipping {
+                depth += line.matches('{').count() as i32;
+                depth -= line.matches('}').count() as i32;
+                if depth <= 0 {
+                    skipping = false;
+                }
+                continue;
+            }
+
+            result.push(line.to_string());
+        }
+
+        let mut output = result.join("\n");
+        if !output.ends_with('\n') {
+            output.push('\n');
+        }
+        output
+    }
+
+    fn reload_ols() -> Result<(), String> {
+        let output = Command::new("/usr/local/lsws/bin/lswsctrl")
+            .arg("restart")
+            .output()
+            .map_err(|e| format!("OLS reload failed: {}", e))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        }
     }
 
     fn bind_ssl_to_mailstack(domain: &str) -> Result<(), String> {

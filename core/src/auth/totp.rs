@@ -1,11 +1,11 @@
 use totp_rs::{Algorithm, TOTP, Secret};
 use anyhow::{Result, anyhow};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn generate_totp_secret(account_name: &str) -> Result<(String, String)> {
-    // Generate pseudo-random base32-encoded secret using system time
-    let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
-    let bytes: Vec<u8> = (0..20u8).map(|i| ((seed >> (i % 16)) & 0xFF) as u8).collect();
+    let mut bytes = vec![0u8; 20];
+    getrandom::getrandom(&mut bytes)
+        .map_err(|e| anyhow!("secure random generation failed: {}", e))?;
+
     let secret = Secret::Raw(bytes);
     let totp = TOTP::new(
         Algorithm::SHA1,
@@ -35,5 +35,5 @@ pub fn verify_totp(secret_str: &str, token: &str) -> Result<bool> {
         "".to_string(),
     ).map_err(|e| anyhow!("{}", e))?;
     
-    Ok(totp.check_current(token).map_err(|e| anyhow!("{}", e))?)
+    totp.check_current(token).map_err(|e| anyhow!("{}", e))
 }

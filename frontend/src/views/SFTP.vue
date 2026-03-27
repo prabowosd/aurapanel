@@ -2,10 +2,10 @@
   <div class="space-y-6">
     <div class="flex items-center justify-between gap-3">
       <div>
-        <h1 class="text-2xl font-bold text-white">SFTP Manager</h1>
-        <p class="text-gray-400 mt-1">OpenSSH tabanli SFTP kullanici yonetimi.</p>
+        <h1 class="text-2xl font-bold text-white">{{ t('sftp_manager.title') }}</h1>
+        <p class="text-gray-400 mt-1">{{ t('sftp_manager.subtitle') }}</p>
       </div>
-      <button class="btn-primary" @click="showCreate = true">SFTP Kullanici Ekle</button>
+      <button class="btn-primary" @click="showCreate = true">{{ t('sftp_manager.add_user') }}</button>
     </div>
 
     <div v-if="error" class="aura-card border-red-500/30 bg-red-500/5 text-red-400">{{ error }}</div>
@@ -13,17 +13,17 @@
 
     <div class="aura-card space-y-4">
       <div class="flex justify-end">
-        <button class="btn-secondary" @click="loadUsers">Yenile</button>
+        <button class="btn-secondary" @click="loadUsers">{{ t('sftp_manager.refresh') }}</button>
       </div>
 
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-panel-border text-gray-400">
-              <th class="text-left py-2 px-2">Username</th>
-              <th class="text-left py-2 px-2">Home</th>
-              <th class="text-left py-2 px-2">Created</th>
-              <th class="text-right py-2 px-2">Islem</th>
+              <th class="text-left py-2 px-2">{{ t('sftp_manager.table.username') }}</th>
+              <th class="text-left py-2 px-2">{{ t('sftp_manager.table.home') }}</th>
+              <th class="text-left py-2 px-2">{{ t('sftp_manager.table.created') }}</th>
+              <th class="text-right py-2 px-2">{{ t('sftp_manager.table.action') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -33,13 +33,13 @@
               <td class="py-2 px-2 text-gray-400">{{ formatTime(item.created_at) }}</td>
               <td class="py-2 px-2 text-right">
                 <div class="flex justify-end gap-2">
-                  <button class="btn-secondary px-2 py-1 text-xs" @click="openReset(item.username)">Sifre</button>
-                  <button class="btn-danger px-2 py-1 text-xs" @click="removeUser(item.username)">Sil</button>
+                  <button class="btn-secondary px-2 py-1 text-xs" @click="openReset(item.username)">{{ t('sftp_manager.actions.password') }}</button>
+                  <button class="btn-danger px-2 py-1 text-xs" @click="removeUser(item.username)">{{ t('sftp_manager.actions.delete') }}</button>
                 </div>
               </td>
             </tr>
             <tr v-if="users.length === 0">
-              <td colspan="4" class="text-center py-8 text-gray-500">SFTP kullanicisi bulunamadi.</td>
+              <td colspan="4" class="text-center py-8 text-gray-500">{{ t('sftp_manager.table.empty') }}</td>
             </tr>
           </tbody>
         </table>
@@ -49,24 +49,24 @@
     <Teleport to="body">
       <div v-if="showCreate" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
         <div class="bg-panel-card border border-panel-border rounded-2xl p-6 w-full max-w-lg">
-          <h2 class="text-xl font-bold text-white mb-4">SFTP Kullanici Olustur</h2>
+          <h2 class="text-xl font-bold text-white mb-4">{{ t('sftp_manager.modal.create_title') }}</h2>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label class="block text-sm text-gray-400 mb-1">Username</label>
-              <input v-model="createForm.username" class="aura-input w-full" placeholder="siteuser" />
+              <label class="block text-sm text-gray-400 mb-1">{{ t('sftp_manager.modal.username') }}</label>
+              <input v-model="createForm.username" class="aura-input w-full" :placeholder="t('sftp_manager.modal.username_placeholder')" />
             </div>
             <div>
-              <label class="block text-sm text-gray-400 mb-1">Password</label>
+              <label class="block text-sm text-gray-400 mb-1">{{ t('sftp_manager.modal.password') }}</label>
               <input v-model="createForm.password" type="password" class="aura-input w-full" />
             </div>
             <div class="md:col-span-2">
-              <label class="block text-sm text-gray-400 mb-1">Home Directory</label>
-              <input v-model="createForm.home_dir" class="aura-input w-full" placeholder="/home/siteuser" />
+              <label class="block text-sm text-gray-400 mb-1">{{ t('sftp_manager.modal.home_directory') }}</label>
+              <input v-model="createForm.home_dir" class="aura-input w-full" :placeholder="t('sftp_manager.modal.home_directory_placeholder')" />
             </div>
           </div>
           <div class="flex gap-3 mt-6">
-            <button class="btn-secondary flex-1" @click="showCreate = false">Iptal</button>
-            <button class="btn-primary flex-1" @click="createUser">Olustur</button>
+            <button class="btn-secondary flex-1" @click="showCreate = false">{{ t('sftp_manager.modal.cancel') }}</button>
+            <button class="btn-primary flex-1" @click="createUser">{{ t('sftp_manager.modal.create') }}</button>
           </div>
         </div>
       </div>
@@ -75,12 +75,12 @@
     <Teleport to="body">
       <div v-if="showReset" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
         <div class="bg-panel-card border border-panel-border rounded-2xl p-6 w-full max-w-md">
-          <h2 class="text-xl font-bold text-white mb-4">SFTP Sifre Guncelle</h2>
-          <p class="text-sm text-gray-400 mb-3">Kullanici: <span class="text-white font-mono">{{ resetForm.username }}</span></p>
-          <input v-model="resetForm.new_password" type="password" class="aura-input w-full" placeholder="Yeni sifre" />
+          <h2 class="text-xl font-bold text-white mb-4">{{ t('sftp_manager.modal.reset_title') }}</h2>
+          <p class="text-sm text-gray-400 mb-3">{{ t('sftp_manager.modal.user_label') }}: <span class="text-white font-mono">{{ resetForm.username }}</span></p>
+          <input v-model="resetForm.new_password" type="password" class="aura-input w-full" :placeholder="t('sftp_manager.modal.new_password_placeholder')" />
           <div class="flex gap-3 mt-6">
-            <button class="btn-secondary flex-1" @click="showReset = false">Iptal</button>
-            <button class="btn-primary flex-1" @click="updatePassword">Guncelle</button>
+            <button class="btn-secondary flex-1" @click="showReset = false">{{ t('sftp_manager.modal.cancel') }}</button>
+            <button class="btn-primary flex-1" @click="updatePassword">{{ t('sftp_manager.modal.update') }}</button>
           </div>
         </div>
       </div>
@@ -90,7 +90,10 @@
 
 <script setup>
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '../services/api'
+
+const { t, locale } = useI18n({ useScope: 'global' })
 
 const users = ref([])
 const error = ref('')
@@ -109,14 +112,14 @@ const resetForm = ref({
   new_password: '',
 })
 
-function apiErrorMessage(e, fallback) {
-  return e?.response?.data?.message || e?.message || fallback
+function apiErrorMessage(e, fallbackKey) {
+  return e?.response?.data?.message || e?.message || t(fallbackKey)
 }
 
 function formatTime(ts) {
   const value = Number(ts || 0)
   if (!value) return '-'
-  return new Date(value * 1000).toLocaleString()
+  return new Date(value * 1000).toLocaleString(locale.value)
 }
 
 async function loadUsers() {
@@ -125,7 +128,7 @@ async function loadUsers() {
     const res = await api.get('/sftp/list')
     users.value = res.data?.data || []
   } catch (e) {
-    error.value = apiErrorMessage(e, 'SFTP kullanici listesi alinamadi')
+    error.value = apiErrorMessage(e, 'sftp_manager.messages.list_failed')
   }
 }
 
@@ -133,17 +136,17 @@ async function createUser() {
   error.value = ''
   success.value = ''
   if (!createForm.value.username || !createForm.value.password || !createForm.value.home_dir) {
-    error.value = 'username, password ve home_dir zorunludur.'
+    error.value = t('sftp_manager.messages.required_create')
     return
   }
   try {
     const res = await api.post('/sftp/create', createForm.value)
-    success.value = res.data?.message || 'SFTP kullanici olusturuldu.'
+    success.value = res.data?.message || t('sftp_manager.messages.created')
     showCreate.value = false
     createForm.value = { username: '', password: '', home_dir: '/home' }
     await loadUsers()
   } catch (e) {
-    error.value = apiErrorMessage(e, 'SFTP kullanici olusturulamadi')
+    error.value = apiErrorMessage(e, 'sftp_manager.messages.create_failed')
   }
 }
 
@@ -156,28 +159,28 @@ async function updatePassword() {
   error.value = ''
   success.value = ''
   if (!resetForm.value.username || !resetForm.value.new_password) {
-    error.value = 'username ve yeni sifre zorunludur.'
+    error.value = t('sftp_manager.messages.required_reset')
     return
   }
   try {
     const res = await api.post('/sftp/password', resetForm.value)
-    success.value = res.data?.message || 'SFTP sifresi guncellendi.'
+    success.value = res.data?.message || t('sftp_manager.messages.password_updated')
     showReset.value = false
   } catch (e) {
-    error.value = apiErrorMessage(e, 'SFTP sifresi guncellenemedi')
+    error.value = apiErrorMessage(e, 'sftp_manager.messages.password_failed')
   }
 }
 
 async function removeUser(username) {
-  if (!confirm(`${username} kullanicisi silinsin mi?`)) return
+  if (!window.confirm(t('sftp_manager.messages.delete_confirm', { username }))) return
   error.value = ''
   success.value = ''
   try {
     const res = await api.post('/sftp/delete', { username })
-    success.value = res.data?.message || 'SFTP kullanici silindi.'
+    success.value = res.data?.message || t('sftp_manager.messages.deleted')
     await loadUsers()
   } catch (e) {
-    error.value = apiErrorMessage(e, 'SFTP kullanici silinemedi')
+    error.value = apiErrorMessage(e, 'sftp_manager.messages.delete_failed')
   }
 }
 

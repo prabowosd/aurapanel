@@ -12,6 +12,9 @@ pub struct HostingPackage {
     pub domains: u32,
     pub databases: u32,
     pub emails: u32,
+    pub cpu_limit: Option<u32>, // CPU percentage (e.g., 100 for 1 core)
+    pub ram_mb: Option<u32>,    // RAM limit in MB
+    pub io_limit: Option<u32>,  // I/O limit in MB/s
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -23,6 +26,24 @@ pub struct CreatePackageRequest {
     pub domains: u32,
     pub databases: u32,
     pub emails: u32,
+    pub cpu_limit: Option<u32>,
+    pub ram_mb: Option<u32>,
+    pub io_limit: Option<u32>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct UpdatePackageRequest {
+    pub id: u64,
+    pub name: Option<String>,
+    pub plan_type: Option<String>,
+    pub disk_gb: Option<u32>,
+    pub bandwidth_gb: Option<u32>,
+    pub domains: Option<u32>,
+    pub databases: Option<u32>,
+    pub emails: Option<u32>,
+    pub cpu_limit: Option<u32>,
+    pub ram_mb: Option<u32>,
+    pub io_limit: Option<u32>,
 }
 
 pub struct PackageManager;
@@ -61,6 +82,9 @@ impl PackageManager {
             domains: req.domains,
             databases: req.databases,
             emails: req.emails,
+            cpu_limit: req.cpu_limit,
+            ram_mb: req.ram_mb,
+            io_limit: req.io_limit,
         });
 
         save_packages(&packages)?;
@@ -77,6 +101,67 @@ impl PackageManager {
 
         save_packages(&packages)?;
         Ok(format!("Paket #{} basariyla silindi.", id))
+    }
+
+    pub fn update_package(req: &UpdatePackageRequest) -> Result<String, String> {
+        let mut packages = Self::list_packages()?;
+
+        // Validate name uniqueness before mutable borrow
+        if let Some(name) = req.name.as_deref() {
+            let name = name.trim();
+            if name.is_empty() {
+                return Err("Paket adi bos olamaz.".to_string());
+            }
+            if packages.iter().any(|p| p.id != req.id && p.name.eq_ignore_ascii_case(name)) {
+                return Err(format!("Paket adi '{}' zaten kullaniliyor.", name));
+            }
+        }
+
+        let pos = packages
+            .iter()
+            .position(|p| p.id == req.id)
+            .ok_or_else(|| format!("Paket #{} bulunamadi.", req.id))?;
+
+        let pkg = &mut packages[pos];
+        if let Some(name) = req.name.as_deref() {
+            pkg.name = name.trim().to_string();
+        }
+        if let Some(ref pt) = req.plan_type {
+            pkg.plan_type = normalize_plan_type(pt);
+        }
+        if let Some(v) = req.disk_gb {
+            pkg.disk_gb = v;
+        }
+        if let Some(v) = req.bandwidth_gb {
+            pkg.bandwidth_gb = v;
+        }
+        if let Some(v) = req.domains {
+            pkg.domains = v;
+        }
+        if let Some(v) = req.databases {
+            pkg.databases = v;
+        }
+        if let Some(v) = req.emails {
+            pkg.emails = v;
+        }
+        if let Some(v) = req.cpu_limit {
+            pkg.cpu_limit = Some(v);
+        }
+        if let Some(v) = req.ram_mb {
+            pkg.ram_mb = Some(v);
+        }
+        if let Some(v) = req.io_limit {
+            pkg.io_limit = Some(v);
+        }
+
+        let updated_name = packages[pos].name.clone();
+        save_packages(&packages)?;
+        Ok(format!("Paket '{}' basariyla guncellendi.", updated_name))
+    }
+
+    pub fn get_package_by_name(name: &str) -> Result<Option<HostingPackage>, String> {
+        let packages = Self::list_packages()?;
+        Ok(packages.into_iter().find(|p| p.name.eq_ignore_ascii_case(name)))
     }
 }
 

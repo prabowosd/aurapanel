@@ -907,8 +907,11 @@ async function issueSSL(site) {
 async function toggleSuspend(site) {
   error.value = ''
   try {
-    const endpoint = isSuspended(site) ? '/vhost/unsuspend' : '/vhost/suspend'
-    await api.post(endpoint, { domain: site.domain })
+    if (isSuspended(site)) {
+      await api.post('/vhost/unsuspend', { domain: site.domain })
+    } else {
+      await api.post('/vhost/suspend', { domain: site.domain })
+    }
     await refreshAll()
   } catch (e) {
     error.value = apiErrorMessage(e, 'Website durumu guncellenemedi')

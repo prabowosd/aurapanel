@@ -329,12 +329,27 @@ impl SecurityManager {
         Ok(())
     }
 
-    pub fn setup_totp(account_name: &str) -> Result<(String, String), String> {
-        totp::generate_totp_secret(account_name).map_err(|e| e.to_string())
+    pub fn setup_totp_for_user(username: &str, account_name: &str) -> Result<(String, String), String> {
+        let (secret, qr) = totp::generate_totp_secret(account_name).map_err(|e| e.to_string())?;
+        crate::services::users::UserManager::set_totp_secret(username, &secret)?;
+        Ok((secret, qr))
     }
 
     pub fn verify_totp(secret: &str, token: &str) -> Result<bool, String> {
         totp::verify_totp(secret, token).map_err(|e| e.to_string())
+    }
+
+    pub fn verify_totp_for_user(username: &str, token: &str) -> Result<bool, String> {
+        let user = crate::services::users::UserManager::get_user(username)?
+            .ok_or_else(|| "Kullanici bulunamadi.".to_string())?;
+        let secret = user
+            .totp_secret
+            .ok_or_else(|| "2FA secret bulunamadi.".to_string())?;
+        let valid = totp::verify_totp(&secret, token).map_err(|e| e.to_string())?;
+        if valid {
+            crate::services::users::UserManager::enable_totp(username)?;
+        }
+        Ok(valid)
     }
 
     pub fn apply_one_click_hardening(req: &HardeningRequest) -> Result<HardeningResult, String> {

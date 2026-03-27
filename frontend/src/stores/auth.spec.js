@@ -52,8 +52,26 @@ describe('auth store', () => {
     expect(api.post).toHaveBeenCalledWith('/auth/login', {
       email: 'admin@server.com',
       password: 'secret',
+      totp_token: undefined,
     })
     expect(store.isAuthenticated).toBe(true)
     expect(localStorage.getItem('aura_token')).toBe('jwt-token')
+  })
+
+  it('surfaces 2fa requirement from login response', async () => {
+    api.post.mockRejectedValueOnce({
+      response: {
+        data: {
+          message: '2FA kodu gerekli.',
+          requires_2fa: true,
+        },
+      },
+    })
+
+    const store = useAuthStore()
+    await expect(store.login('admin@server.com', 'secret', false)).rejects.toMatchObject({
+      message: '2FA kodu gerekli.',
+      requires2fa: true,
+    })
   })
 })

@@ -4,9 +4,9 @@
       <div>
         <h1 class="text-2xl font-bold text-white flex items-center gap-3">
           <Database class="w-7 h-7 text-orange-400" />
-          Veritabanlari
+          {{ t('database_manager.title') }}
         </h1>
-        <p class="text-gray-400 mt-1">MariaDB ve PostgreSQL veritabanlarini yonetin</p>
+        <p class="text-gray-400 mt-1">{{ t('database_manager.subtitle') }}</p>
       </div>
       <button
         @click="showCreateModal = true"
@@ -14,7 +14,7 @@
       >
         <span class="flex items-center gap-2">
           <Plus class="w-5 h-5" />
-          Veritabani Olustur
+          {{ t('database_manager.create_button') }}
         </span>
       </button>
     </div>
@@ -25,46 +25,46 @@
           @click="engine = 'mariadb'"
           :class="['pb-3 text-sm font-medium transition', engine === 'mariadb' ? 'text-orange-400 border-b-2 border-orange-400' : 'text-gray-400 hover:text-white']"
         >
-          MariaDB / MySQL
+          {{ t('database_manager.engines.mariadb_mysql') }}
         </button>
         <button
           @click="engine = 'postgresql'"
           :class="['pb-3 text-sm font-medium transition', engine === 'postgresql' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-white']"
         >
-          PostgreSQL
+          {{ t('database_manager.engines.postgresql') }}
         </button>
       </nav>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div class="bg-panel-card border border-panel-border rounded-xl p-5">
-        <p class="text-sm text-gray-400">Veritabanlari</p>
+        <p class="text-sm text-gray-400">{{ t('database_manager.stats.databases') }}</p>
         <p class="text-2xl font-bold text-white mt-1">{{ currentDatabases.length }}</p>
       </div>
       <div class="bg-panel-card border border-panel-border rounded-xl p-5">
-        <p class="text-sm text-gray-400">Kullanicilar</p>
+        <p class="text-sm text-gray-400">{{ t('database_manager.stats.users') }}</p>
         <p class="text-2xl font-bold text-white mt-1">{{ currentUsers.length }}</p>
       </div>
       <div class="bg-panel-card border border-panel-border rounded-xl p-5">
-        <p class="text-sm text-gray-400">Engine</p>
-        <p class="text-2xl font-bold text-white mt-1">{{ engine === 'mariadb' ? 'MariaDB' : 'PostgreSQL' }}</p>
+        <p class="text-sm text-gray-400">{{ t('database_manager.stats.engine') }}</p>
+        <p class="text-2xl font-bold text-white mt-1">{{ currentEngineLabel }}</p>
       </div>
     </div>
 
     <div class="bg-panel-card border border-panel-border rounded-xl overflow-hidden">
       <div class="p-4 border-b border-panel-border flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white">{{ engine === 'mariadb' ? 'MariaDB' : 'PostgreSQL' }} Veritabanlari</h2>
-        <button @click="loadData" class="px-3 py-1.5 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition">Yenile</button>
+        <h2 class="text-lg font-semibold text-white">{{ t('database_manager.sections.databases', { engine: currentEngineLabel }) }}</h2>
+        <button @click="loadData" class="px-3 py-1.5 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition">{{ t('database_manager.actions.refresh') }}</button>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="text-gray-400 border-b border-panel-border">
-              <th class="text-left px-4 py-3 font-medium">Veritabani</th>
-              <th class="text-left px-4 py-3 font-medium">Boyut</th>
-              <th class="text-left px-4 py-3 font-medium">Tablo</th>
-              <th class="text-left px-4 py-3 font-medium">Engine</th>
-              <th class="text-right px-4 py-3 font-medium">Islem</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('database_manager.table.database') }}</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('database_manager.table.size') }}</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('database_manager.table.tables') }}</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('database_manager.table.engine') }}</th>
+              <th class="text-right px-4 py-3 font-medium">{{ t('database_manager.table.action') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -74,17 +74,17 @@
               <td class="px-4 py-3 text-gray-400">{{ db.tables }}</td>
               <td class="px-4 py-3">
                 <span :class="['px-2 py-0.5 rounded text-xs font-medium', db.engine === 'mariadb' ? 'bg-orange-500/15 text-orange-400' : 'bg-blue-500/15 text-blue-400']">
-                  {{ db.engine === 'mariadb' ? 'MariaDB' : 'PostgreSQL' }}
+                  {{ db.engine === 'mariadb' ? t('database_manager.engines.mariadb') : t('database_manager.engines.postgresql') }}
                 </span>
               </td>
               <td class="px-4 py-3 text-right space-x-2">
-                <button @click="goAttachToWebsite(db)" class="px-2 py-1 bg-blue-600/20 text-blue-300 rounded text-xs hover:bg-blue-600/40 transition">Siteye Bagla</button>
-                <button @click="openAuraDb(db)" class="px-2 py-1 bg-indigo-600/20 text-indigo-300 rounded text-xs hover:bg-indigo-600/40 transition">AuraDB</button>
-                <button @click="dropDatabase(db.name)" class="px-2 py-1 bg-red-600/20 text-red-400 rounded text-xs hover:bg-red-600/40 transition">Sil</button>
+                <button @click="goAttachToWebsite(db)" class="px-2 py-1 bg-blue-600/20 text-blue-300 rounded text-xs hover:bg-blue-600/40 transition">{{ t('database_manager.actions.attach_to_site') }}</button>
+                <button @click="openAuraDb(db)" class="px-2 py-1 bg-indigo-600/20 text-indigo-300 rounded text-xs hover:bg-indigo-600/40 transition">{{ t('database_manager.actions.auradb') }}</button>
+                <button @click="dropDatabase(db.name)" class="px-2 py-1 bg-red-600/20 text-red-400 rounded text-xs hover:bg-red-600/40 transition">{{ t('database_manager.actions.delete') }}</button>
               </td>
             </tr>
             <tr v-if="currentDatabases.length === 0">
-              <td colspan="5" class="px-4 py-12 text-center text-gray-500">Henuz veritabani bulunmuyor</td>
+              <td colspan="5" class="px-4 py-12 text-center text-gray-500">{{ t('database_manager.table.empty_databases') }}</td>
             </tr>
           </tbody>
         </table>
@@ -93,16 +93,16 @@
 
     <div class="bg-panel-card border border-panel-border rounded-xl overflow-hidden">
       <div class="p-4 border-b border-panel-border">
-        <h2 class="text-lg font-semibold text-white">Veritabani Kullanicilari</h2>
+        <h2 class="text-lg font-semibold text-white">{{ t('database_manager.sections.users') }}</h2>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="text-gray-400 border-b border-panel-border">
-              <th class="text-left px-4 py-3 font-medium">Kullanici</th>
-              <th class="text-left px-4 py-3 font-medium">Host</th>
-              <th class="text-left px-4 py-3 font-medium">Engine</th>
-              <th class="text-right px-4 py-3 font-medium">Islem</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('database_manager.table.user') }}</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('database_manager.table.host') }}</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('database_manager.table.engine') }}</th>
+              <th class="text-right px-4 py-3 font-medium">{{ t('database_manager.table.action') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -111,16 +111,16 @@
               <td class="px-4 py-3 text-gray-400">{{ u.host }}</td>
               <td class="px-4 py-3">
                 <span :class="['px-2 py-0.5 rounded text-xs font-medium', u.engine === 'mariadb' ? 'bg-orange-500/15 text-orange-400' : 'bg-blue-500/15 text-blue-400']">
-                  {{ u.engine === 'mariadb' ? 'MariaDB' : 'PostgreSQL' }}
+                  {{ u.engine === 'mariadb' ? t('database_manager.engines.mariadb') : t('database_manager.engines.postgresql') }}
                 </span>
               </td>
               <td class="px-4 py-3 text-right space-x-2">
-                <button @click="rotatePassword(u)" class="px-2 py-1 bg-indigo-600/20 text-indigo-300 rounded text-xs hover:bg-indigo-600/40 transition">Sifre</button>
-                <button @click="allowRemote(u)" class="px-2 py-1 bg-teal-600/20 text-teal-300 rounded text-xs hover:bg-teal-600/40 transition">Remote IP</button>
+                <button @click="rotatePassword(u)" class="px-2 py-1 bg-indigo-600/20 text-indigo-300 rounded text-xs hover:bg-indigo-600/40 transition">{{ t('database_manager.actions.password') }}</button>
+                <button @click="allowRemote(u)" class="px-2 py-1 bg-teal-600/20 text-teal-300 rounded text-xs hover:bg-teal-600/40 transition">{{ t('database_manager.actions.remote_ip') }}</button>
               </td>
             </tr>
             <tr v-if="currentUsers.length === 0">
-              <td colspan="4" class="px-4 py-10 text-center text-gray-500">Kullanici bulunmuyor</td>
+              <td colspan="4" class="px-4 py-10 text-center text-gray-500">{{ t('database_manager.table.empty_users') }}</td>
             </tr>
           </tbody>
         </table>
@@ -129,18 +129,18 @@
 
     <div class="bg-panel-card border border-panel-border rounded-xl overflow-hidden">
       <div class="p-4 border-b border-panel-border flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white">Remote Access Kurallari</h2>
-        <button @click="loadRemoteAccess" class="px-3 py-1.5 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition">Yenile</button>
+        <h2 class="text-lg font-semibold text-white">{{ t('database_manager.sections.remote_access') }}</h2>
+        <button @click="loadRemoteAccess" class="px-3 py-1.5 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition">{{ t('database_manager.actions.refresh') }}</button>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="text-gray-400 border-b border-panel-border">
-              <th class="text-left px-4 py-3 font-medium">Engine</th>
-              <th class="text-left px-4 py-3 font-medium">Kullanici</th>
-              <th class="text-left px-4 py-3 font-medium">Veritabani</th>
-              <th class="text-left px-4 py-3 font-medium">Remote</th>
-              <th class="text-left px-4 py-3 font-medium">Auth</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('database_manager.table.engine') }}</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('database_manager.table.user') }}</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('database_manager.table.database') }}</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('database_manager.table.remote') }}</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('database_manager.table.auth') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -152,7 +152,7 @@
               <td class="px-4 py-3 text-gray-400">{{ rule.auth_method }}</td>
             </tr>
             <tr v-if="currentRemoteRules.length === 0">
-              <td colspan="5" class="px-4 py-10 text-center text-gray-500">Remote access kaydi bulunmuyor</td>
+              <td colspan="5" class="px-4 py-10 text-center text-gray-500">{{ t('database_manager.table.empty_rules') }}</td>
             </tr>
           </tbody>
         </table>
@@ -161,32 +161,32 @@
 
     <div v-if="showCreateModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" @click.self="showCreateModal = false">
       <div class="bg-panel-card border border-panel-border rounded-2xl w-full max-w-xl p-6 shadow-2xl">
-        <h3 class="text-xl font-bold text-white mb-5">Yeni Veritabani Olustur</h3>
+        <h3 class="text-xl font-bold text-white mb-5">{{ t('database_manager.modal.title') }}</h3>
 
         <div class="space-y-4">
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Website</label>
+            <label class="block text-sm text-gray-400 mb-1">{{ t('database_manager.modal.website') }}</label>
             <select v-model="createForm.site_domain" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white focus:outline-none focus:border-orange-500">
-              <option value="">Bagimsiz veritabani</option>
+              <option value="">{{ t('database_manager.modal.standalone') }}</option>
               <option v-for="site in siteOptions" :key="site" :value="site">{{ site }}</option>
             </select>
-            <p class="text-xs text-gray-500 mt-2">Website secersen veritabani ve kullanici adi otomatik prefixlenir ve olusturma sonrasi siteye baglanir.</p>
+            <p class="text-xs text-gray-500 mt-2">{{ t('database_manager.modal.website_hint') }}</p>
           </div>
 
           <div class="rounded-xl border border-panel-border bg-panel-hover/40 p-4 space-y-3">
             <label class="inline-flex items-center gap-2 text-sm text-gray-300">
               <input v-model="createForm.create_website" type="checkbox" class="w-4 h-4 rounded border-panel-border bg-panel-hover" />
-              Website yoksa ayni akista olustur
+              {{ t('database_manager.modal.create_website') }}
             </label>
             <div v-if="createForm.create_website" class="space-y-3">
               <input
                 v-model="createForm.new_site_domain"
                 type="text"
                 class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500"
-                placeholder="newsite.example.com"
-              >
+                :placeholder="t('database_manager.modal.new_site_placeholder')"
+              />
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <input v-model="createForm.website_owner" type="text" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white" placeholder="Owner (aura)" >
+                <input v-model="createForm.website_owner" type="text" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white" :placeholder="t('database_manager.modal.owner_placeholder')" />
                 <select v-model="createForm.website_php" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white">
                   <option value="8.4">PHP 8.4</option>
                   <option value="8.3">PHP 8.3</option>
@@ -197,58 +197,58 @@
                 </select>
               </div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <input v-model="createForm.website_package" type="text" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white" placeholder="Paket (default)" >
-                <input v-model="createForm.website_email" type="email" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white" placeholder="admin@example.com" >
+                <input v-model="createForm.website_package" type="text" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white" :placeholder="t('database_manager.modal.package_placeholder')" />
+                <input v-model="createForm.website_email" type="email" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white" :placeholder="t('database_manager.modal.email_placeholder')" />
               </div>
               <div class="flex flex-wrap gap-4 text-sm text-gray-300">
                 <label class="inline-flex items-center gap-2">
                   <input v-model="createForm.website_mail_domain" type="checkbox" class="w-4 h-4 rounded border-panel-border bg-panel-hover" />
-                  Mail domain
+                  {{ t('database_manager.modal.mail_domain') }}
                 </label>
                 <label class="inline-flex items-center gap-2">
                   <input v-model="createForm.website_apache_backend" type="checkbox" class="w-4 h-4 rounded border-panel-border bg-panel-hover" />
-                  Apache backend
+                  {{ t('database_manager.modal.apache_backend') }}
                 </label>
               </div>
             </div>
           </div>
 
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Engine</label>
+            <label class="block text-sm text-gray-400 mb-1">{{ t('database_manager.modal.engine') }}</label>
             <select v-model="createForm.engine" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white focus:outline-none focus:border-orange-500">
-              <option value="mariadb">MariaDB / MySQL</option>
-              <option value="postgresql">PostgreSQL</option>
+              <option value="mariadb">{{ t('database_manager.engines.mariadb_mysql') }}</option>
+              <option value="postgresql">{{ t('database_manager.engines.postgresql') }}</option>
             </select>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="block text-sm text-gray-400 mb-1">Veritabani Adi</label>
-              <input v-model="createForm.db_name" type="text" placeholder="my_database" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500">
+              <label class="block text-sm text-gray-400 mb-1">{{ t('database_manager.modal.db_name') }}</label>
+              <input v-model="createForm.db_name" type="text" :placeholder="t('database_manager.modal.db_name_placeholder')" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500">
             </div>
             <div>
-              <label class="block text-sm text-gray-400 mb-1">Kullanici Adi</label>
-              <input v-model="createForm.db_user" type="text" placeholder="db_user" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500">
+              <label class="block text-sm text-gray-400 mb-1">{{ t('database_manager.modal.db_user') }}</label>
+              <input v-model="createForm.db_user" type="text" :placeholder="t('database_manager.modal.db_user_placeholder')" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500">
             </div>
           </div>
 
           <div v-if="targetSiteDomain" class="rounded-xl border border-orange-500/20 bg-orange-500/5 p-4">
-            <p class="text-xs uppercase tracking-[0.18em] text-orange-300">Website Prefix Preview</p>
+            <p class="text-xs uppercase tracking-[0.18em] text-orange-300">{{ t('database_manager.modal.preview_title') }}</p>
             <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
               <div class="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
-                <p class="text-gray-500 text-xs mb-1">Olusacak DB</p>
+                <p class="text-gray-500 text-xs mb-1">{{ t('database_manager.modal.preview_db') }}</p>
                 <p class="text-white font-mono">{{ previewDbName }}</p>
               </div>
               <div class="rounded-lg bg-black/20 border border-white/5 px-3 py-2">
-                <p class="text-gray-500 text-xs mb-1">Olusacak Kullanici</p>
+                <p class="text-gray-500 text-xs mb-1">{{ t('database_manager.modal.preview_user') }}</p>
                 <p class="text-white font-mono">{{ previewDbUser }}</p>
               </div>
             </div>
           </div>
 
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Sifre</label>
-            <input v-model="createForm.db_pass" type="password" placeholder="********" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500">
+            <label class="block text-sm text-gray-400 mb-1">{{ t('database_manager.modal.password') }}</label>
+            <input v-model="createForm.db_pass" type="password" :placeholder="t('database_manager.modal.password_placeholder')" class="w-full px-4 py-2.5 bg-panel-hover border border-panel-border rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500">
           </div>
         </div>
 
@@ -258,9 +258,9 @@
             :disabled="!canCreate"
             class="flex-1 py-2.5 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-lg font-medium hover:from-orange-700 hover:to-amber-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Olustur
+            {{ t('database_manager.modal.create') }}
           </button>
-          <button @click="showCreateModal = false" class="px-5 py-2.5 bg-panel-hover text-gray-300 rounded-lg hover:bg-gray-600 transition">Iptal</button>
+          <button @click="showCreateModal = false" class="px-5 py-2.5 bg-panel-hover text-gray-300 rounded-lg hover:bg-gray-600 transition">{{ t('database_manager.modal.cancel') }}</button>
         </div>
       </div>
     </div>
@@ -274,10 +274,13 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { Database, Plus } from 'lucide-vue-next'
 import api from '../services/api'
 
 const router = useRouter()
+const { t } = useI18n({ useScope: 'global' })
+
 const engine = ref('mariadb')
 const showCreateModal = ref(false)
 const notification = ref(null)
@@ -293,6 +296,9 @@ const sites = ref([])
 const currentDatabases = computed(() => (engine.value === 'mariadb' ? mariadbDatabases.value : postgresDatabases.value))
 const currentUsers = computed(() => (engine.value === 'mariadb' ? mariadbUsers.value : postgresUsers.value))
 const currentRemoteRules = computed(() => (engine.value === 'mariadb' ? mariadbRemoteRules.value : postgresRemoteRules.value))
+const currentEngineLabel = computed(() => (engine.value === 'mariadb'
+  ? t('database_manager.engines.mariadb')
+  : t('database_manager.engines.postgresql')))
 const siteOptions = computed(() => sites.value.map(site => site.domain).filter(Boolean))
 
 const createForm = ref({
@@ -357,8 +363,15 @@ function buildResolvedName(value, fallback) {
   return prefixed.slice(0, 60).replace(/^_+|_+$/g, '') || base
 }
 
-function apiErrorMessage(error, fallback) {
-  return error?.response?.data?.message || error?.message || fallback
+function apiErrorMessage(error, fallbackKey) {
+  return error?.response?.data?.message || error?.message || t(fallbackKey)
+}
+
+function resolveSiteOwner(domain) {
+  const normalized = String(domain || '').trim().toLowerCase()
+  if (!normalized) return ''
+  const site = (sites.value || []).find(s => String(s.domain || '').trim().toLowerCase() === normalized)
+  return String(site?.owner || site?.user || '').trim()
 }
 
 const showNotif = (message, type = 'success') => {
@@ -424,8 +437,10 @@ const createDatabase = async () => {
   if (!canCreate.value) return
 
   const eng = createForm.value.engine
-  const endpoint = eng === 'mariadb' ? '/db/mariadb/create' : '/db/postgres/create'
   const desiredSiteDomain = targetSiteDomain.value || ''
+  const resolvedOwner = createForm.value.create_website
+    ? String(createForm.value.website_owner || 'aura').trim()
+    : resolveSiteOwner(desiredSiteDomain)
 
   try {
     if (createForm.value.create_website) {
@@ -440,16 +455,27 @@ const createDatabase = async () => {
       })
     }
 
-    const response = await api.post(endpoint, {
-      db_name: createForm.value.db_name,
-      db_user: createForm.value.db_user,
-      db_pass: createForm.value.db_pass,
-      site_domain: desiredSiteDomain || null,
-    })
+    let response
+    if (eng === 'mariadb') {
+      response = await api.post('/db/mariadb/create', {
+        db_name: createForm.value.db_name,
+        db_user: createForm.value.db_user,
+        db_pass: createForm.value.db_pass,
+        site_domain: desiredSiteDomain || null,
+        owner: resolvedOwner || null,
+      })
+    } else {
+      response = await api.post('/db/postgres/create', {
+        db_name: createForm.value.db_name,
+        db_user: createForm.value.db_user,
+        db_pass: createForm.value.db_pass,
+        site_domain: desiredSiteDomain || null,
+        owner: resolvedOwner || null,
+      })
+    }
 
     const created = response.data?.data || {}
-    let attachWarning = ''
-    let verifyNote = ''
+    let attachNote = ''
 
     if (desiredSiteDomain && created.db_name && created.db_user) {
       try {
@@ -466,61 +492,73 @@ const createDatabase = async () => {
           db_user: created.db_user,
         })
         const ready = Boolean(verify.data?.data?.ready)
-        verifyNote = ready ? ' Baglanti dogrulandi.' : ' Baglanti kaydi var ama dogrulama hazir degil.'
+        attachNote = ready
+          ? t('database_manager.notifications.connection_verified')
+          : t('database_manager.notifications.connection_pending')
       } catch {
-        attachWarning = ' Baglanti otomatik kurulamadi.'
+        attachNote = t('database_manager.notifications.connection_auto_failed')
       }
     }
 
-    showNotif(`${created.db_name || previewDbName.value} olusturuldu.${attachWarning}${verifyNote}`)
+    showNotif(`${t('database_manager.notifications.created', { name: created.db_name || previewDbName.value })}${attachNote}`)
     showCreateModal.value = false
     resetCreateForm()
     await loadData()
   } catch (error) {
-    showNotif(apiErrorMessage(error, 'Veritabani olusturulamadi'), 'error')
+    showNotif(apiErrorMessage(error, 'database_manager.notifications.create_failed'), 'error')
   }
 }
 
 const dropDatabase = async (name) => {
-  const endpoint = engine.value === 'mariadb' ? '/db/mariadb/drop' : '/db/postgres/drop'
   try {
-    await api.post(endpoint, { name })
-    showNotif(`Veritabani "${name}" silindi`)
+    if (engine.value === 'mariadb') {
+      await api.post('/db/mariadb/drop', { name })
+    } else {
+      await api.post('/db/postgres/drop', { name })
+    }
+    showNotif(t('database_manager.notifications.deleted', { name }))
     await loadData()
   } catch (error) {
-    showNotif(apiErrorMessage(error, 'Silme basarisiz'), 'error')
+    showNotif(apiErrorMessage(error, 'database_manager.notifications.delete_failed'), 'error')
   }
 }
 
 const rotatePassword = async (user) => {
-  const newPassword = prompt(`${user.username} icin yeni sifreyi girin:`)
+  const newPassword = window.prompt(t('database_manager.prompts.new_password', { user: user.username }))
   if (!newPassword) return
 
-  const endpoint = user.engine === 'mariadb' ? '/db/mariadb/password' : '/db/postgres/password'
   try {
-    await api.post(endpoint, {
-      db_user: user.username,
-      new_password: newPassword,
-      host: user.host || null,
-    })
-    showNotif(`${user.username} sifresi guncellendi`)
+    if (user.engine === 'mariadb') {
+      await api.post('/db/mariadb/password', {
+        db_user: user.username,
+        new_password: newPassword,
+        host: user.host || null,
+      })
+    } else {
+      await api.post('/db/postgres/password', {
+        db_user: user.username,
+        new_password: newPassword,
+        host: user.host || null,
+      })
+    }
+    showNotif(t('database_manager.notifications.password_updated', { user: user.username }))
   } catch (error) {
-    showNotif(apiErrorMessage(error, 'Sifre degistirme basarisiz'), 'error')
+    showNotif(apiErrorMessage(error, 'database_manager.notifications.password_failed'), 'error')
   }
 }
 
 const allowRemote = async (user) => {
-  const remoteIp = prompt(`${user.username} icin izin verilecek remote IP/CIDR:`)
+  const remoteIp = window.prompt(t('database_manager.prompts.remote_ip', { user: user.username }))
   if (!remoteIp) return
 
-  const dbName = prompt('Hangi veritabani icin izin verilsin?', currentDatabases.value[0]?.name || '')
+  const dbName = window.prompt(t('database_manager.prompts.remote_db'), currentDatabases.value[0]?.name || '')
   if (!dbName) return
 
   let dbPass = ''
   if (user.engine === 'mariadb') {
-    dbPass = prompt('MariaDB remote host kullanicisi icin sifre (zorunlu):') || ''
+    dbPass = window.prompt(t('database_manager.prompts.remote_password')) || ''
     if (!dbPass) {
-      showNotif('MariaDB remote izin icin sifre gerekli', 'error')
+      showNotif(t('database_manager.notifications.remote_required'), 'error')
       return
     }
   }
@@ -533,10 +571,10 @@ const allowRemote = async (user) => {
       remote_ip: remoteIp,
       db_pass: dbPass || null,
     })
-    showNotif(`${user.username} remote access eklendi`)
+    showNotif(t('database_manager.notifications.remote_added', { user: user.username }))
     await loadRemoteAccess()
   } catch (error) {
-    showNotif(apiErrorMessage(error, 'Remote access ekleme basarisiz'), 'error')
+    showNotif(apiErrorMessage(error, 'database_manager.notifications.remote_failed'), 'error')
   }
 }
 
@@ -558,10 +596,10 @@ const openAuraDb = async (db) => {
       db_name: db.name,
     })
     const url = res.data?.data?.url
-    if (!url) throw new Error('Bridge URL bulunamadi')
+    if (!url) throw new Error(t('database_manager.notifications.bridge_missing'))
     router.push(url)
   } catch (error) {
-    showNotif(apiErrorMessage(error, 'AuraDB bridge olusturulamadi. Once website-db baglantisi kurun.'), 'error')
+    showNotif(apiErrorMessage(error, 'database_manager.notifications.bridge_failed'), 'error')
   }
 }
 

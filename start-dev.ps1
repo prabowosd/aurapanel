@@ -36,7 +36,7 @@ function Wait-Http([string]$Url, [int]$Retries = 25, [int]$SleepSec = 1) {
 }
 
 function Start-DevShell([string]$Title, [string]$Command) {
-  Start-Process powershell -ArgumentList "-NoExit", "-Command", "$host.UI.RawUI.WindowTitle = '$Title'; $Command" | Out-Null
+  Start-Process powershell -ArgumentList "-NoExit", "-Command", "`$host.UI.RawUI.WindowTitle = '$Title'; $Command" | Out-Null
 }
 
 $core = Join-Path $ProjectRoot "core"
@@ -53,12 +53,15 @@ $coreExe = Join-Path $core "target\debug\aurapanel-core.exe"
 $goCmd = Get-Command go -ErrorAction SilentlyContinue
 $gatewayExe = Join-Path $gateway "apigw.exe"
 $npmCmd = Get-Command npm -ErrorAction SilentlyContinue
+$sharedJwtSecret = "aurapanel_dev_only_secret_change_me"
+$devAdminEmail = "admin@server.com"
+$devAdminPassword = "password123"
 
 Write-Info "Starting AuraPanel Core on :8000 ..."
 if (Test-Path $cargoExe) {
-  Start-DevShell -Title "AuraPanel Core" -Command "`$env:AURAPANEL_DEV_SIMULATION='1'; Set-Location '$core'; & '$cargoExe' run"
+  Start-DevShell -Title "AuraPanel Core" -Command "`$env:AURAPANEL_DEV_SIMULATION='1'; `$env:AURAPANEL_JWT_SECRET='$sharedJwtSecret'; Set-Location '$core'; & '$cargoExe' run"
 } elseif (Test-Path $coreExe) {
-  Start-DevShell -Title "AuraPanel Core" -Command "`$env:AURAPANEL_DEV_SIMULATION='1'; Set-Location '$core'; & '$coreExe'"
+  Start-DevShell -Title "AuraPanel Core" -Command "`$env:AURAPANEL_DEV_SIMULATION='1'; `$env:AURAPANEL_JWT_SECRET='$sharedJwtSecret'; Set-Location '$core'; & '$coreExe'"
 } else {
   Write-ErrorLine "Rust cargo not found and compiled core binary missing: $coreExe"
   exit 1
@@ -66,9 +69,9 @@ if (Test-Path $cargoExe) {
 
 Write-Info "Starting API Gateway on :8090 ..."
 if ($goCmd) {
-  Start-DevShell -Title "AuraPanel Gateway" -Command "`$env:AURAPANEL_DEV_SIMULATION='1'; Set-Location '$gateway'; & '$($goCmd.Source)' run ."
+  Start-DevShell -Title "AuraPanel Gateway" -Command "`$env:AURAPANEL_DEV_SIMULATION='1'; `$env:AURAPANEL_JWT_SECRET='$sharedJwtSecret'; `$env:AURAPANEL_ADMIN_EMAIL='$devAdminEmail'; `$env:AURAPANEL_ADMIN_PASSWORD='$devAdminPassword'; Set-Location '$gateway'; & '$($goCmd.Source)' run ."
 } elseif (Test-Path $gatewayExe) {
-  Start-DevShell -Title "AuraPanel Gateway" -Command "`$env:AURAPANEL_DEV_SIMULATION='1'; Set-Location '$gateway'; & '$gatewayExe'"
+  Start-DevShell -Title "AuraPanel Gateway" -Command "`$env:AURAPANEL_DEV_SIMULATION='1'; `$env:AURAPANEL_JWT_SECRET='$sharedJwtSecret'; `$env:AURAPANEL_ADMIN_EMAIL='$devAdminEmail'; `$env:AURAPANEL_ADMIN_PASSWORD='$devAdminPassword'; Set-Location '$gateway'; & '$gatewayExe'"
 } else {
   Write-WarnLine "Go runtime and gateway binary not found. API calls will fail."
 }
@@ -109,3 +112,4 @@ Write-Host "AuraPanel dev environment launched." -ForegroundColor Green
 Write-Host "Core:     http://127.0.0.1:8000"
 Write-Host "Gateway:  http://127.0.0.1:8090"
 Write-Host "Frontend: http://127.0.0.1:5173"
+Write-Host "Login:    $devAdminEmail / $devAdminPassword"

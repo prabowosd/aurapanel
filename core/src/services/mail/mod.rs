@@ -13,6 +13,8 @@ pub struct MailboxConfig {
     pub username: String,
     pub password: String,
     pub quota_mb: u32,
+    #[serde(default)]
+    pub owner: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -111,7 +113,7 @@ pub struct MailRoutingDeleteRequest {
     pub id: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 struct MailState {
     #[serde(default)]
     mailboxes: Vec<LocalMailbox>,
@@ -123,18 +125,6 @@ struct MailState {
     routing: Vec<MailRoutingRule>,
     #[serde(default)]
     dkim: Vec<MailDkimRecord>,
-}
-
-impl Default for MailState {
-    fn default() -> Self {
-        Self {
-            mailboxes: Vec::new(),
-            forwards: Vec::new(),
-            catch_all: Vec::new(),
-            routing: Vec::new(),
-            dkim: Vec::new(),
-        }
-    }
 }
 
 pub struct MailManager;

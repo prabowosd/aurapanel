@@ -1,26 +1,26 @@
-﻿<template>
+<template>
   <div class="space-y-6">
     <div class="flex items-center justify-between">
       <div>
         <h1 class="text-2xl font-bold text-white flex items-center gap-3">
           <Activity class="w-7 h-7 text-orange-400" />
-          Server Status
+          {{ t('server_status.title') }}
         </h1>
-        <p class="text-gray-400 mt-1">Sunucu metrikleri, servisler ve prosesler</p>
+        <p class="text-gray-400 mt-1">{{ t('server_status.subtitle') }}</p>
       </div>
       <button
         @click="refreshAll"
         class="px-4 py-2 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition flex items-center"
       >
         <Loader2 v-if="loadingMetrics || loadingServices || loadingProcesses" class="w-4 h-4 animate-spin mr-2" />
-        <span>Yenile</span>
+        <span>{{ t('server_status.refresh') }}</span>
       </button>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
       <div class="bg-panel-card border border-panel-border rounded-xl p-5">
         <div class="flex items-center justify-between mb-3">
-          <p class="text-sm text-gray-400">CPU</p>
+          <p class="text-sm text-gray-400">{{ t('server_status.cpu') }}</p>
           <Cpu class="w-5 h-5 text-blue-400" />
         </div>
         <p class="text-3xl font-bold text-white">{{ metrics.cpu }}%</p>
@@ -29,7 +29,7 @@
 
       <div class="bg-panel-card border border-panel-border rounded-xl p-5">
         <div class="flex items-center justify-between mb-3">
-          <p class="text-sm text-gray-400">RAM</p>
+          <p class="text-sm text-gray-400">{{ t('server_status.ram') }}</p>
           <MemoryStick class="w-5 h-5 text-green-400" />
         </div>
         <p class="text-3xl font-bold text-white">{{ metrics.ram }}%</p>
@@ -38,7 +38,7 @@
 
       <div class="bg-panel-card border border-panel-border rounded-xl p-5">
         <div class="flex items-center justify-between mb-3">
-          <p class="text-sm text-gray-400">Disk</p>
+          <p class="text-sm text-gray-400">{{ t('server_status.disk') }}</p>
           <HardDrive class="w-5 h-5 text-purple-400" />
         </div>
         <p class="text-3xl font-bold text-white">{{ metrics.disk }}%</p>
@@ -47,12 +47,12 @@
 
       <div class="bg-panel-card border border-panel-border rounded-xl p-5">
         <div class="flex items-center justify-between mb-3">
-          <p class="text-sm text-gray-400">Uptime</p>
+          <p class="text-sm text-gray-400">{{ t('server_status.uptime') }}</p>
           <Clock class="w-5 h-5 text-orange-400" />
         </div>
         <p class="text-3xl font-bold text-white">{{ metrics.uptimeDays }}d</p>
         <p class="text-xs text-gray-500 mt-2">{{ metrics.uptimeFull }}</p>
-        <p class="text-xs text-gray-500">Load: {{ metrics.loadAvg }}</p>
+        <p class="text-xs text-gray-500">{{ t('server_status.load_avg', { value: metrics.loadAvg }) }}</p>
       </div>
     </div>
 
@@ -62,19 +62,19 @@
           @click="tab = 'services'"
           :class="['pb-3 text-sm font-medium transition', tab === 'services' ? 'text-orange-400 border-b-2 border-orange-400' : 'text-gray-400 hover:text-white']"
         >
-          Services
+          {{ t('server_status.services_tab') }}
         </button>
         <button
           @click="tab = 'processes'"
           :class="['pb-3 text-sm font-medium transition', tab === 'processes' ? 'text-orange-400 border-b-2 border-orange-400' : 'text-gray-400 hover:text-white']"
         >
-          Processes
+          {{ t('server_status.processes_tab') }}
         </button>
       </nav>
     </div>
 
     <div v-if="tab === 'services'" class="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <div v-if="loadingServices" class="col-span-1 md:col-span-2 text-center py-6 text-gray-500">Yukleniyor...</div>
+      <div v-if="loadingServices" class="col-span-1 md:col-span-2 text-center py-6 text-gray-500">{{ t('common.loading') }}</div>
       <div v-for="s in services" :key="s.name" class="bg-panel-card border border-panel-border rounded-xl p-4 flex items-center justify-between">
         <div>
           <p class="text-white font-medium text-sm">{{ s.name }}</p>
@@ -86,36 +86,36 @@
             @click="controlService(s.name, 'stop')"
             class="px-2 py-1 bg-red-600/20 text-red-400 rounded text-xs hover:bg-red-600/40 transition"
           >
-            Stop
+            {{ t('server_status.stop') }}
           </button>
           <button
             v-else
             @click="controlService(s.name, 'start')"
             class="px-2 py-1 bg-green-600/20 text-green-400 rounded text-xs hover:bg-green-600/40 transition"
           >
-            Start
+            {{ t('server_status.start') }}
           </button>
           <button
             @click="controlService(s.name, 'restart')"
             class="px-2 py-1 bg-blue-600/20 text-blue-400 rounded text-xs hover:bg-blue-600/40 transition"
           >
-            Restart
+            {{ t('server_status.restart') }}
           </button>
         </div>
       </div>
     </div>
 
     <div v-if="tab === 'processes'" class="bg-panel-card border border-panel-border rounded-xl overflow-hidden">
-      <div v-if="loadingProcesses" class="p-6 text-center text-gray-500">Yukleniyor...</div>
+      <div v-if="loadingProcesses" class="p-6 text-center text-gray-500">{{ t('common.loading') }}</div>
       <table v-else class="w-full text-sm">
         <thead>
           <tr class="text-gray-400 border-b border-panel-border">
             <th class="text-left px-4 py-3">PID</th>
-            <th class="text-left px-4 py-3">User</th>
-            <th class="text-left px-4 py-3">CPU</th>
-            <th class="text-left px-4 py-3">RAM</th>
-            <th class="text-left px-4 py-3">Command</th>
-            <th class="text-right px-4 py-3">Action</th>
+            <th class="text-left px-4 py-3">{{ t('server_status.user') }}</th>
+            <th class="text-left px-4 py-3">{{ t('server_status.cpu') }}</th>
+            <th class="text-left px-4 py-3">{{ t('server_status.ram') }}</th>
+            <th class="text-left px-4 py-3">{{ t('server_status.command') }}</th>
+            <th class="text-right px-4 py-3">{{ t('server_status.action') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -126,7 +126,7 @@
             <td class="px-4 py-2.5 text-gray-300 text-xs">{{ p.mem }}%</td>
             <td class="px-4 py-2.5 text-white font-mono text-xs truncate max-w-[260px]">{{ p.command }}</td>
             <td class="px-4 py-2.5 text-right">
-              <button @click="killProcess(p.pid)" class="px-2 py-1 bg-red-600/20 text-red-400 rounded text-xs hover:bg-red-600/40 transition">Kill</button>
+              <button @click="killProcess(p.pid)" class="px-2 py-1 bg-red-600/20 text-red-400 rounded text-xs hover:bg-red-600/40 transition">{{ t('server_status.kill_process') }}</button>
             </td>
           </tr>
         </tbody>
@@ -141,8 +141,11 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Activity, Cpu, MemoryStick, HardDrive, Clock, Loader2 } from 'lucide-vue-next'
 import api from '../services/api'
+
+const { t } = useI18n({ useScope: 'global' })
 
 const tab = ref('services')
 const notification = ref('')
@@ -225,26 +228,26 @@ const fetchProcesses = async () => {
 const controlService = async (name, action) => {
   try {
     await api.post('/status/service/control', { name, action })
-    showNotif(`${name} ${action} tamamlandi`)
+    showNotif(t('server_status.messages.service_done', { name, action }))
     await fetchServices()
   } catch {
-    showNotif('Servis aksiyonu basarisiz')
+    showNotif(t('server_status.messages.service_failed'))
   }
 }
 
 const killProcess = async (pid) => {
   try {
     await api.post('/status/service/control', { name: String(pid), action: 'kill' })
-    showNotif(`PID ${pid} sonlandirildi`)
+    showNotif(t('server_status.messages.process_killed', { pid }))
     await fetchProcesses()
   } catch {
-    showNotif('Proses sonlandirma basarisiz')
+    showNotif(t('server_status.messages.process_failed'))
   }
 }
 
 const refreshAll = async () => {
   await Promise.all([fetchMetrics(), fetchServices(), fetchProcesses()])
-  showNotif('Veriler guncellendi')
+  showNotif(t('server_status.messages.updated'))
 }
 
 watch(tab, async (value) => {
