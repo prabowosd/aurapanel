@@ -142,8 +142,8 @@ Bu proje **MIT** lisansı altında dağıtılmaktadır. Detaylar için [LICENSE]
 
 ## 👨‍💻 Geliştirici
 
-**MKO Yazılım** — [mkoyazilim](https://github.com/mkoyazilim)
-**Tahamada**
+- **MKO Yazılım** — [mkoyazilim](https://github.com/mkoyazilim)
+- **Tahamada**
 ---
 
 <p align="center">
