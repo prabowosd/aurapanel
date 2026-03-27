@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import api from '../services/api'
+import { useNotificationStore } from './notifications'
 
 const TOKEN_KEY = 'aura_token'
 const USER_KEY = 'aura_user'
@@ -77,6 +78,13 @@ export const useAuthStore = defineStore('auth', {
       try {
         const response = await api.post('/auth/login', { email, password })
         this.setAuth(response.data.token, response.data.user, remember)
+        const notificationStore = useNotificationStore()
+        notificationStore.add({
+          title: 'Welcome',
+          message: `Signed in as ${response.data.user?.email || email}`,
+          type: 'success',
+          source: 'auth',
+        })
         return true
       } catch (error) {
         console.error('Login Error', error)
@@ -97,10 +105,20 @@ export const useAuthStore = defineStore('auth', {
       }
     },
     logout() {
+      const hadSession = !!this.token
       this.token = null
       this.user = null
       this.persistent = false
       clearStoredAuth()
+      if (hadSession) {
+        const notificationStore = useNotificationStore()
+        notificationStore.add({
+          title: 'Signed Out',
+          message: 'Your session was closed securely.',
+          type: 'info',
+          source: 'auth',
+        })
+      }
     }
   }
 })

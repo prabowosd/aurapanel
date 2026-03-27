@@ -34,6 +34,7 @@
             <p class="text-xs text-gray-400">{{ mb.used_mb }} / {{ mb.quota_mb }} MB</p>
           </div>
           <div class="flex gap-2">
+            <button class="btn-secondary px-2 py-1 text-xs" @click="resetMailboxPassword(mb.address)">Sifre</button>
             <button class="btn-secondary px-2 py-1 text-xs" @click="generateWebmailSso(mb.address)">Webmail SSO</button>
             <button class="btn-danger px-2 py-1 text-xs" @click="deleteMailbox(mb.address)">Sil</button>
           </div>
@@ -281,6 +282,16 @@ async function deleteMailbox(address) {
     await loadMailboxes()
   } catch (e) {
     error.value = apiErrorMessage(e, 'Mailbox silinemedi')
+  }
+}
+
+async function resetMailboxPassword(address) {
+  const nextPassword = prompt(`${address} icin yeni sifre girin`)
+  if (!nextPassword) return
+  try {
+    await api.post('/mail/password', { address, new_password: nextPassword })
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'Mailbox sifresi guncellenemedi')
   }
 }
 

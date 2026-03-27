@@ -1,0 +1,809 @@
+#!/usr/bin/env bash
+# AuraPanel Production Installation Script
+# Supported OS: Ubuntu 22.04/24.04, Debian 12+, AlmaLinux 8/9, Rocky Linux 8/9
+# Usage: curl -sSL https://raw.githubusercontent.com/mkoyazilim/aurapanel/main/install.sh | sudo bash
+
+set -euo pipefail
+
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
+
+PROJECT_DIR="/opt/aurapanel"
+GATEWAY_ENV_DIR="/etc/aurapanel"
+GATEWAY_ENV_FILE="${GATEWAY_ENV_DIR}/aurapanel.env"
+CORE_ENV_FILE="${GATEWAY_ENV_DIR}/aurapanel-core.env"
+MINIO_ENV_FILE="/etc/default/minio"
+REPO_URL="https://github.com/mkoyazilim/aurapanel.git"
+AURAPANEL_GH_OWNER="${AURAPANEL_GH_OWNER:-mkoyazilim}"
+AURAPANEL_GH_REPO="${AURAPANEL_GH_REPO:-aurapanel}"
+AURAPANEL_GH_REF="${AURAPANEL_GH_REF:-main}"
+RAW_BASE_URL="https://raw.githubusercontent.com/${AURAPANEL_GH_OWNER}/${AURAPANEL_GH_REPO}/${AURAPANEL_GH_REF}"
+RELEASE_BASE_URL="${AURAPANEL_RELEASE_BASE_URL:-https://github.com/${AURAPANEL_GH_OWNER}/${AURAPANEL_GH_REPO}/releases/latest/download}"
+
+SOURCE_ARCHIVE_URL="${AURAPANEL_SOURCE_ARCHIVE_URL:-${RELEASE_BASE_URL}/aurapanel-source-latest.tar.gz}"
+SOURCE_ARCHIVE_SHA256_URL="${AURAPANEL_SOURCE_ARCHIVE_SHA256_URL:-${SOURCE_ARCHIVE_URL}.sha256}"
+AURAPANEL_ALLOW_GIT_FALLBACK="${AURAPANEL_ALLOW_GIT_FALLBACK:-1}"
+
+NODE_SETUP_URL="${AURAPANEL_NODE_SETUP_URL:-https://deb.nodesource.com/setup_20.x}"
+RUSTUP_INIT_SCRIPT_URL="${AURAPANEL_RUSTUP_INIT_SCRIPT_URL:-https://sh.rustup.rs}"
+GO_VERSION="${AURAPANEL_GO_VERSION:-1.22.1}"
+GO_TARBALL="go${GO_VERSION}.linux-amd64.tar.gz"
+GO_TARBALL_URL="${AURAPANEL_GO_TARBALL_URL:-https://go.dev/dl/${GO_TARBALL}}"
+LITESPEED_REPO_SCRIPT_URL="${AURAPANEL_LITESPEED_REPO_SCRIPT_URL:-https://repo.litespeed.sh}"
+MINIO_BIN_URL="${AURAPANEL_MINIO_BIN_URL:-https://dl.min.io/server/minio/release/linux-amd64/minio}"
+MINIO_MC_URL="${AURAPANEL_MINIO_MC_URL:-https://dl.min.io/client/mc/release/linux-amd64/mc}"
+ROUNDCUBE_VERSION="${AURAPANEL_ROUNDCUBE_VERSION:-1.6.11}"
+ROUNDCUBE_ARCHIVE_URL="${AURAPANEL_ROUNDCUBE_ARCHIVE_URL:-https://github.com/roundcube/roundcubemail/releases/download/${ROUNDCUBE_VERSION}/roundcubemail-${ROUNDCUBE_VERSION}-complete.tar.gz}"
+PANEL_PORT_DEFAULT="8090"
+
+log() {
+  echo -e "${BLUE}[$(date '+%H:%M:%S')]${NC} $*"
+}
+
+ok() {
+  echo -e "${GREEN}$*${NC}"
+}
+
+warn() {
+  echo -e "${YELLOW}$*${NC}"
+}
+
+fail() {
+  echo -e "${RED}$*${NC}"
+  exit 1
+}
+
+if [ "${EUID}" -ne 0 ]; then
+  fail "Please run as root."
+fi
+
+if [ -f /etc/os-release ]; then
+  . /etc/os-release
+  OS_ID="${ID}"
+else
+  fail "Unsupported OS: /etc/os-release not found."
+fi
+
+PKG_MGR=""
+case "${OS_ID}" in
+  ubuntu|debian)
+    PKG_MGR="apt"
+    ;;
+  almalinux|rocky|centos)
+    PKG_MGR="dnf"
+    ;;
+  *)
+    fail "Unsupported OS: ${OS_ID}."
+    ;;
+esac
+
+install_packages() {
+  if [ "$#" -eq 0 ]; then
+    return
+  fi
+
+  if [ "${PKG_MGR}" = "apt" ]; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
+  else
+    dnf install -y "$@"
+  fi
+}
+
+install_optional_packages() {
+  for pkg in "$@"; do
+    if ! install_packages "${pkg}"; then
+      warn "Optional package '${pkg}' could not be installed."
+    fi
+  done
+}
+
+download_file() {
+  local url="$1"
+  local output="$2"
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$url" -o "$output"
+    return 0
+  fi
+
+  if command -v wget >/dev/null 2>&1; then
+    wget -q "$url" -O "$output"
+    return 0
+  fi
+
+  return 1
+}
+
+upsert_env() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+
+  mkdir -p "$(dirname "${file}")"
+  touch "${file}"
+
+  if grep -qE "^${key}=" "${file}"; then
+    sed -i "s|^${key}=.*|${key}=${value}|" "${file}"
+  else
+    printf '%s=%s\n' "${key}" "${value}" >> "${file}"
+  fi
+}
+
+gateway_port() {
+  local addr port
+  addr="$(grep -E '^AURAPANEL_GATEWAY_ADDR=' "${GATEWAY_ENV_FILE}" 2>/dev/null | tail -n1 | cut -d'=' -f2- || true)"
+  addr="${addr:-:${PANEL_PORT_DEFAULT}}"
+  port="${addr##*:}"
+
+  if [[ ! "${port}" =~ ^[0-9]+$ ]] || [ "${port}" -le 0 ] || [ "${port}" -gt 65535 ]; then
+    echo "${PANEL_PORT_DEFAULT}"
+    return
+  fi
+
+  echo "${port}"
+}
+
+configure_panel_firewall() {
+  local port="$1"
+  local rule="${port}/tcp"
+  local touched="0"
+
+  if command -v ufw >/dev/null 2>&1; then
+    if ufw status 2>/dev/null | grep -qi "Status: active"; then
+      if ufw allow "${rule}" >/dev/null 2>&1; then
+        ok "ufw rule added for AuraPanel port ${port}/tcp"
+        touched="1"
+      else
+        warn "ufw is active but failed to allow ${port}/tcp."
+      fi
+    else
+      warn "ufw is installed but inactive. Skipping ufw rule automation."
+    fi
+  fi
+
+  if command -v firewall-cmd >/dev/null 2>&1; then
+    if firewall-cmd --state >/dev/null 2>&1; then
+      if firewall-cmd --permanent --add-port="${rule}" >/dev/null 2>&1; then
+        firewall-cmd --reload >/dev/null 2>&1 || true
+        ok "firewalld rule added for AuraPanel port ${port}/tcp"
+        touched="1"
+      else
+        warn "firewalld is active but failed to add ${port}/tcp."
+      fi
+    else
+      warn "firewalld is installed but inactive. Skipping firewalld rule automation."
+    fi
+  fi
+
+  if [ "${touched}" = "0" ]; then
+    warn "No active firewall manager detected for automated port opening."
+  fi
+}
+
+configure_ftp_firewall() {
+  local touched="0"
+
+  if command -v ufw >/dev/null 2>&1; then
+    if ufw status 2>/dev/null | grep -qi "Status: active"; then
+      if ufw allow 21/tcp >/dev/null 2>&1; then
+        ok "ufw rule added for FTP 21/tcp"
+        touched="1"
+      else
+        warn "ufw is active but failed to allow 21/tcp."
+      fi
+
+      if ufw allow 30000:30049/tcp >/dev/null 2>&1; then
+        ok "ufw rule added for FTP passive range 30000:30049/tcp"
+        touched="1"
+      else
+        warn "ufw is active but failed to allow passive range."
+      fi
+    else
+      warn "ufw is installed but inactive. Skipping FTP ufw rules."
+    fi
+  fi
+
+  if command -v firewall-cmd >/dev/null 2>&1; then
+    if firewall-cmd --state >/dev/null 2>&1; then
+      if firewall-cmd --permanent --add-port=21/tcp >/dev/null 2>&1; then
+        ok "firewalld rule added for FTP 21/tcp"
+        touched="1"
+      else
+        warn "firewalld failed to add 21/tcp."
+      fi
+
+      if firewall-cmd --permanent --add-port=30000-30049/tcp >/dev/null 2>&1; then
+        ok "firewalld rule added for FTP passive range 30000-30049/tcp"
+        touched="1"
+      else
+        warn "firewalld failed to add passive range."
+      fi
+      firewall-cmd --reload >/dev/null 2>&1 || true
+    else
+      warn "firewalld is installed but inactive. Skipping FTP firewalld rules."
+    fi
+  fi
+
+  if [ "${touched}" = "0" ]; then
+    warn "No active firewall manager detected for FTP port automation."
+  fi
+}
+
+configure_pureftpd() {
+  if ! command -v pure-pw >/dev/null 2>&1; then
+    warn "pure-pw binary is missing. PureFTPd may not be installed on this distro."
+    return
+  fi
+
+  log "Configuring PureFTPd defaults..."
+  mkdir -p /etc/pure-ftpd/conf /etc/pure-ftpd /etc/ssl/private
+
+  if [ ! -f /etc/ssl/private/pure-ftpd.pem ]; then
+    openssl req -x509 -nodes -newkey rsa:2048 \
+      -keyout /etc/ssl/private/pure-ftpd.pem \
+      -out /etc/ssl/private/pure-ftpd.pem \
+      -days 3650 \
+      -subj "/CN=$(hostname -f 2>/dev/null || hostname)" >/dev/null 2>&1 || true
+  fi
+  chmod 600 /etc/ssl/private/pure-ftpd.pem >/dev/null 2>&1 || true
+
+  echo "2" > /etc/pure-ftpd/conf/TLS
+  echo "30000 30049" > /etc/pure-ftpd/conf/PassivePortRange
+  echo "yes" > /etc/pure-ftpd/conf/ChrootEveryone
+  echo "yes" > /etc/pure-ftpd/conf/NoAnonymous
+  echo "yes" > /etc/pure-ftpd/conf/UnixAuthentication
+  echo "no" > /etc/pure-ftpd/conf/PAMAuthentication
+  echo "/etc/pure-ftpd/pureftpd.pdb" > /etc/pure-ftpd/conf/PureDB
+
+  touch /etc/pure-ftpd/pureftpd.passwd
+  pure-pw mkdb /etc/pure-ftpd/pureftpd.pdb -f /etc/pure-ftpd/pureftpd.passwd >/dev/null 2>&1 || true
+
+  if systemctl list-unit-files | grep -q '^pure-ftpd\.service'; then
+    systemctl enable pure-ftpd >/dev/null 2>&1 || true
+    systemctl restart pure-ftpd >/dev/null 2>&1 || true
+    ok "PureFTPd service enabled and restarted."
+  else
+    warn "pure-ftpd systemd service not found. Check distro package naming."
+  fi
+}
+
+configure_roundcube() {
+  if [ "${AURAPANEL_INSTALL_ROUNDCUBE:-1}" != "1" ]; then
+    warn "Roundcube install skipped (AURAPANEL_INSTALL_ROUNDCUBE!=1)."
+    return
+  fi
+
+  local webmail_dir="/usr/local/lsws/Example/html/webmail"
+  local tmpdir archive extracted
+  tmpdir="$(mktemp -d /tmp/aurapanel-roundcube.XXXXXX)"
+  archive="${tmpdir}/roundcube.tar.gz"
+  extracted="${tmpdir}/roundcube"
+  mkdir -p "${extracted}" "${webmail_dir}"
+
+  log "Installing Roundcube ${ROUNDCUBE_VERSION}..."
+  if download_file "${ROUNDCUBE_ARCHIVE_URL}" "${archive}"; then
+    tar -xzf "${archive}" -C "${extracted}" --strip-components=1 || true
+    rsync -a --delete "${extracted}/" "${webmail_dir}/"
+  else
+    warn "Roundcube archive download failed. Falling back to git clone."
+    if [ -d "${webmail_dir}/.git" ]; then
+      git -C "${webmail_dir}" pull --ff-only >/dev/null 2>&1 || true
+    else
+      rm -rf "${webmail_dir}"
+      git clone --depth 1 https://github.com/roundcube/roundcubemail.git "${webmail_dir}" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  local rc_db_name rc_db_user rc_db_pass
+  rc_db_name="${AURAPANEL_ROUNDCUBE_DB_NAME:-roundcube}"
+  rc_db_user="${AURAPANEL_ROUNDCUBE_DB_USER:-roundcube}"
+  rc_db_pass="${AURAPANEL_ROUNDCUBE_DB_PASS:-$(openssl rand -base64 18 | tr -d '\n')}"
+
+  if command -v mysql >/dev/null 2>&1 && systemctl is-active --quiet mariadb; then
+    mysql <<EOF >/dev/null 2>&1 || true
+CREATE DATABASE IF NOT EXISTS \`${rc_db_name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+CREATE USER IF NOT EXISTS '${rc_db_user}'@'localhost' IDENTIFIED BY '${rc_db_pass}';
+ALTER USER '${rc_db_user}'@'localhost' IDENTIFIED BY '${rc_db_pass}';
+GRANT ALL PRIVILEGES ON \`${rc_db_name}\`.* TO '${rc_db_user}'@'localhost';
+FLUSH PRIVILEGES;
+EOF
+
+    if [ -f "${webmail_dir}/SQL/mysql.initial.sql" ]; then
+      mysql "${rc_db_name}" < "${webmail_dir}/SQL/mysql.initial.sql" >/dev/null 2>&1 || true
+    fi
+  else
+    warn "MariaDB is not active, Roundcube DB bootstrap skipped."
+  fi
+
+  mkdir -p "${webmail_dir}/config"
+  cat <<EOF > "${webmail_dir}/config/config.inc.php"
+<?php
+\$config['db_dsnw'] = 'mysql://${rc_db_user}:${rc_db_pass}@localhost/${rc_db_name}';
+\$config['default_host'] = 'ssl://127.0.0.1';
+\$config['default_port'] = 993;
+\$config['smtp_server'] = 'tls://127.0.0.1';
+\$config['smtp_port'] = 587;
+\$config['product_name'] = 'AuraPanel Webmail';
+\$config['des_key'] = '$(openssl rand -hex 16 | tr -d '\n')';
+\$config['plugins'] = ['archive', 'zipdownload', 'markasjunk'];
+EOF
+
+  chown -R nobody:nobody "${webmail_dir}" >/dev/null 2>&1 || true
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_WEBMAIL_BASE_URL" "http://127.0.0.1/webmail"
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_MAIL_BACKEND" "vmail"
+
+  rm -rf "${tmpdir}"
+  ok "Roundcube setup completed at ${webmail_dir}"
+}
+
+configure_mail_stack_vmail() {
+  local vmail_uid vmail_gid vmail_base
+  vmail_uid="${AURAPANEL_MAIL_VMAIL_UID:-5000}"
+  vmail_gid="${AURAPANEL_MAIL_VMAIL_GID:-5000}"
+  vmail_base="${AURAPANEL_MAIL_VMAIL_BASE:-/var/mail/vhosts}"
+
+  log "Configuring postfix+dovecot vmail stack..."
+
+  if ! getent group vmail >/dev/null 2>&1; then
+    groupadd -g "${vmail_gid}" vmail >/dev/null 2>&1 || true
+  fi
+  if ! id -u vmail >/dev/null 2>&1; then
+    useradd -g vmail -u "${vmail_uid}" -d "${vmail_base}" -m -s /usr/sbin/nologin vmail >/dev/null 2>&1 || true
+  fi
+
+  mkdir -p "${vmail_base}" /etc/dovecot /etc/postfix
+  chown -R "${vmail_uid}:${vmail_gid}" "${vmail_base}" >/dev/null 2>&1 || true
+  chmod 750 "${vmail_base}" >/dev/null 2>&1 || true
+
+  touch /etc/dovecot/users /etc/postfix/vmailbox /etc/postfix/virtual /etc/postfix/virtual_regexp
+  chmod 640 /etc/dovecot/users /etc/postfix/vmailbox /etc/postfix/virtual /etc/postfix/virtual_regexp >/dev/null 2>&1 || true
+
+  if command -v postmap >/dev/null 2>&1; then
+    postmap /etc/postfix/vmailbox >/dev/null 2>&1 || true
+    postmap /etc/postfix/virtual >/dev/null 2>&1 || true
+  fi
+
+  cat <<EOF >/etc/dovecot/conf.d/90-aurapanel-vmail.conf
+passdb {
+  driver = passwd-file
+  args = scheme=SHA512-CRYPT username_format=%u /etc/dovecot/users
+}
+
+userdb {
+  driver = passwd-file
+  args = username_format=%u /etc/dovecot/users
+}
+
+mail_uid = ${vmail_uid}
+mail_gid = ${vmail_gid}
+mail_home = ${vmail_base}/%d/%n
+mail_location = maildir:~/Maildir
+
+plugin {
+  quota = maildir:User quota
+  quota_rule = *:storage=1024M
+}
+EOF
+
+  if command -v postconf >/dev/null 2>&1; then
+    postconf -e "virtual_mailbox_base = ${vmail_base}" >/dev/null 2>&1 || true
+    postconf -e "virtual_mailbox_maps = hash:/etc/postfix/vmailbox" >/dev/null 2>&1 || true
+    postconf -e "virtual_alias_maps = hash:/etc/postfix/virtual,regexp:/etc/postfix/virtual_regexp" >/dev/null 2>&1 || true
+    postconf -e "virtual_minimum_uid = ${vmail_uid}" >/dev/null 2>&1 || true
+    postconf -e "virtual_uid_maps = static:${vmail_uid}" >/dev/null 2>&1 || true
+    postconf -e "virtual_gid_maps = static:${vmail_gid}" >/dev/null 2>&1 || true
+  fi
+
+  systemctl restart dovecot >/dev/null 2>&1 || true
+  systemctl restart postfix >/dev/null 2>&1 || true
+  ok "vmail stack baseline configured."
+}
+
+ensure_node20() {
+  local has_node="0"
+  if command -v node >/dev/null 2>&1; then
+    local node_major
+    node_major="$(node -v | sed 's/^v//' | cut -d'.' -f1)"
+    if [ "${node_major}" -ge 20 ]; then
+      has_node="1"
+    fi
+  fi
+
+  if [ "${has_node}" = "1" ]; then
+    ok "Node.js $(node -v) already available."
+    return
+  fi
+
+  log "Installing Node.js 20.x from mirror..."
+  curl -fsSL "${NODE_SETUP_URL}" | bash -
+  install_packages nodejs
+  ok "Node.js installed: $(node -v)"
+}
+
+ensure_rust() {
+  log "Ensuring Rust toolchain..."
+  if ! command -v cargo >/dev/null 2>&1; then
+    curl --proto '=https' --tlsv1.2 -sSf "${RUSTUP_INIT_SCRIPT_URL}" | sh -s -- -y
+  fi
+
+  if [ -f "${HOME}/.cargo/env" ]; then
+    # shellcheck disable=SC1090
+    source "${HOME}/.cargo/env"
+  fi
+}
+
+ensure_go() {
+  log "Ensuring Go toolchain..."
+  if ! command -v go >/dev/null 2>&1; then
+    wget -q "${GO_TARBALL_URL}" -O "/tmp/${GO_TARBALL}"
+    rm -rf /usr/local/go
+    tar -C /usr/local -xzf "/tmp/${GO_TARBALL}"
+    rm -f "/tmp/${GO_TARBALL}"
+  fi
+
+  export PATH="$PATH:/usr/local/go/bin"
+}
+
+ensure_openlitespeed() {
+  if [ -x /usr/local/lsws/bin/lswsctrl ]; then
+    ok "OpenLiteSpeed already installed."
+  else
+    log "Installing OpenLiteSpeed..."
+    curl -fsSL "${LITESPEED_REPO_SCRIPT_URL}" | bash
+
+    install_packages openlitespeed || fail "OpenLiteSpeed installation failed."
+    install_optional_packages lsphp83 lsphp83-common lsphp83-mysql lsphp83-curl lsphp83-xml lsphp83-zip lsphp83-opcache
+  fi
+
+  systemctl enable lshttpd >/dev/null 2>&1 || true
+  systemctl restart lshttpd >/dev/null 2>&1 || true
+}
+
+ensure_minio_binaries() {
+  if ! command -v minio >/dev/null 2>&1; then
+    log "Installing MinIO binary..."
+    wget -q "${MINIO_BIN_URL}" -O /usr/local/bin/minio
+    chmod +x /usr/local/bin/minio
+  fi
+
+  if ! command -v mc >/dev/null 2>&1; then
+    log "Installing MinIO client (mc)..."
+    wget -q "${MINIO_MC_URL}" -O /usr/local/bin/mc
+    chmod +x /usr/local/bin/mc
+  fi
+}
+
+write_core_env_defaults() {
+  mkdir -p "${GATEWAY_ENV_DIR}" "${PROJECT_DIR}/logs"
+  chmod 700 "${GATEWAY_ENV_DIR}"
+
+  if [ ! -f "${GATEWAY_ENV_FILE}" ]; then
+    local admin_pass jwt_secret
+    admin_pass="$(openssl rand -base64 18 | tr -d '\n')"
+    jwt_secret="$(openssl rand -hex 32 | tr -d '\n')"
+
+    cat <<EOF > "${GATEWAY_ENV_FILE}"
+AURAPANEL_ADMIN_EMAIL=admin@server.com
+AURAPANEL_ADMIN_PASSWORD=${admin_pass}
+AURAPANEL_JWT_SECRET=${jwt_secret}
+AURAPANEL_JWT_ISSUER=aurapanel-gateway
+AURAPANEL_JWT_AUDIENCE=aurapanel-ui
+AURAPANEL_ALLOWED_ORIGINS=http://127.0.0.1:${PANEL_PORT_DEFAULT},http://localhost:${PANEL_PORT_DEFAULT}
+AURAPANEL_CORE_URL=http://127.0.0.1:8000
+AURAPANEL_GATEWAY_ONLY=1
+AURAPANEL_GATEWAY_ADDR=:${PANEL_PORT_DEFAULT}
+AURAPANEL_PANEL_DIST=/opt/aurapanel/frontend/dist
+EOF
+
+    chmod 600 "${GATEWAY_ENV_FILE}"
+    echo "${admin_pass}" > "${PROJECT_DIR}/logs/initial_password.txt"
+    chmod 600 "${PROJECT_DIR}/logs/initial_password.txt"
+    ok "Initial admin password written to ${PROJECT_DIR}/logs/initial_password.txt"
+  fi
+
+  if [ ! -f "${CORE_ENV_FILE}" ]; then
+    local restic_pass minio_access minio_secret
+    restic_pass="$(openssl rand -hex 24 | tr -d '\n')"
+    minio_access="backup$(openssl rand -hex 3 | tr -d '\n')"
+    minio_secret="$(openssl rand -hex 24 | tr -d '\n')"
+
+    cat <<EOF > "${CORE_ENV_FILE}"
+AURAPANEL_RUNTIME_MODE=production
+AURAPANEL_SECURITY_POLICY=fail-closed
+AURAPANEL_GATEWAY_ONLY=1
+AURAPANEL_CORE_BIND_ADDR=127.0.0.1:8000
+AURAPANEL_FEDERATION_MODE=active-passive
+AURAPANEL_FEDERATION_PRIMARY=1
+AURAPANEL_BACKUP_TARGET=internal-minio
+AURAPANEL_BACKUP_MINIO_ENDPOINT=http://127.0.0.1:9000
+AURAPANEL_BACKUP_MINIO_BUCKET=aurapanel-backups
+AURAPANEL_BACKUP_MINIO_ACCESS_KEY=${minio_access}
+AURAPANEL_BACKUP_MINIO_SECRET_KEY=${minio_secret}
+AURAPANEL_BACKUP_RESTIC_PASSWORD=${restic_pass}
+AURAPANEL_MAIL_BACKEND=vmail
+AURAPANEL_WEBMAIL_BASE_URL=http://127.0.0.1/webmail
+AURAPANEL_MAIL_VMAIL_UID=5000
+AURAPANEL_MAIL_VMAIL_GID=5000
+AURAPANEL_MAIL_VMAIL_BASE=/var/mail/vhosts
+EOF
+
+    chmod 600 "${CORE_ENV_FILE}"
+  fi
+
+  upsert_env "${GATEWAY_ENV_FILE}" "AURAPANEL_GATEWAY_ONLY" "1"
+  upsert_env "${GATEWAY_ENV_FILE}" "AURAPANEL_CORE_URL" "http://127.0.0.1:8000"
+  upsert_env "${GATEWAY_ENV_FILE}" "AURAPANEL_GATEWAY_ADDR" ":${PANEL_PORT_DEFAULT}"
+  upsert_env "${GATEWAY_ENV_FILE}" "AURAPANEL_PANEL_DIST" "${PROJECT_DIR}/frontend/dist"
+  upsert_env "${GATEWAY_ENV_FILE}" "AURAPANEL_ALLOWED_ORIGINS" "http://127.0.0.1:${PANEL_PORT_DEFAULT},http://localhost:${PANEL_PORT_DEFAULT}"
+
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_RUNTIME_MODE" "production"
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_SECURITY_POLICY" "fail-closed"
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_GATEWAY_ONLY" "1"
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_CORE_BIND_ADDR" "127.0.0.1:8000"
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_FEDERATION_MODE" "active-passive"
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_FEDERATION_PRIMARY" "1"
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_BACKUP_TARGET" "internal-minio"
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_BACKUP_MINIO_ENDPOINT" "http://127.0.0.1:9000"
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_BACKUP_MINIO_BUCKET" "aurapanel-backups"
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_MAIL_BACKEND" "vmail"
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_WEBMAIL_BASE_URL" "http://127.0.0.1/webmail"
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_UID" "5000"
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_GID" "5000"
+  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_BASE" "/var/mail/vhosts"
+
+  chmod 600 "${GATEWAY_ENV_FILE}" "${CORE_ENV_FILE}"
+}
+
+configure_minio_service() {
+  ensure_minio_binaries
+
+  # shellcheck disable=SC1090
+  source "${CORE_ENV_FILE}"
+
+  id -u minio-user >/dev/null 2>&1 || useradd --system --home /var/lib/minio --shell /sbin/nologin minio-user
+  mkdir -p /var/lib/minio /etc/minio
+  chown -R minio-user:minio-user /var/lib/minio /etc/minio
+
+  cat <<EOF > "${MINIO_ENV_FILE}"
+MINIO_ROOT_USER=${AURAPANEL_BACKUP_MINIO_ACCESS_KEY}
+MINIO_ROOT_PASSWORD=${AURAPANEL_BACKUP_MINIO_SECRET_KEY}
+MINIO_VOLUMES=/var/lib/minio
+MINIO_OPTS=--address 127.0.0.1:9000 --console-address 127.0.0.1:9001
+EOF
+  chmod 600 "${MINIO_ENV_FILE}"
+
+  cat <<'EOF' > /etc/systemd/system/minio.service
+[Unit]
+Description=MinIO
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=minio-user
+Group=minio-user
+EnvironmentFile=-/etc/default/minio
+ExecStart=/usr/local/bin/minio server $MINIO_VOLUMES $MINIO_OPTS
+Restart=always
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable minio
+  systemctl restart minio
+
+  for _ in $(seq 1 20); do
+    if curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+
+  if command -v mc >/dev/null 2>&1; then
+    mc alias set local http://127.0.0.1:9000 "${AURAPANEL_BACKUP_MINIO_ACCESS_KEY}" "${AURAPANEL_BACKUP_MINIO_SECRET_KEY}" >/dev/null 2>&1 || true
+    mc mb --ignore-existing "local/${AURAPANEL_BACKUP_MINIO_BUCKET}" >/dev/null 2>&1 || true
+  fi
+}
+
+enable_stack_services() {
+  local services=(mariadb postgresql redis-server redis docker fail2ban pdns pure-ftpd postfix dovecot)
+
+  for svc in "${services[@]}"; do
+    if systemctl list-unit-files | grep -qE "^${svc}\\.service"; then
+      systemctl enable "${svc}" >/dev/null 2>&1 || true
+      systemctl restart "${svc}" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
+sync_project() {
+  log "Preparing project directory at ${PROJECT_DIR}..."
+  mkdir -p "${PROJECT_DIR}"
+
+  if [ -d "$(pwd)/core" ] && [ -d "$(pwd)/api-gateway" ] && [ -d "$(pwd)/frontend" ]; then
+    log "Copying current workspace into ${PROJECT_DIR}..."
+    rsync -a --delete \
+      --exclude '.git' \
+      --exclude 'core/target' \
+      --exclude 'frontend/node_modules' \
+      --exclude 'api-gateway/apigw' \
+      "$(pwd)/" "${PROJECT_DIR}/"
+  else
+    if [ "${AURAPANEL_INSTALL_SOURCE:-archive}" = "archive" ]; then
+      local archive_file="/tmp/aurapanel-source-latest.tar.gz"
+      local checksum_file="${archive_file}.sha256"
+
+      log "Downloading AuraPanel source archive from ${SOURCE_ARCHIVE_URL}..."
+      if download_file "${SOURCE_ARCHIVE_URL}" "${archive_file}"; then
+        if download_file "${SOURCE_ARCHIVE_SHA256_URL}" "${checksum_file}"; then
+          local expected_sha actual_sha
+          expected_sha="$(awk '{print $1}' "${checksum_file}" | head -n1)"
+          actual_sha="$(sha256sum "${archive_file}" | awk '{print $1}')"
+          if [ -z "${expected_sha}" ] || [ "${expected_sha}" != "${actual_sha}" ]; then
+            warn "Source archive checksum mismatch; falling back to git."
+          else
+            rm -rf "${PROJECT_DIR}"
+            mkdir -p "${PROJECT_DIR}"
+            tar -xzf "${archive_file}" -C "${PROJECT_DIR}" --strip-components=1
+            ok "Source archive extracted successfully."
+            return
+          fi
+        else
+          warn "Source archive checksum file not available; falling back to git."
+        fi
+      else
+        warn "Source archive download failed; falling back to git."
+      fi
+    fi
+
+    if [ "${AURAPANEL_ALLOW_GIT_FALLBACK}" != "1" ]; then
+      fail "Source archive is unavailable and git fallback is disabled (AURAPANEL_ALLOW_GIT_FALLBACK=0)."
+    fi
+
+    if [ ! -d "${PROJECT_DIR}/.git" ]; then
+      log "Cloning repository from ${REPO_URL}..."
+      rm -rf "${PROJECT_DIR}"
+      git clone "${REPO_URL}" "${PROJECT_DIR}"
+    else
+      log "Updating existing repository..."
+      git -C "${PROJECT_DIR}" fetch --all
+      git -C "${PROJECT_DIR}" pull --ff-only
+    fi
+  fi
+}
+
+build_components() {
+  log "Building Rust core..."
+  cd "${PROJECT_DIR}/core"
+  cargo build --release
+
+  log "Building Go API gateway..."
+  cd "${PROJECT_DIR}/api-gateway"
+  /usr/local/go/bin/go mod tidy
+  /usr/local/go/bin/go build -o apigw .
+
+  log "Building Vue frontend (production dist)..."
+  cd "${PROJECT_DIR}/frontend"
+  npm ci
+  npm run build
+}
+
+configure_systemd_services() {
+  log "Configuring systemd services..."
+
+  cat <<EOF > /etc/systemd/system/aurapanel-core.service
+[Unit]
+Description=AuraPanel Core (Rust)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${PROJECT_DIR}/core
+ExecStart=${PROJECT_DIR}/core/target/release/aurapanel-core
+Restart=on-failure
+Environment=RUST_LOG=info
+EnvironmentFile=-${CORE_ENV_FILE}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  cat <<EOF > /etc/systemd/system/aurapanel-api.service
+[Unit]
+Description=AuraPanel API Gateway (Go + Panel Static)
+After=network.target aurapanel-core.service
+Requires=aurapanel-core.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${PROJECT_DIR}/api-gateway
+ExecStart=${PROJECT_DIR}/api-gateway/apigw
+Restart=on-failure
+EnvironmentFile=-${GATEWAY_ENV_FILE}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable aurapanel-core aurapanel-api
+  systemctl restart aurapanel-core aurapanel-api
+}
+
+smoke_check() {
+  log "Running post-install smoke checks..."
+  local panel_port
+  panel_port="$(gateway_port)"
+
+  systemctl is-active --quiet aurapanel-core || fail "aurapanel-core is not active"
+  systemctl is-active --quiet aurapanel-api || fail "aurapanel-api is not active"
+  systemctl is-active --quiet lshttpd || fail "lshttpd is not active"
+  systemctl is-active --quiet minio || fail "minio is not active"
+  if systemctl list-unit-files | grep -q '^pure-ftpd\.service'; then
+    systemctl is-active --quiet pure-ftpd || fail "pure-ftpd is not active"
+  fi
+
+  curl -fsS http://127.0.0.1:8000/api/v1/health >/dev/null || fail "Core health check failed"
+  curl -fsS "http://127.0.0.1:${panel_port}/api/health" >/dev/null || fail "Gateway health check failed"
+  curl -fsS "http://127.0.0.1:${panel_port}/" >/dev/null || fail "Panel static endpoint failed"
+  curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null || fail "MinIO health check failed"
+  curl -fsS http://127.0.0.1/webmail/ >/dev/null 2>&1 || warn "Roundcube endpoint check skipped/failed (non-fatal)."
+
+  ok "Smoke checks passed."
+}
+
+main() {
+  echo -e "${BLUE}=================================================${NC}"
+  echo -e "${GREEN} AuraPanel - Production Installation ${NC}"
+  echo -e "${BLUE}=================================================${NC}"
+
+  log "Installing system prerequisites..."
+  if [ "${PKG_MGR}" = "apt" ]; then
+    apt-get update -y
+    install_packages curl wget git rsync build-essential cmake pkg-config libssl-dev gcc ufw ca-certificates openssl jq unzip tar
+    install_packages software-properties-common gnupg lsb-release
+  else
+    dnf update -y
+    dnf groupinstall -y "Development Tools"
+    install_packages curl wget git rsync cmake openssl-devel openssl gcc firewalld ca-certificates jq unzip tar
+    install_packages dnf-plugins-core
+  fi
+
+  install_optional_packages restic mariadb-server postgresql redis-server redis docker docker.io fail2ban powerdns pdns pure-ftpd postfix dovecot
+
+  ensure_rust
+  ensure_go
+  ensure_node20
+  ensure_openlitespeed
+  configure_pureftpd
+
+  sync_project
+  write_core_env_defaults
+  configure_minio_service
+  configure_roundcube
+  configure_mail_stack_vmail
+  build_components
+  configure_systemd_services
+  enable_stack_services
+  configure_panel_firewall "$(gateway_port)"
+  configure_ftp_firewall
+  smoke_check
+
+  local panel_port
+  panel_port="$(gateway_port)"
+  ok "AuraPanel deployment is complete."
+  ok "Panel URL: http://YOUR_SERVER_IP:${panel_port}"
+  ok "API Health: http://YOUR_SERVER_IP:${panel_port}/api/health"
+  ok "Core Health (internal): http://127.0.0.1:8000/api/v1/health"
+  ok "OpenLiteSpeed Web: http://YOUR_SERVER_IP (80/443)"
+  ok "OpenLiteSpeed Admin: https://YOUR_SERVER_IP:7080"
+}
+
+main "$@"

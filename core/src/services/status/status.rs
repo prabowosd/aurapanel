@@ -177,6 +177,7 @@ impl StatusManager {
             ("mariadb", "MariaDB", "Veritabani Sunucusu"),
             ("postgresql", "PostgreSQL", "PostgreSQL 16"),
             ("php8.3-fpm", "PHP 8.3-FPM", "PHP Isleme Motoru"),
+            ("pure-ftpd", "PureFTPd", "FTP Sunucu"),
             ("postfix", "Postfix", "SMTP Sunucu"),
             ("dovecot", "Dovecot", "IMAP/POP3 Sunucu"),
             ("pdns", "PowerDNS", "DNS Sunucu"),
@@ -259,6 +260,7 @@ impl StatusManager {
     pub fn control_service(name: &str, action: &str) -> Result<String, String> {
         let normalized_action = action.trim().to_ascii_lowercase();
         let normalized_name = name.trim().to_string();
+        let unit_name = Self::resolve_service_name(&normalized_name);
 
         if normalized_action == "kill" {
             if normalized_name.is_empty() {
@@ -286,7 +288,7 @@ impl StatusManager {
         }
 
         let output = Command::new("systemctl")
-            .args([&normalized_action, &normalized_name])
+            .args([&normalized_action, &unit_name])
             .output()
             .map_err(|e| format!("systemctl {} calistirilamadi: {}", normalized_action, e))?;
 
@@ -421,6 +423,24 @@ impl StatusManager {
 
         let candidate = trimmed.rsplit(':').next()?.trim();
         candidate.parse::<u16>().ok().filter(|p| *p > 0)
+    }
+
+    fn resolve_service_name(input: &str) -> String {
+        let lowered = input.trim().to_ascii_lowercase();
+        match lowered.as_str() {
+            "openlitespeed" => "lshttpd".to_string(),
+            "mariadb" => "mariadb".to_string(),
+            "postgresql" => "postgresql".to_string(),
+            "php 8.3-fpm" | "php8.3-fpm" => "php8.3-fpm".to_string(),
+            "pureftpd" | "pure-ftpd" => "pure-ftpd".to_string(),
+            "postfix" => "postfix".to_string(),
+            "dovecot" => "dovecot".to_string(),
+            "powerdns" | "pdns" => "pdns".to_string(),
+            "redis" | "redis-server" => "redis-server".to_string(),
+            "docker" => "docker".to_string(),
+            "fail2ban" => "fail2ban".to_string(),
+            _ => input.trim().to_string(),
+        }
     }
 
     fn read_env_value(file: &str, key: &str) -> Option<String> {

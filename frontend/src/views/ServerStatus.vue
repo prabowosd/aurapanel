@@ -227,6 +227,7 @@ const fetchServices = async () => {
         data: [
           { name: 'OpenLiteSpeed', desc: 'Web Server', status: 'running' },
           { name: 'MariaDB', desc: 'Database', status: 'running' },
+          { name: 'PureFTPd', desc: 'FTP Server', status: 'running' },
           { name: 'Redis', desc: 'Cache', status: 'stopped' }
         ]
       }

@@ -3,9 +3,12 @@
     <!-- Sidebar -->
     <aside class="w-64 bg-panel-dark border-r border-panel-border flex flex-col transition-all duration-300">
       <div class="h-16 flex items-center px-6 border-b border-panel-border">
-        <div class="flex items-center gap-2 text-brand-500 font-bold text-xl tracking-wide">
-          <Activity class="w-6 h-6" />
-          <span>AuraPanel</span>
+        <div class="w-full flex items-center">
+          <img
+            src="/aurapanel-logo.png"
+            alt="AuraPanel Logo"
+            class="h-8 w-auto max-w-[180px] object-contain"
+          />
         </div>
       </div>
       
@@ -45,10 +48,51 @@
           <span>{{ t('menu.emails') }}</span>
         </router-link>
 
+        <router-link to="/ftp" class="sidebar-link" active-class="sidebar-link-active">
+          <KeyRound class="w-5 h-5 mr-3" />
+          <span>FTP</span>
+        </router-link>
+
         <router-link to="/dns" class="sidebar-link" active-class="sidebar-link-active">
           <Network class="w-5 h-5 mr-3" />
           <span>{{ t('menu.dns') }}</span>
         </router-link>
+
+        <div class="mt-2">
+          <button @click="sslMenuOpen = !sslMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'text-blue-400': isSslRoute }">
+            <div class="flex items-center">
+              <Lock class="w-5 h-5 mr-3" />
+              <span>SSL</span>
+            </div>
+            <ChevronDown class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': sslMenuOpen }" />
+          </button>
+
+          <transition name="accordion">
+            <div v-show="sslMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
+              <router-link
+                :to="{ path: '/ssl', query: { tab: 'manage' } }"
+                class="sidebar-sub-link"
+                :class="{ 'sidebar-sub-link-active': isSslTabActive('manage') }"
+              >
+                <span>Manage SSL</span>
+              </router-link>
+              <router-link
+                :to="{ path: '/ssl', query: { tab: 'hostname' } }"
+                class="sidebar-sub-link"
+                :class="{ 'sidebar-sub-link-active': isSslTabActive('hostname') }"
+              >
+                <span>Hostname SSL</span>
+              </router-link>
+              <router-link
+                :to="{ path: '/ssl', query: { tab: 'mail' } }"
+                class="sidebar-sub-link"
+                :class="{ 'sidebar-sub-link-active': isSslTabActive('mail') }"
+              >
+                <span>MailServer SSL</span>
+              </router-link>
+            </div>
+          </transition>
+        </div>
 
         <router-link to="/cloudflare" class="sidebar-link" active-class="sidebar-link-active">
           <Cloud class="w-5 h-5 mr-3" />
@@ -195,11 +239,67 @@
           <h1 class="text-xl font-semibold text-white">{{ $route.name }}</h1>
         </div>
         
-        <div class="flex items-center gap-6">
-          <button class="text-gray-400 hover:text-white transition-colors">
-            <Bell class="w-5 h-5" />
-          </button>
-          <div class="flex items-center gap-3 pl-6 border-l border-panel-border relative group">
+        <div class="flex items-center gap-4">
+          <div class="relative">
+            <button
+              class="relative text-gray-400 hover:text-white transition-colors"
+              @click="notificationOpen = !notificationOpen"
+              title="Notifications"
+            >
+              <Bell class="w-5 h-5" />
+              <span
+                v-if="unreadCount > 0"
+                class="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] leading-[18px] text-center font-semibold"
+              >
+                {{ unreadCount > 99 ? '99+' : unreadCount }}
+              </span>
+            </button>
+
+            <div
+              v-show="notificationOpen"
+              class="absolute right-0 mt-3 w-[360px] bg-panel-card border border-panel-border rounded-xl shadow-2xl z-50 overflow-hidden"
+            >
+              <div class="px-4 py-3 border-b border-panel-border flex items-center justify-between">
+                <div>
+                  <p class="text-sm font-semibold text-white">Notifications</p>
+                  <p class="text-xs text-gray-400">{{ unreadCount }} unread</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button class="text-xs text-brand-400 hover:text-brand-300 transition-colors" @click="markAllNotificationsRead">
+                    Mark all read
+                  </button>
+                  <button class="text-xs text-red-400 hover:text-red-300 transition-colors" @click="clearNotifications">
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="notifications.length === 0" class="px-4 py-8 text-center text-sm text-gray-500">
+                No notifications yet.
+              </div>
+
+              <div v-else class="max-h-[380px] overflow-auto">
+                <button
+                  v-for="item in notifications"
+                  :key="item.id"
+                  class="w-full text-left px-4 py-3 border-b border-panel-border/60 hover:bg-panel-dark/60 transition-colors"
+                  @click="openNotification(item.id)"
+                >
+                  <div class="flex items-start gap-3">
+                    <span class="mt-1.5 w-2 h-2 rounded-full" :class="notificationDotClass(item.type)"></span>
+                    <div class="min-w-0 flex-1">
+                      <p class="text-sm font-medium text-white truncate">{{ item.title }}</p>
+                      <p class="text-xs text-gray-400 mt-0.5 break-words">{{ item.message }}</p>
+                      <p class="text-[11px] text-gray-500 mt-1">{{ formatNotificationTime(item.createdAt) }}</p>
+                    </div>
+                    <span v-if="!item.read" class="text-[10px] text-brand-400 font-semibold">NEW</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3 pl-5 border-l border-panel-border relative group">
             <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-brand-600 to-brand-400 flex items-center justify-center text-sm font-bold text-white shadow-lg">
               {{ authStore.user ? authStore.user.name.charAt(0) : 'A' }}
             </div>
@@ -259,10 +359,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useNotificationStore } from '../stores/notifications'
 import { 
   Activity, 
   LayoutDashboard, 
@@ -287,18 +388,26 @@ import {
   ScrollText
   ,
   Table2,
-  Settings2
+  Settings2,
+  Lock,
+  KeyRound
 } from 'lucide-vue-next'
 
 const { t } = useI18n()
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+const notificationStore = useNotificationStore()
 const toggleMenu = ref(false)
 const dockerMenuOpen = ref(false)
 const securityMenuOpen = ref(false)
+const sslMenuOpen = ref(false)
 const commandOpen = ref(false)
 const commandQuery = ref('')
+const notificationOpen = ref(false)
+
+const notifications = computed(() => notificationStore.orderedItems.slice(0, 50))
+const unreadCount = computed(() => notificationStore.unreadCount)
 
 const commandItems = [
   { label: 'Dashboard', path: '/' },
@@ -308,7 +417,11 @@ const commandItems = [
   { label: 'Databases', path: '/databases' },
   { label: 'AuraDB Explorer', path: '/auradb' },
   { label: 'Emails', path: '/emails' },
+  { label: 'FTP', path: '/ftp' },
   { label: 'DNS', path: '/dns' },
+  { label: 'Manage SSL', path: '/ssl?tab=manage' },
+  { label: 'Hostname SSL', path: '/ssl?tab=hostname' },
+  { label: 'MailServer SSL', path: '/ssl?tab=mail' },
   { label: 'Security', path: '/security' },
   { label: 'App Runtime', path: '/app-runtime' },
   { label: 'MinIO', path: '/minio' },
@@ -326,6 +439,12 @@ const commandItems = [
 
 const isDockerRoute = computed(() => route.path.startsWith('/docker'))
 const isSecurityRoute = computed(() => route.path.startsWith('/security'))
+const isSslRoute = computed(() => route.path.startsWith('/ssl'))
+const isSslTabActive = (tab) => {
+  if (!isSslRoute.value) return false
+  const selectedTab = typeof route.query.tab === 'string' ? route.query.tab : 'manage'
+  return selectedTab === tab
+}
 const filteredCommandItems = computed(() => {
   const q = commandQuery.value.trim().toLowerCase()
   if (!q) return commandItems
@@ -342,9 +461,48 @@ if (route.path.startsWith('/security')) {
   securityMenuOpen.value = true
 }
 
+// Auto-open SSL menu if on an SSL route
+if (route.path.startsWith('/ssl')) {
+  sslMenuOpen.value = true
+}
+
 const handleLogout = () => {
   authStore.logout()
   router.push('/login')
+}
+
+const notificationDotClass = (type) => {
+  if (type === 'success') return 'bg-green-400'
+  if (type === 'warning') return 'bg-yellow-400'
+  if (type === 'error') return 'bg-red-400'
+  return 'bg-blue-400'
+}
+
+const formatNotificationTime = (timestamp) => {
+  const value = Number(timestamp || 0)
+  if (!value) return '-'
+  const diffMs = Date.now() - value
+  const diffMin = Math.floor(diffMs / 60000)
+  if (diffMin < 1) return 'just now'
+  if (diffMin < 60) return `${diffMin} min ago`
+  const diffHour = Math.floor(diffMin / 60)
+  if (diffHour < 24) return `${diffHour} h ago`
+  const diffDay = Math.floor(diffHour / 24)
+  if (diffDay < 7) return `${diffDay} d ago`
+  return new Date(value).toLocaleString()
+}
+
+const openNotification = (id) => {
+  notificationStore.markRead(id)
+}
+
+const markAllNotificationsRead = () => {
+  notificationStore.markAllRead()
+}
+
+const clearNotifications = () => {
+  notificationStore.clearAll()
+  notificationOpen.value = false
 }
 
 const onKeydown = (e) => {
@@ -355,6 +513,10 @@ const onKeydown = (e) => {
   }
   if (e.key === 'Escape' && commandOpen.value) {
     commandOpen.value = false
+    return
+  }
+  if (e.key === 'Escape' && notificationOpen.value) {
+    notificationOpen.value = false
   }
 }
 
@@ -362,6 +524,11 @@ const openCommandRoute = (path) => {
   commandOpen.value = false
   router.push(path)
 }
+
+watch(() => route.fullPath, () => {
+  toggleMenu.value = false
+  notificationOpen.value = false
+})
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)

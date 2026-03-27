@@ -3,6 +3,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -83,6 +84,12 @@ pub struct MailDkimRecord {
 pub struct MailWebmailSsoRequest {
     pub address: String,
     pub ttl_seconds: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MailboxPasswordResetRequest {
+    pub address: String,
+    pub new_password: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -229,9 +236,380 @@ impl MailManager {
         fs::write(path, payload).map_err(|e| e.to_string())
     }
 
+    fn backend_is_vmail() -> bool {
+        matches!(
+            Self::backend().as_str(),
+            "vmail" | "postfix-dovecot" | "postfix_dovecot"
+        )
+    }
+
+    fn dovecot_users_file() -> PathBuf {
+        PathBuf::from(
+            std::env::var("AURAPANEL_MAIL_DOVECOT_USERS_FILE")
+                .unwrap_or_else(|_| "/etc/dovecot/users".to_string()),
+        )
+    }
+
+    fn postfix_mailbox_map_file() -> PathBuf {
+        PathBuf::from(
+            std::env::var("AURAPANEL_MAIL_POSTFIX_MAILBOX_MAP")
+                .unwrap_or_else(|_| "/etc/postfix/vmailbox".to_string()),
+        )
+    }
+
+    fn postfix_alias_map_file() -> PathBuf {
+        PathBuf::from(
+            std::env::var("AURAPANEL_MAIL_POSTFIX_ALIAS_MAP")
+                .unwrap_or_else(|_| "/etc/postfix/virtual".to_string()),
+        )
+    }
+
+    fn postfix_routing_map_file() -> PathBuf {
+        PathBuf::from(
+            std::env::var("AURAPANEL_MAIL_POSTFIX_ROUTING_MAP")
+                .unwrap_or_else(|_| "/etc/postfix/virtual_regexp".to_string()),
+        )
+    }
+
+    fn vmail_base_dir() -> PathBuf {
+        PathBuf::from(
+            std::env::var("AURAPANEL_MAIL_VMAIL_BASE")
+                .unwrap_or_else(|_| "/var/mail/vhosts".to_string()),
+        )
+    }
+
+    fn vmail_uid() -> String {
+        std::env::var("AURAPANEL_MAIL_VMAIL_UID")
+            .ok()
+            .filter(|x| !x.trim().is_empty())
+            .unwrap_or_else(|| "5000".to_string())
+    }
+
+    fn vmail_gid() -> String {
+        std::env::var("AURAPANEL_MAIL_VMAIL_GID")
+            .ok()
+            .filter(|x| !x.trim().is_empty())
+            .unwrap_or_else(|| "5000".to_string())
+    }
+
+    fn vmail_quota_mb(config_quota: u32) -> u32 {
+        config_quota.clamp(64, 102400)
+    }
+
+    fn dovecot_user_record(address: &str, pass_hash: &str, mail_root: &Path, quota_mb: u32) -> String {
+        format!(
+            "{}:{}:{}:{}::{}::userdb_mail=maildir:{}/Maildir userdb_quota_rule=*:storage={}M",
+            address,
+            pass_hash,
+            Self::vmail_uid(),
+            Self::vmail_gid(),
+            mail_root.display(),
+            mail_root.display(),
+            quota_mb
+        )
+    }
+
+    fn ensure_maildir_permissions(path: &Path) -> Result<(), String> {
+        if crate::runtime::simulation_enabled() || cfg!(windows) {
+            return Ok(());
+        }
+
+        fs::create_dir_all(path).map_err(|e| e.to_string())?;
+        let maildir = path.join("Maildir");
+        fs::create_dir_all(maildir.join("cur")).map_err(|e| e.to_string())?;
+        fs::create_dir_all(maildir.join("new")).map_err(|e| e.to_string())?;
+        fs::create_dir_all(maildir.join("tmp")).map_err(|e| e.to_string())?;
+
+        let uid_gid = format!("{}:{}", Self::vmail_uid(), Self::vmail_gid());
+        let _ = Command::new("chown")
+            .args(["-R", &uid_gid, path.to_string_lossy().as_ref()])
+            .output();
+        let _ = Command::new("chmod")
+            .args(["750", path.to_string_lossy().as_ref()])
+            .output();
+        let _ = Command::new("chmod")
+            .args(["-R", "750", maildir.to_string_lossy().as_ref()])
+            .output();
+        Ok(())
+    }
+
+    fn ensure_file(path: &Path) -> Result<(), String> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        if !path.exists() {
+            fs::write(path, "").map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    fn hash_password(password: &str) -> String {
+        if crate::runtime::simulation_enabled() || cfg!(windows) {
+            return format!("{{PLAIN}}{}", password);
+        }
+
+        if let Ok(output) = Command::new("doveadm")
+            .args(["pw", "-s", "SHA512-CRYPT", "-p", password])
+            .output()
+        {
+            if output.status.success() {
+                let hashed = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !hashed.is_empty() {
+                    return hashed;
+                }
+            }
+        }
+
+        if let Ok(output) = Command::new("openssl").args(["passwd", "-6", password]).output() {
+            if output.status.success() {
+                let hashed = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !hashed.is_empty() {
+                    return hashed;
+                }
+            }
+        }
+
+        format!("{{PLAIN}}{}", password)
+    }
+
+    fn maildir_base_path(domain: &str, username: &str) -> PathBuf {
+        Self::vmail_base_dir().join(domain).join(username)
+    }
+
+    fn username_from_address(address: &str) -> Option<String> {
+        let mut parts = address.split('@');
+        let user = parts.next()?.trim();
+        if user.is_empty() {
+            return None;
+        }
+        Some(Self::sanitize_local_part(user))
+    }
+
+    fn read_lines(path: &Path) -> Result<Vec<String>, String> {
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let raw = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        Ok(raw.lines().map(|x| x.to_string()).collect())
+    }
+
+    fn write_lines(path: &Path, lines: &[String]) -> Result<(), String> {
+        Self::ensure_file(path)?;
+        let content = if lines.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", lines.join("\n"))
+        };
+        fs::write(path, content).map_err(|e| e.to_string())
+    }
+
+    fn postmap(path: &Path) -> Result<(), String> {
+        if crate::runtime::simulation_enabled() || cfg!(windows) {
+            return Ok(());
+        }
+        let output = Command::new("postmap")
+            .arg(path.as_os_str())
+            .output()
+            .map_err(|e| format!("postmap calistirilamadi: {}", e))?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        }
+    }
+
+    fn reload_service(unit: &str) {
+        if crate::runtime::simulation_enabled() || cfg!(windows) {
+            return;
+        }
+        let _ = Command::new("systemctl").args(["reload", unit]).output();
+        let _ = Command::new("systemctl").args(["restart", unit]).output();
+    }
+
+    fn apply_vmail_mailbox_create(
+        address: &str,
+        domain: &str,
+        username: &str,
+        password: &str,
+        quota_mb: u32,
+    ) -> Result<(), String> {
+        let dovecot_users = Self::dovecot_users_file();
+        let postfix_mailbox = Self::postfix_mailbox_map_file();
+
+        Self::ensure_file(&dovecot_users)?;
+        Self::ensure_file(&postfix_mailbox)?;
+
+        let base = Self::maildir_base_path(domain, username);
+        Self::ensure_maildir_permissions(&base)?;
+
+        let mut dovecot_lines = Self::read_lines(&dovecot_users)?;
+        dovecot_lines.retain(|line| !line.starts_with(&format!("{}:", address)));
+        let pass_hash = Self::hash_password(password);
+        let mail_root = Self::maildir_base_path(domain, username);
+        dovecot_lines.push(Self::dovecot_user_record(
+            address,
+            &pass_hash,
+            &mail_root,
+            Self::vmail_quota_mb(quota_mb),
+        ));
+        Self::write_lines(&dovecot_users, &dovecot_lines)?;
+
+        let mut mailbox_lines = Self::read_lines(&postfix_mailbox)?;
+        mailbox_lines.retain(|line| !line.starts_with(&format!("{} ", address)));
+        mailbox_lines.push(format!("{} {}/{}/Maildir/", address, domain, username));
+        Self::write_lines(&postfix_mailbox, &mailbox_lines)?;
+        Self::postmap(&postfix_mailbox)?;
+
+        Self::reload_service("dovecot");
+        Self::reload_service("postfix");
+        Ok(())
+    }
+
+    fn apply_vmail_mailbox_delete(address: &str) -> Result<(), String> {
+        let dovecot_users = Self::dovecot_users_file();
+        let postfix_mailbox = Self::postfix_mailbox_map_file();
+
+        if dovecot_users.exists() {
+            let mut dovecot_lines = Self::read_lines(&dovecot_users)?;
+            dovecot_lines.retain(|line| !line.starts_with(&format!("{}:", address)));
+            Self::write_lines(&dovecot_users, &dovecot_lines)?;
+        }
+
+        if postfix_mailbox.exists() {
+            let mut mailbox_lines = Self::read_lines(&postfix_mailbox)?;
+            mailbox_lines.retain(|line| !line.starts_with(&format!("{} ", address)));
+            Self::write_lines(&postfix_mailbox, &mailbox_lines)?;
+            Self::postmap(&postfix_mailbox)?;
+        }
+
+        if !crate::runtime::simulation_enabled() && !cfg!(windows) {
+            let domain = address.split('@').nth(1).unwrap_or_default();
+            let user = Self::username_from_address(address).unwrap_or_default();
+            if !domain.is_empty() && !user.is_empty() {
+                let mail_root = Self::maildir_base_path(domain, &user);
+                let _ = fs::remove_dir_all(mail_root);
+            }
+        }
+
+        Self::reload_service("dovecot");
+        Self::reload_service("postfix");
+        Ok(())
+    }
+
+    fn apply_vmail_mailbox_password_reset(address: &str, new_password: &str, quota_mb: u32) -> Result<(), String> {
+        let dovecot_users = Self::dovecot_users_file();
+        Self::ensure_file(&dovecot_users)?;
+
+        let mut lines = Self::read_lines(&dovecot_users)?;
+        let mut updated = false;
+        let new_hash = Self::hash_password(new_password);
+
+        for line in &mut lines {
+            if line.starts_with(&format!("{}:", address)) {
+                let parts: Vec<&str> = line.splitn(3, ':').collect();
+                if parts.len() == 3 {
+                    *line = format!("{}:{}:{}", parts[0], new_hash, parts[2]);
+                } else {
+                    *line = format!("{}:{}", address, new_hash);
+                }
+                updated = true;
+                break;
+            }
+        }
+
+        if !updated {
+            let domain = address.split('@').nth(1).unwrap_or_default();
+            let user = Self::username_from_address(address).unwrap_or_default();
+            if domain.is_empty() || user.is_empty() {
+                return Err("Mailbox backend kaydi bulunamadi.".to_string());
+            }
+            let mail_root = Self::maildir_base_path(domain, &user);
+            Self::ensure_maildir_permissions(&mail_root)?;
+            lines.push(Self::dovecot_user_record(
+                address,
+                &new_hash,
+                &mail_root,
+                Self::vmail_quota_mb(quota_mb),
+            ));
+        }
+
+        Self::write_lines(&dovecot_users, &lines)?;
+        Self::reload_service("dovecot");
+        Ok(())
+    }
+
+    fn sync_vmail_alias_maps(state: &MailState) -> Result<(), String> {
+        let alias_map = Self::postfix_alias_map_file();
+        Self::ensure_file(&alias_map)?;
+
+        let mut lines: Vec<String> = Vec::new();
+        lines.push("# AuraPanel managed virtual alias map".to_string());
+
+        for rule in &state.forwards {
+            lines.push(format!("{} {}", rule.source, rule.target));
+        }
+
+        for rule in &state.catch_all {
+            if rule.enabled && !rule.target.trim().is_empty() {
+                lines.push(format!("@{} {}", rule.domain, rule.target));
+            }
+        }
+
+        Self::write_lines(&alias_map, &lines)?;
+        Self::postmap(&alias_map)?;
+        Self::reload_service("postfix");
+        Ok(())
+    }
+
+    fn escape_regex_literal(value: &str) -> String {
+        let mut out = String::new();
+        for ch in value.chars() {
+            match ch {
+                '\\' | '.' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|' => {
+                    out.push('\\');
+                    out.push(ch);
+                }
+                _ => out.push(ch),
+            }
+        }
+        out
+    }
+
+    fn routing_pattern_to_regex(pattern: &str) -> String {
+        let value = pattern.trim();
+        if value.starts_with('/') && value.ends_with('/') && value.len() > 2 {
+            return value[1..value.len() - 1].to_string();
+        }
+        if value.contains('*') {
+            let escaped = Self::escape_regex_literal(value);
+            let wildcard = escaped.replace('*', ".*");
+            return format!("^{}$", wildcard);
+        }
+        format!("^{}$", Self::escape_regex_literal(value))
+    }
+
+    fn sync_vmail_routing_map(state: &MailState) -> Result<(), String> {
+        let routing_map = Self::postfix_routing_map_file();
+        Self::ensure_file(&routing_map)?;
+
+        let mut items = state.routing.clone();
+        items.sort_by(|a, b| a.priority.cmp(&b.priority).then(a.pattern.cmp(&b.pattern)));
+
+        let mut lines: Vec<String> = Vec::new();
+        lines.push("# AuraPanel managed routing regexp map".to_string());
+        for rule in items {
+            let regex = Self::routing_pattern_to_regex(&rule.pattern);
+            lines.push(format!("{} {}", regex, rule.target));
+        }
+
+        Self::write_lines(&routing_map, &lines)?;
+        Self::reload_service("postfix");
+        Ok(())
+    }
+
     fn validate_backend_for_write() -> Result<(), String> {
         let backend = Self::backend();
-        if backend == "local" {
+        if backend == "local" || Self::backend_is_vmail() {
             return Ok(());
         }
         if crate::runtime::simulation_enabled() {
@@ -239,7 +617,7 @@ impl MailManager {
             return Ok(());
         }
         Err(format!(
-            "Mail backend '{}' is not implemented yet. Set AURAPANEL_MAIL_BACKEND=local or enable AURAPANEL_DEV_SIMULATION=1.",
+            "Mail backend '{}' is not implemented yet. Supported backends: local, vmail.",
             backend
         ))
     }
@@ -267,12 +645,23 @@ impl MailManager {
         let next_id = state.mailboxes.iter().map(|m| m.id).max().unwrap_or(0) + 1;
         state.mailboxes.push(LocalMailbox {
             id: next_id,
-            address: email_address,
-            domain,
+            address: email_address.clone(),
+            domain: domain.clone(),
             quota_mb: config.quota_mb.max(128),
             used_mb: 0,
         });
-        Self::save_state(&state)
+        Self::save_state(&state)?;
+
+        if Self::backend_is_vmail() {
+            Self::apply_vmail_mailbox_create(
+                &email_address,
+                &domain,
+                &username,
+                &config.password,
+                config.quota_mb,
+            )?;
+        }
+        Ok(())
     }
 
     pub async fn delete_mailbox(email: &str) -> Result<(), String> {
@@ -285,7 +674,36 @@ impl MailManager {
         let mut state = Self::load_state()?;
         state.mailboxes.retain(|m| m.address != address);
         state.forwards.retain(|f| f.source != address);
-        Self::save_state(&state)
+        Self::save_state(&state)?;
+
+        if Self::backend_is_vmail() {
+            Self::apply_vmail_mailbox_delete(&address)?;
+            Self::sync_vmail_alias_maps(&state)?;
+        }
+        Ok(())
+    }
+
+    pub fn reset_mailbox_password(req: &MailboxPasswordResetRequest) -> Result<(), String> {
+        Self::validate_backend_for_write()?;
+        let address = req.address.trim().to_ascii_lowercase();
+        let new_password = req.new_password.trim().to_string();
+
+        if address.is_empty() || !address.contains('@') {
+            return Err("valid address is required.".to_string());
+        }
+        if new_password.is_empty() {
+            return Err("new_password is required.".to_string());
+        }
+
+        let state = Self::load_state()?;
+        let Some(mailbox) = state.mailboxes.iter().find(|x| x.address == address) else {
+            return Err("Mailbox not found.".to_string());
+        };
+
+        if Self::backend_is_vmail() {
+            Self::apply_vmail_mailbox_password_reset(&address, &new_password, mailbox.quota_mb)?;
+        }
+        Ok(())
     }
 
     pub fn list_forwards(domain: Option<&str>) -> Result<Vec<MailForwardRule>, String> {
@@ -323,6 +741,9 @@ impl MailManager {
             existing.target = target.clone();
             let updated = existing.clone();
             Self::save_state(&state)?;
+            if Self::backend_is_vmail() {
+                Self::sync_vmail_alias_maps(&state)?;
+            }
             return Ok(updated);
         }
 
@@ -334,6 +755,9 @@ impl MailManager {
         };
         state.forwards.push(entry.clone());
         Self::save_state(&state)?;
+        if Self::backend_is_vmail() {
+            Self::sync_vmail_alias_maps(&state)?;
+        }
         Ok(entry)
     }
 
@@ -348,7 +772,11 @@ impl MailManager {
         if before == state.forwards.len() {
             return Err("Forward rule not found.".to_string());
         }
-        Self::save_state(&state)
+        Self::save_state(&state)?;
+        if Self::backend_is_vmail() {
+            Self::sync_vmail_alias_maps(&state)?;
+        }
+        Ok(())
     }
 
     pub fn get_catch_all(domain: &str) -> Result<Option<MailCatchAllRule>, String> {
@@ -381,6 +809,9 @@ impl MailManager {
             existing.updated_at = now;
             let out = existing.clone();
             Self::save_state(&state)?;
+            if Self::backend_is_vmail() {
+                Self::sync_vmail_alias_maps(&state)?;
+            }
             return Ok(out);
         }
 
@@ -392,6 +823,9 @@ impl MailManager {
         };
         state.catch_all.push(entry.clone());
         Self::save_state(&state)?;
+        if Self::backend_is_vmail() {
+            Self::sync_vmail_alias_maps(&state)?;
+        }
         Ok(entry)
     }
 
@@ -437,6 +871,9 @@ impl MailManager {
         };
         state.routing.push(entry.clone());
         Self::save_state(&state)?;
+        if Self::backend_is_vmail() {
+            Self::sync_vmail_routing_map(&state)?;
+        }
         Ok(entry)
     }
 
@@ -451,7 +888,11 @@ impl MailManager {
         if before == state.routing.len() {
             return Err("Routing rule not found.".to_string());
         }
-        Self::save_state(&state)
+        Self::save_state(&state)?;
+        if Self::backend_is_vmail() {
+            Self::sync_vmail_routing_map(&state)?;
+        }
+        Ok(())
     }
 
     pub fn get_dkim(domain: &str) -> Result<Option<MailDkimRecord>, String> {
@@ -516,7 +957,7 @@ impl MailManager {
         let token = format!("{:x}.{:x}", sig, expires_at);
 
         let base = std::env::var("AURAPANEL_WEBMAIL_BASE_URL")
-            .unwrap_or_else(|_| "https://webmail.local".to_string())
+            .unwrap_or_else(|_| "http://127.0.0.1/webmail".to_string())
             .trim()
             .trim_end_matches('/')
             .to_string();

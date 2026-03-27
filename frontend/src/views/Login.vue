@@ -2,10 +2,14 @@
   <div class="min-h-screen bg-panel-darker flex items-center justify-center p-4">
     <div class="w-full max-w-md">
       <div class="text-center mb-8">
-        <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-brand-600 to-brand-400 mb-4 shadow-lg shadow-brand-500/20">
-          <Activity class="w-8 h-8 text-white" />
+        <div class="flex justify-center mb-4">
+          <img
+            src="/aurapanel-logo.png"
+            alt="AuraPanel Logo"
+            class="h-12 w-auto max-w-[280px] object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.35)]"
+          />
         </div>
-        <h1 class="text-3xl font-bold text-white tracking-wide">Aura<span class="text-brand-400">Panel</span></h1>
+        <h1 class="text-3xl font-bold text-white tracking-wide">AuraPanel</h1>
         <p class="text-gray-400 mt-2">Web Hosting Control Panel</p>
       </div>
 
@@ -62,7 +66,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { Activity, User, KeyRound, LogOut, AlertCircle, Loader2 } from 'lucide-vue-next'
+import { User, KeyRound, LogOut, AlertCircle, Loader2 } from 'lucide-vue-next'
 
 const router = useRouter()
 const authStore = useAuthStore()

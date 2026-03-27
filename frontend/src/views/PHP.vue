@@ -1,5 +1,5 @@
 <template>
-  <div class="space-y-6">
+  <div class="space-y-6 php-theme">
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
@@ -71,7 +71,7 @@
                 <span class="px-2 py-0.5 bg-green-500/15 text-green-400 rounded text-xs font-medium">PHP {{ site.php }}</span>
               </td>
               <td class="px-4 py-3">
-                <select v-model="site.php" @change="changePhp(site)" class="px-3 py-1.5 bg-panel-hover border border-panel-border rounded-lg text-white text-sm focus:outline-none focus:border-orange-500">
+                <select v-model="site.php" @change="changePhp(site)" class="php-field px-3 py-1.5 bg-panel-hover border border-panel-border rounded-lg text-white text-sm focus:outline-none focus:border-orange-500">
                   <option v-for="v in installedVersions" :key="v" :value="v">PHP {{ v }}</option>
                 </select>
               </td>
@@ -84,7 +84,7 @@
       <!-- Extensions Tab -->
       <div v-if="tab === 'extensions'">
         <div class="flex items-center gap-4 mb-4">
-          <select v-model="selectedExtVersion" class="px-4 py-2 bg-panel-hover border border-panel-border rounded-lg text-white text-sm focus:outline-none focus:border-orange-500">
+          <select v-model="selectedExtVersion" class="php-field px-4 py-2 bg-panel-hover border border-panel-border rounded-lg text-white text-sm focus:outline-none focus:border-orange-500">
             <option v-for="v in installedVersions" :key="v" :value="v">PHP {{ v }}</option>
           </select>
         </div>
@@ -105,7 +105,7 @@
       <!-- php.ini Tab -->
       <div v-if="tab === 'config'">
         <div class="flex items-center gap-4 mb-4">
-          <select v-model="selectedConfigVersion" @change="loadPhpIni" class="px-4 py-2 bg-panel-hover border border-panel-border rounded-lg text-white text-sm focus:outline-none">
+          <select v-model="selectedConfigVersion" @change="loadPhpIni" class="php-field px-4 py-2 bg-panel-hover border border-panel-border rounded-lg text-white text-sm focus:outline-none">
             <option v-for="v in installedVersions" :key="v" :value="v">PHP {{ v }}</option>
           </select>
           <button @click="savePhpIni" class="px-5 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition">💾 Kaydet</button>
@@ -113,8 +113,8 @@
         <div class="bg-panel-card border border-panel-border rounded-xl overflow-hidden">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-5">
             <div v-for="opt in phpIniOptions" :key="opt.key">
-              <label class="block text-sm text-gray-400 mb-1">{{ opt.key }}</label>
-              <input v-model="opt.value" type="text" class="w-full px-3 py-2 bg-panel-hover border border-panel-border rounded-lg text-white text-sm focus:outline-none focus:border-orange-500">
+              <label class="block text-sm text-gray-400 mb-1 php-field-label">{{ opt.key }}</label>
+              <input v-model="opt.value" type="text" class="php-field w-full px-3 py-2 bg-panel-hover border border-panel-border rounded-lg text-white text-sm focus:outline-none focus:border-orange-500">
             </div>
           </div>
         </div>
@@ -256,3 +256,29 @@ const toggleExtension = (ext) => {
 
 onMounted(loadData)
 </script>
+
+<style scoped>
+.php-theme .php-field {
+  background-color: #1f2d44 !important;
+  color: #fb923c !important;
+  border-color: rgba(251, 146, 60, 0.45) !important;
+}
+
+.php-theme .php-field:focus {
+  border-color: #fb923c !important;
+  box-shadow: 0 0 0 2px rgba(251, 146, 60, 0.2);
+}
+
+.php-theme .php-field::placeholder {
+  color: rgba(251, 146, 60, 0.7);
+}
+
+.php-theme .php-field option {
+  background: #1b263a;
+  color: #fb923c;
+}
+
+.php-theme .php-field-label {
+  color: #fb923c !important;
+}
+</style>

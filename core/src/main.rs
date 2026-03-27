@@ -8,8 +8,6 @@ use axum::{
     Router,
 };
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use tower_http::cors::{Any, CorsLayer};
-use axum::http::{Method, header};
 
 mod api;
 mod auth;
@@ -36,16 +34,10 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Gateway-only mode: {}", runtime::gateway_only_enabled());
     let bind_addr = runtime::core_bind_addr();
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::PATCH, Method::DELETE])
-        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT]);
-
     // build our application with a route
     let app = Router::new()
         .route("/", get(|| async { "AuraPanel Core - System is healthy." }))
-        .nest("/api/v1", api::routes())
-        .layer(cors);
+        .nest("/api/v1", api::routes());
 
     // run it
     let listener = tokio::net::TcpListener::bind(&bind_addr)

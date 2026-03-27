@@ -53,9 +53,19 @@ const routes = [
         component: () => import('../views/Emails.vue')
       },
       {
+        path: 'ftp',
+        name: 'FTP',
+        component: () => import('../views/FTP.vue')
+      },
+      {
         path: 'dns',
         name: 'DNS',
         component: () => import('../views/DNS.vue')
+      },
+      {
+        path: 'ssl',
+        name: 'SSL',
+        component: () => import('../views/SSL.vue')
       },
       {
         path: 'security',

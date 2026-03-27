@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { useAuthStore } from '../stores/auth'
+import { useNotificationStore } from '../stores/notifications'
 
-// API Gateway Base URL
 const defaultBaseUrl = typeof window !== 'undefined'
   ? '/api/v1'
   : 'http://127.0.0.1:8090/api/v1'
@@ -11,11 +11,26 @@ const api = axios.create({
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
-    'Accept': 'application/json'
-  }
+    Accept: 'application/json',
+  },
 })
 
-// Request Interceptor (Auth Token Enjeksiyonu)
+const silentErrorHeader = 'X-Aura-Silent-Error'
+
+function extractErrorMessage(error) {
+  const responseData = error?.response?.data
+  if (typeof responseData?.message === 'string' && responseData.message.trim()) {
+    return responseData.message.trim()
+  }
+  if (typeof responseData?.error === 'string' && responseData.error.trim()) {
+    return responseData.error.trim()
+  }
+  if (typeof error?.message === 'string' && error.message.trim()) {
+    return error.message.trim()
+  }
+  return 'Unknown API error'
+}
+
 api.interceptors.request.use(config => {
   const authStore = useAuthStore()
   if (authStore.token && authStore.isTokenExpired(authStore.token)) {
@@ -27,20 +42,38 @@ api.interceptors.request.use(config => {
     config.headers.Authorization = `Bearer ${authStore.token}`
   }
   return config
-}, error => {
-  return Promise.reject(error)
-})
+}, error => Promise.reject(error))
 
-// Response Interceptor (Hata Kontrolü)
-api.interceptors.response.use(response => {
-  return response
-}, error => {
+api.interceptors.response.use(response => response, error => {
   const authStore = useAuthStore()
-  // Token süresi dolduysa / 401 Unauthorized
-  if (error.response && error.response.status === 401) {
+  const notificationStore = useNotificationStore()
+  const status = Number(error?.response?.status || 0)
+  const reqUrl = String(error?.config?.url || '')
+  const silentError = String(error?.config?.headers?.[silentErrorHeader] || '').toLowerCase() === '1'
+  const isLoginRequest = reqUrl.includes('/auth/login')
+
+  if (status === 401 && !isLoginRequest) {
+    notificationStore.add({
+      title: 'Session Ended',
+      message: 'Your session expired. Please sign in again.',
+      type: 'warning',
+      source: 'auth',
+    })
     authStore.logout()
     window.location.href = '/login'
+    return Promise.reject(error)
   }
+
+  if (!silentError) {
+    const statusText = status > 0 ? `HTTP ${status}` : 'Network Error'
+    notificationStore.add({
+      title: `API Error - ${statusText}`,
+      message: reqUrl ? `${reqUrl}: ${extractErrorMessage(error)}` : extractErrorMessage(error),
+      type: 'error',
+      source: 'api',
+    })
+  }
+
   return Promise.reject(error)
 })
 

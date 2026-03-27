@@ -149,3 +149,23 @@ Bu proje **MIT** lisansı altında dağıtılmaktadır. Detaylar için [LICENSE]
 <p align="center">
   <b>AuraPanel</b> — Sunucu yönetiminin geleceği. 🌌
 </p>
+
+## Proje Ilerleme Grafigi
+
+**Genel Ilerleme:** `78%`
+
+```
+[###############################---------] 78%
+```
+
+| Alan | Tamamlanma |
+|---|---|
+| Core + API + Frontend Lifecycle | 85% |
+| Security + Status + SSL + FTP | 82% |
+| Mail Stack Production Hardening | 74% |
+| Installer + Distribution Hardening | 76% |
+
+## Yapimcilar
+
+- **Mkoyazilim** — [mkoyazilim](https://github.com/mkoyazilim)
+- **Tahamada**

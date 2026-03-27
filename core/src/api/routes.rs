@@ -29,6 +29,7 @@ use crate::services::mail::{
     MailRoutingConfig,
     MailRoutingDeleteRequest,
     MailWebmailSsoRequest,
+    MailboxPasswordResetRequest,
 };
 use crate::services::perf::{PerfManager, RedisConfig};
 use crate::services::security::{SecurityManager, FirewallRule, HardeningRequest};
@@ -41,6 +42,8 @@ use crate::services::secure_connect::{
     SecureConnectManager,
     SftpUserConfig,
     SftpPasswordResetRequest,
+    FtpUserConfig,
+    FtpPasswordResetRequest,
 };
 use crate::services::storage::{BackupManager, BackupConfig, StorageManager, MinioBucketRequest, MinioCredentialsRequest};
 use crate::services::monitor::gitops::{GitOpsManager, GitOpsConfig};
@@ -135,6 +138,7 @@ pub fn routes() -> Router {
         .route("/mail/create", post(create_mailbox_handler))
         .route("/mail/list", get(mail_list_handler))
         .route("/mail/delete", post(mail_delete_handler))
+        .route("/mail/password", post(mail_password_reset_handler))
         .route("/mail/forwards", get(mail_forwards_list_handler))
         .route("/mail/forwards", post(mail_forwards_create_handler))
         .route("/mail/forwards", axum::routing::delete(mail_forwards_delete_handler))
@@ -189,6 +193,14 @@ pub fn routes() -> Router {
         .route("/federated/nodes", get(cluster_nodes_list_handler))
         .route("/federated/mode", get(cluster_mode_handler))
         .route("/ssl/issue", post(issue_ssl_handler))
+        .route("/ssl/details", post(ssl_details_handler))
+        .route("/ssl/hostname/issue", post(issue_hostname_ssl_handler))
+        .route("/ssl/mail/issue", post(issue_mail_ssl_handler))
+        .route("/ssl/bindings", get(ssl_bindings_handler))
+        .route("/ftp/create", post(create_ftp_handler))
+        .route("/ftp/list", get(list_ftp_handler))
+        .route("/ftp/delete", post(delete_ftp_handler))
+        .route("/ftp/password", post(reset_ftp_password_handler))
         .route("/sftp/create", post(create_sftp_handler))
         .route("/sftp/list", get(list_sftp_handler))
         .route("/sftp/delete", post(delete_sftp_handler))
@@ -1149,6 +1161,123 @@ async fn issue_ssl_handler(
             "status": "error",
             "message": e,
         })),
+    }
+}
+
+#[derive(Deserialize)]
+struct SslDetailsRequest {
+    domain: String,
+}
+
+async fn ssl_details_handler(
+    Json(payload): Json<SslDetailsRequest>,
+) -> Json<serde_json::Value> {
+    match SslManager::certificate_details(&payload.domain) {
+        Ok(data) => Json(json!({
+            "status": "success",
+            "data": data,
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
+async fn issue_hostname_ssl_handler(
+    Json(payload): Json<SslConfig>,
+) -> Json<serde_json::Value> {
+    match SslManager::issue_hostname_certificate(&payload).await {
+        Ok(_) => Json(json!({
+            "status": "success",
+            "message": format!("Hostname SSL certificate issued for {}.", payload.domain),
+            "warning": "Certificate was issued. Panel TLS listener binding should be configured in gateway/reverse-proxy.",
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
+async fn issue_mail_ssl_handler(
+    Json(payload): Json<SslConfig>,
+) -> Json<serde_json::Value> {
+    match SslManager::issue_mail_server_certificate(&payload).await {
+        Ok(_) => Json(json!({
+            "status": "success",
+            "message": format!("Mail server SSL certificate issued for {}.", payload.domain),
+            "warning": "Certificate was issued. Postfix/Dovecot certificate bind should be configured in mail stack integration.",
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
+async fn ssl_bindings_handler() -> Json<serde_json::Value> {
+    match SslManager::get_bindings() {
+        Ok(data) => Json(json!({
+            "status": "success",
+            "data": data,
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
+#[derive(Deserialize)]
+struct FtpListQuery {
+    domain: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct FtpDeletePayload {
+    username: String,
+}
+
+async fn create_ftp_handler(
+    Json(payload): Json<FtpUserConfig>,
+) -> Json<serde_json::Value> {
+    match SecureConnectManager::create_ftp_user(&payload) {
+        Ok(_) => Json(json!({
+            "status": "success",
+            "message": format!("FTP user {} created.", payload.username),
+        })),
+        Err(e) => Json(json!({
+            "status": "error",
+            "message": e,
+        })),
+    }
+}
+
+async fn list_ftp_handler(
+    axum::extract::Query(query): axum::extract::Query<FtpListQuery>,
+) -> Json<serde_json::Value> {
+    match SecureConnectManager::list_ftp_users(query.domain.as_deref()) {
+        Ok(data) => Json(json!({ "status": "success", "data": data })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn delete_ftp_handler(
+    Json(payload): Json<FtpDeletePayload>,
+) -> Json<serde_json::Value> {
+    match SecureConnectManager::delete_ftp_user(&payload.username) {
+        Ok(_) => Json(json!({ "status": "success", "message": "FTP user deleted." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn reset_ftp_password_handler(
+    Json(payload): Json<FtpPasswordResetRequest>,
+) -> Json<serde_json::Value> {
+    match SecureConnectManager::reset_ftp_password(&payload) {
+        Ok(_) => Json(json!({ "status": "success", "message": "FTP password updated." })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
 
@@ -2419,6 +2548,15 @@ struct MailRoutingListQuery {
 async fn mail_delete_handler(Json(payload): Json<MailDeletePayload>) -> Json<serde_json::Value> {
     match MailManager::delete_mailbox(&payload.address).await {
         Ok(_) => Json(json!({ "status": "success", "message": format!("{} basariyla silindi.", payload.address) })),
+        Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn mail_password_reset_handler(
+    Json(payload): Json<MailboxPasswordResetRequest>,
+) -> Json<serde_json::Value> {
+    match MailManager::reset_mailbox_password(&payload) {
+        Ok(_) => Json(json!({ "status": "success", "message": format!("{} sifresi guncellendi.", payload.address) })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
     }
 }
