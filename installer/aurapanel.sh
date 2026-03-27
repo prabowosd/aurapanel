@@ -592,6 +592,8 @@ configure_ols_admin_credentials() {
   local ols_pass=""
   local ols_conf_dir="/usr/local/lsws/admin/conf"
   local ols_htpasswd="${ols_conf_dir}/htpasswd"
+  local ols_admin_php="/usr/local/lsws/admin/fcgi-bin/admin_php"
+  local ols_htpasswd_php="/usr/local/lsws/admin/misc/htpasswd.php"
   local applied="0"
   local hashed_pass=""
 
@@ -625,11 +627,13 @@ EOF
     fi
   fi
 
-  hashed_pass="$(openssl passwd -apr1 -- "${ols_pass}" 2>/dev/null || true)"
-  if [ -n "${hashed_pass}" ]; then
-    printf '%s:%s\n' "${ols_user}" "${hashed_pass}" > "${ols_htpasswd}"
-    chmod 600 "${ols_htpasswd}"
-    applied="1"
+  if [ "${applied}" != "1" ] && [ -x "${ols_admin_php}" ] && [ -f "${ols_htpasswd_php}" ]; then
+    hashed_pass="$("${ols_admin_php}" -c /usr/local/lsws/admin/conf/php.ini -q "${ols_htpasswd_php}" "${ols_pass}" 2>/dev/null || true)"
+    if [ -n "${hashed_pass}" ]; then
+      printf '%s:%s\n' "${ols_user}" "${hashed_pass}" > "${ols_htpasswd}"
+      chmod 600 "${ols_htpasswd}"
+      applied="1"
+    fi
   fi
 
   if [ "${applied}" != "1" ]; then
