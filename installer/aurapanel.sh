@@ -493,6 +493,25 @@ ensure_openlitespeed_admin_php() {
   fi
 }
 
+ensure_certbot() {
+  if command -v certbot >/dev/null 2>&1; then
+    ok "Certbot already installed: $(certbot --version 2>/dev/null | head -n1)"
+  else
+    log "Installing Certbot..."
+    install_packages certbot || fail "Certbot installation failed."
+  fi
+
+  if [ "${PKG_MGR}" = "apt" ]; then
+    install_optional_packages python3-certbot-dns-cloudflare python3-certbot-dns-rfc2136
+  else
+    install_optional_packages python3-certbot-dns-cloudflare python3-certbot-dns-rfc2136 certbot-dns-cloudflare certbot-dns-rfc2136
+  fi
+
+  if ! command -v certbot >/dev/null 2>&1; then
+    fail "Certbot binary is missing after installation."
+  fi
+}
+
 configure_ols_admin_credentials() {
   local ols_user="admin"
   local ols_pass=""
@@ -904,6 +923,7 @@ main() {
   ensure_node20
   ensure_openlitespeed
   ensure_openlitespeed_admin_php
+  ensure_certbot
   configure_ols_admin_credentials
   configure_pureftpd
 

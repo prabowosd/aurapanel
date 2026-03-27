@@ -51,6 +51,20 @@ impl SslManager {
         value.trim().trim_end_matches('.').to_ascii_lowercase()
     }
 
+    fn certbot_binary() -> Option<&'static str> {
+        if Path::new("/usr/bin/certbot").exists() {
+            Some("/usr/bin/certbot")
+        } else if Path::new("/snap/bin/certbot").exists() {
+            Some("/snap/bin/certbot")
+        } else {
+            None
+        }
+    }
+
+    fn certbot_missing_message() -> String {
+        "certbot is not installed. Re-run AuraPanel installer, or install manually (Ubuntu/Debian: apt-get install -y certbot; Alma/Rocky: dnf install -y certbot).".to_string()
+    }
+
     fn state_root() -> PathBuf {
         if let Ok(path) = std::env::var("AURAPANEL_STATE_DIR") {
             let p = PathBuf::from(path.trim());
@@ -104,11 +118,8 @@ impl SslManager {
             domain, email
         );
 
-        if !Path::new("/usr/bin/certbot").exists() {
-            return Err("certbot is not installed.".to_string());
-        }
-
-        let output = Command::new("certbot")
+        let certbot_bin = Self::certbot_binary().ok_or_else(Self::certbot_missing_message)?;
+        let output = Command::new(certbot_bin)
             .args([
                 "certonly",
                 "--webroot",
@@ -180,9 +191,7 @@ impl SslManager {
         if domain.is_empty() || email.is_empty() {
             return Err("domain ve email zorunludur.".to_string());
         }
-        if !Path::new("/usr/bin/certbot").exists() {
-            return Err("certbot kurulu degil.".to_string());
-        }
+        let certbot_bin = Self::certbot_binary().ok_or_else(Self::certbot_missing_message)?;
 
         // Prefer automatic DNS plugins when available
         let cf_credentials = format!("/etc/aurapanel/cloudflare-{}.ini", domain);
@@ -190,7 +199,7 @@ impl SslManager {
 
         if Path::new(&cf_credentials).exists() {
             // certbot-dns-cloudflare
-            let output = Command::new("certbot")
+            let output = Command::new(certbot_bin)
                 .args([
                     "certonly",
                     "--dns-cloudflare",
@@ -222,7 +231,7 @@ impl SslManager {
 
         if Path::new(pdns_credentials).exists() {
             // certbot-dns-rfc2136 (compatible with PowerDNS)
-            let output = Command::new("certbot")
+            let output = Command::new(certbot_bin)
                 .args([
                     "certonly",
                     "--dns-rfc2136",
@@ -281,11 +290,8 @@ impl SslManager {
 
     pub fn renew_all() -> Result<(), String> {
         println!("[ACME] Running certbot renew for all domains...");
-        if !Path::new("/usr/bin/certbot").exists() {
-            return Err("certbot is not installed.".to_string());
-        }
-
-        Command::new("certbot")
+        let certbot_bin = Self::certbot_binary().ok_or_else(Self::certbot_missing_message)?;
+        Command::new(certbot_bin)
             .args(["renew", "--quiet"])
             .output()
             .map_err(|e| format!("Renewal failed: {}", e))?;
