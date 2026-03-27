@@ -48,10 +48,13 @@ func main() {
 		})
 	})
 	publicMux.HandleFunc("/api/auth/login", controllers.Login)
-	publicMux.Handle("/api/v1/auth/login", coreProxy)
+	// Keep v1 auth routes on gateway auth handlers so SPA and legacy clients
+	// use the same credential source and token issuer.
+	publicMux.HandleFunc("/api/v1/auth/login", controllers.Login)
 
 	// Protected auth/me routes
 	protectedMux.HandleFunc("/api/auth/me", controllers.Me)
+	protectedMux.HandleFunc("/api/v1/auth/me", controllers.Me)
 
 	// Legacy compatibility routes
 	protectedMux.HandleFunc("/api/system/status", handlers.GetSystemStatus)
@@ -93,6 +96,7 @@ func main() {
 
 	// Protected
 	mainRouter.Handle("/api/auth/me", protectedHandler)
+	mainRouter.Handle("/api/v1/auth/me", protectedHandler)
 	mainRouter.Handle("/api/system/", protectedHandler)
 	mainRouter.Handle("/api/websites", protectedHandler)
 	mainRouter.Handle("/api/v1/", protectedHandler)
