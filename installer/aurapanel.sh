@@ -108,12 +108,12 @@ download_file() {
   local output="$2"
 
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$url" -o "$output"
+    curl -fsSL "$url" -o "$output" || return 1
     return 0
   fi
 
   if command -v wget >/dev/null 2>&1; then
-    wget -q "$url" -O "$output"
+    wget -q "$url" -O "$output" || return 1
     return 0
   fi
 
@@ -368,7 +368,7 @@ configure_mail_stack_vmail() {
     useradd -g vmail -u "${vmail_uid}" -d "${vmail_base}" -m -s /usr/sbin/nologin vmail >/dev/null 2>&1 || true
   fi
 
-  mkdir -p "${vmail_base}" /etc/dovecot /etc/postfix
+  mkdir -p "${vmail_base}" /etc/dovecot /etc/dovecot/conf.d /etc/postfix
   chown -R "${vmail_uid}:${vmail_gid}" "${vmail_base}" >/dev/null 2>&1 || true
   chmod 750 "${vmail_base}" >/dev/null 2>&1 || true
 
@@ -469,11 +469,28 @@ ensure_openlitespeed() {
     curl -fsSL "${LITESPEED_REPO_SCRIPT_URL}" | bash
 
     install_packages openlitespeed || fail "OpenLiteSpeed installation failed."
-    install_optional_packages lsphp83 lsphp83-common lsphp83-mysql lsphp83-curl lsphp83-xml lsphp83-zip lsphp83-opcache
   fi
+
+  # Ensure lsphp toolchain is present even when OpenLiteSpeed was preinstalled.
+  install_optional_packages lsphp83 lsphp83-common lsphp83-mysql lsphp83-curl lsphp83-xml lsphp83-zip lsphp83-opcache
 
   systemctl enable lshttpd >/dev/null 2>&1 || true
   systemctl restart lshttpd >/dev/null 2>&1 || true
+}
+
+ensure_openlitespeed_admin_php() {
+  local admin_php="/usr/local/lsws/admin/fcgi-bin/admin_php"
+  local target_lsphp="/usr/local/lsws/lsphp83/bin/lsphp"
+
+  mkdir -p /usr/local/lsws/admin/fcgi-bin
+  if [ ! -x "${target_lsphp}" ]; then
+    warn "OpenLiteSpeed admin PHP binary missing, trying to reinstall lsphp83..."
+    install_optional_packages lsphp83 lsphp83-common lsphp83-mysql || true
+  fi
+
+  if [ -x "${target_lsphp}" ]; then
+    ln -snf ../../lsphp83/bin/lsphp "${admin_php}"
+  fi
 }
 
 configure_ols_admin_credentials() {
@@ -741,7 +758,12 @@ sync_project() {
       if download_file "${SOURCE_ARCHIVE_URL}" "${archive_file}"; then
         if download_file "${SOURCE_ARCHIVE_SHA256_URL}" "${checksum_file}"; then
           local expected_sha actual_sha
-          expected_sha="$(awk '{print $1}' "${checksum_file}" | head -n1)"
+          if [ ! -s "${checksum_file}" ]; then
+            warn "Source archive checksum file is empty; falling back to git."
+            expected_sha=""
+          else
+            expected_sha="$(awk '{print $1}' "${checksum_file}" | head -n1)"
+          fi
           actual_sha="$(sha256sum "${archive_file}" | awk '{print $1}')"
           if [ -z "${expected_sha}" ] || [ "${expected_sha}" != "${actual_sha}" ]; then
             warn "Source archive checksum mismatch; falling back to git."
@@ -875,12 +897,13 @@ main() {
     install_packages dnf-plugins-core
   fi
 
-  install_optional_packages restic mariadb-server postgresql redis-server redis docker docker.io fail2ban powerdns pdns pure-ftpd postfix dovecot
+  install_optional_packages restic mariadb-server postgresql redis-server redis docker docker.io fail2ban powerdns pdns pure-ftpd postfix dovecot-core dovecot-imapd
 
   ensure_rust
   ensure_go
   ensure_node20
   ensure_openlitespeed
+  ensure_openlitespeed_admin_php
   configure_ols_admin_credentials
   configure_pureftpd
 
