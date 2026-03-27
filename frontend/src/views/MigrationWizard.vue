@@ -4,7 +4,7 @@
       <div>
         <h1 class="text-2xl font-bold text-white">Migration Wizard</h1>
         <p class="text-sm text-gray-400 mt-1">
-          cPanel ve CyberPanel yedeklerini analiz edin, donusum planini ve import durumunu izleyin.
+          cPanel/CyberPanel hesap (tek hesap/site) yedeklerini analiz edin, donusum planini ve import durumunu izleyin.
         </p>
       </div>
       <button class="btn-secondary" @click="resetAll">Temizle</button>
@@ -19,6 +19,9 @@
 
     <div class="aura-card space-y-4">
       <h2 class="text-lg font-semibold text-white">1. Backup Yukle ve Kaynak Sec</h2>
+      <p class="text-xs text-gray-400">
+        Not: Bu ekran su an tam sunucu imaji degil, hesap/site tabanli backup (.tar.gz/.tgz) importu icindir.
+      </p>
       <div class="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <div class="space-y-2 lg:col-span-2">
           <label class="block text-sm text-gray-400">Backup dosyasi (.tar.gz / .tgz)</label>
@@ -219,7 +222,7 @@ async function uploadBackup() {
     const form = new FormData()
     form.append('file', selectedFile.value)
     const res = await api.post('/migration/upload', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 0,
       onUploadProgress: (evt) => {
         if (!evt?.total) return
         uploadProgress.value = Math.round((evt.loaded * 100) / evt.total)

@@ -592,17 +592,22 @@ configure_ols_admin_credentials() {
   local ols_pass=""
   local ols_conf_dir="/usr/local/lsws/admin/conf"
   local ols_htpasswd="${ols_conf_dir}/htpasswd"
+  local applied="0"
+  local hashed_pass=""
 
   if [ -f "${OLS_ADMIN_STATE_FILE}" ]; then
     ols_user="$(read_env_value "${OLS_ADMIN_STATE_FILE}" "AURAPANEL_OLS_ADMIN_USER")"
     ols_pass="$(read_env_value "${OLS_ADMIN_STATE_FILE}" "AURAPANEL_OLS_ADMIN_PASSWORD")"
-    ols_user="${ols_user:-admin}"
-    if [ -n "${ols_pass}" ]; then
-      return
-    fi
   fi
 
-  ols_pass="$(openssl rand -base64 18 | tr -d '\n')"
+  ols_user="${ols_user:-admin}"
+
+  if [ -z "${ols_pass}" ]; then
+    ols_pass="$(LC_ALL=C tr -dc 'A-Za-z0-9@#%+=._-' < /dev/urandom | head -c 22 || true)"
+    if [ -z "${ols_pass}" ]; then
+      ols_pass="$(openssl rand -hex 16 | tr -d '\n')"
+    fi
+  fi
 
   mkdir -p "${GATEWAY_ENV_DIR}" "${ols_conf_dir}"
   cat <<EOF > "${OLS_ADMIN_STATE_FILE}"
@@ -614,11 +619,22 @@ EOF
   if [ -x /usr/local/lsws/admin/misc/admpass.sh ]; then
     if printf '%s\n%s\n%s\n' "${ols_user}" "${ols_pass}" "${ols_pass}" | /usr/local/lsws/admin/misc/admpass.sh >/dev/null 2>&1; then
       ok "OpenLiteSpeed admin password initialized."
+      applied="1"
+    else
+      warn "admpass.sh failed, falling back to htpasswd sync."
     fi
   fi
 
-  printf '%s:%s\n' "${ols_user}" "$(openssl passwd -apr1 "${ols_pass}")" > "${ols_htpasswd}"
-  chmod 600 "${ols_htpasswd}"
+  hashed_pass="$(openssl passwd -apr1 -- "${ols_pass}" 2>/dev/null || true)"
+  if [ -n "${hashed_pass}" ]; then
+    printf '%s:%s\n' "${ols_user}" "${hashed_pass}" > "${ols_htpasswd}"
+    chmod 600 "${ols_htpasswd}"
+    applied="1"
+  fi
+
+  if [ "${applied}" != "1" ]; then
+    fail "OpenLiteSpeed admin credentials could not be applied."
+  fi
 
   systemctl restart lshttpd >/dev/null 2>&1 || true
 }

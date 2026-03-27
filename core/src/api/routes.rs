@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Multipart, Request},
+    extract::{DefaultBodyLimit, Multipart, Request},
     http::{header, HeaderMap, Method, StatusCode},
     middleware::{from_fn, Next},
     response::{IntoResponse, Response},
@@ -8,6 +8,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tokio::io::AsyncWriteExt;
 
 use crate::api::terminal::terminal_ws_handler;
 use crate::auth::jwt;
@@ -854,7 +855,10 @@ pub fn routes() -> Router {
         .route("/files/extract", post(file_extract_handler))
         .route("/files/trash", post(file_trash_handler))
         // Migration / Transfer Wizard
-        .route("/migration/upload", post(migration_upload_handler))
+        .route(
+            "/migration/upload",
+            post(migration_upload_handler).layer(DefaultBodyLimit::max(10 * 1024 * 1024 * 1024)),
+        )
         .route("/migration/analyze", post(migration_analyze_handler))
         .route(
             "/migration/import/start",
@@ -3183,15 +3187,6 @@ async fn migration_upload_handler(mut multipart: Multipart) -> Json<serde_json::
             .file_name()
             .map(sanitize_upload_filename)
             .unwrap_or_else(|| format!("migration-{}.tar.gz", chrono::Utc::now().timestamp()));
-        let data = match field.bytes().await {
-            Ok(v) => v,
-            Err(e) => {
-                return Json(json!({
-                    "status": "error",
-                    "message": format!("Dosya okunamadi: {}", e),
-                }))
-            }
-        };
 
         let upload_dir = MigrationManager::upload_dir();
         if let Err(e) = std::fs::create_dir_all(&upload_dir) {
@@ -3201,17 +3196,43 @@ async fn migration_upload_handler(mut multipart: Multipart) -> Json<serde_json::
             }));
         }
         let path = upload_dir.join(file_name);
-        match tokio::fs::write(&path, &data).await {
-            Ok(_) => {
-                saved_path = Some(path.to_string_lossy().to_string());
-            }
+        let mut out = match tokio::fs::File::create(&path).await {
+            Ok(file) => file,
             Err(e) => {
                 return Json(json!({
                     "status": "error",
                     "message": format!("Dosya kaydedilemedi: {}", e),
                 }))
             }
+        };
+
+        let mut field = field;
+        loop {
+            let chunk = match field.chunk().await {
+                Ok(c) => c,
+                Err(e) => {
+                    return Json(json!({
+                        "status": "error",
+                        "message": format!("Dosya okunamadi: {}", e),
+                    }))
+                }
+            };
+
+            let Some(bytes) = chunk else { break };
+            if let Err(e) = out.write_all(&bytes).await {
+                return Json(json!({
+                    "status": "error",
+                    "message": format!("Dosya kaydedilemedi: {}", e),
+                }));
+            }
         }
+        if let Err(e) = out.flush().await {
+            return Json(json!({
+                "status": "error",
+                "message": format!("Dosya kaydedilemedi: {}", e),
+            }));
+        }
+        saved_path = Some(path.to_string_lossy().to_string());
     }
 
     match saved_path {
