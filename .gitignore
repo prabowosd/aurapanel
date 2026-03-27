@@ -23,3 +23,8 @@ Cargo.lock
 # MacOS/Windows
 .DS_Store
 Thumbs.db
+
+# Local planning / assistant artifacts
+_project_brain/
+.claude/
+api-gateway/tmp_gateway
