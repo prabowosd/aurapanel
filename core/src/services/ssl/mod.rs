@@ -115,6 +115,66 @@ impl SslManager {
         Ok(ips.iter().any(|ip| ip == server_ip))
     }
 
+    fn discover_vhost_webroot(domain: &str) -> Option<String> {
+        let home_root = Path::new("/home");
+        let users = fs::read_dir(home_root).ok()?;
+        for user in users.flatten() {
+            let candidate = user.path().join("public_html").join(domain);
+            if candidate.exists() && candidate.is_dir() {
+                return Some(candidate.to_string_lossy().to_string());
+            }
+        }
+        None
+    }
+
+    fn panel_dist_path() -> Option<String> {
+        let configured = std::env::var("AURAPANEL_PANEL_DIST")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "/opt/aurapanel/frontend/dist".to_string());
+        let path = PathBuf::from(configured);
+        if path.exists() && path.is_dir() {
+            Some(path.to_string_lossy().to_string())
+        } else {
+            None
+        }
+    }
+
+    fn resolve_webroot(config: &SslConfig, domain: &str) -> Result<String, String> {
+        if let Some(raw) = config.webroot.as_deref() {
+            let explicit = raw.trim();
+            if !explicit.is_empty() {
+                let explicit_path = Path::new(explicit);
+                if explicit_path.exists() && explicit_path.is_dir() {
+                    return Ok(explicit.to_string());
+                }
+                return Err(format!(
+                    "Gecersiz webroot: {} (dizin bulunamadi veya dizin degil).",
+                    explicit
+                ));
+            }
+        }
+
+        if let Some(vhost_root) = Self::discover_vhost_webroot(domain) {
+            return Ok(vhost_root);
+        }
+
+        if let Some(panel_dist) = Self::panel_dist_path() {
+            return Ok(panel_dist);
+        }
+
+        let legacy = "/usr/local/lsws/Example/html";
+        if Path::new(legacy).exists() && Path::new(legacy).is_dir() {
+            return Ok(legacy.to_string());
+        }
+
+        Err(
+            "Webroot otomatik tespit edilemedi. SSL istegine webroot parametresi ekleyin."
+                .to_string(),
+        )
+    }
+
     fn state_root() -> PathBuf {
         if let Ok(path) = std::env::var("AURAPANEL_STATE_DIR") {
             let p = PathBuf::from(path.trim());
@@ -159,14 +219,12 @@ impl SslManager {
             return Err("domain and email are required.".to_string());
         }
 
-        let webroot = config
-            .webroot
-            .as_deref()
-            .unwrap_or("/usr/local/lsws/Example/html");
+        let webroot = Self::resolve_webroot(config, &domain)?;
         println!(
             "[ACME] Issuing SSL for {} via Let's Encrypt (email: {})",
             domain, email
         );
+        println!("[ACME] Selected webroot for {}: {}", domain, webroot);
 
         let certbot_bin = Self::certbot_binary().ok_or_else(Self::certbot_missing_message)?;
 
@@ -203,7 +261,15 @@ impl SslManager {
                 }
             }
         } else {
-            domains_for_cert.push(format!("www.{}", domain));
+            let www_domain = format!("www.{}", domain);
+            match Self::resolve_host_ips(&www_domain) {
+                Ok(ips) if !ips.is_empty() => domains_for_cert.push(www_domain),
+                _ => {
+                    println!(
+                        "[ACME] DNS preflight kapali: www host bulunamadi, yalnizca ana host icin sertifika alinacak."
+                    );
+                }
+            }
         }
 
         let mut certbot_args = vec![
@@ -228,7 +294,7 @@ impl SslManager {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("SSL alinamadi: {}", stderr));
+            return Err(format!("SSL alinamadi (webroot: {}): {}", webroot, stderr));
         }
 
         Ok(())

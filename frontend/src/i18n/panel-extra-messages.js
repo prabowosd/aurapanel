@@ -1036,7 +1036,7 @@ Object.assign(extraEn, {
       mail_hostname: 'mail.example.com',
       domain: 'example.com',
       email: 'admin(at)example.com',
-      webroot: '/usr/local/lsws/Example/html',
+      webroot: 'Auto-detect (optional)',
     },
     messages: {
       details_failed: 'SSL details could not be loaded.',
@@ -1276,7 +1276,7 @@ Object.assign(extraTr, {
       mail_hostname: 'mail.example.com',
       domain: 'example.com',
       email: 'admin(at)example.com',
-      webroot: '/usr/local/lsws/Example/html',
+      webroot: 'Otomatik tespit (opsiyonel)',
     },
     messages: {
       details_failed: 'SSL detaylari alinamadi.',

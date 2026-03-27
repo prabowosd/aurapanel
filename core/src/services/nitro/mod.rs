@@ -498,6 +498,9 @@ extprocessor {domain}_php {{
     /// Delete one virtual host
     pub fn delete_vhost(domain: &str) -> Result<String, String> {
         let domain = sanitize_domain(domain);
+        if domain.is_empty() {
+            return Err("domain is required.".to_string());
+        }
 
         if !Path::new("/usr/local/lsws").exists() {
             return Err("OpenLiteSpeed is not installed on this system.".to_string());
@@ -509,6 +512,33 @@ extprocessor {domain}_php {{
                 .map_err(|e| format!("Vhost conf directory could not be deleted: {}", e))?;
         }
 
+        // VHost list is derived from /home/*/public_html/*, so we must remove
+        // the domain docroot as well to avoid "ghost" sites in panel listings.
+        let mut cleaned_docroots = 0usize;
+        if let Ok(users) = fs::read_dir("/home") {
+            for user_entry in users.flatten() {
+                let domain_root = user_entry.path().join("public_html").join(&domain);
+                if !domain_root.exists() {
+                    continue;
+                }
+
+                let remove_result = if domain_root.is_dir() {
+                    fs::remove_dir_all(&domain_root)
+                } else {
+                    fs::remove_file(&domain_root)
+                };
+
+                remove_result.map_err(|e| {
+                    format!(
+                        "Website docroot kaldirilamadi ({}): {}",
+                        domain_root.display(),
+                        e
+                    )
+                })?;
+                cleaned_docroots += 1;
+            }
+        }
+
         Self::reload_ols()?;
 
         let mut suspended = load_suspended_vhosts();
@@ -518,7 +548,10 @@ extprocessor {domain}_php {{
 
         let _ = remove_vhost_metadata(&domain);
 
-        Ok(format!("{} deleted successfully.", domain))
+        Ok(format!(
+            "{} deleted successfully ({} docroot cleaned).",
+            domain, cleaned_docroots
+        ))
     }
 
     pub fn suspend_vhost(domain: &str) -> Result<String, String> {
