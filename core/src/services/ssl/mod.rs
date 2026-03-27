@@ -239,6 +239,7 @@ impl SslManager {
         certbot_args.push(email.to_string());
         certbot_args.push("--agree-tos".to_string());
         certbot_args.push("--non-interactive".to_string());
+        certbot_args.push("--expand".to_string());
         certbot_args.push("--preferred-challenges".to_string());
         certbot_args.push("http".to_string());
 
@@ -385,6 +386,7 @@ impl SslManager {
         certbot_args.push(email.to_string());
         certbot_args.push("--agree-tos".to_string());
         certbot_args.push("--non-interactive".to_string());
+        certbot_args.push("--expand".to_string());
 
         let output = Command::new(certbot_bin)
             .args(&certbot_args)
