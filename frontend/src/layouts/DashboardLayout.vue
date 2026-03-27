@@ -429,10 +429,10 @@
 
           <div class="flex items-center gap-3 pl-5 border-l border-panel-border relative group">
             <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-brand-600 to-brand-400 flex items-center justify-center text-sm font-bold text-white shadow-lg">
-              {{ authStore.user ? authStore.user.name.charAt(0) : 'A' }}
+              {{ avatarInitial }}
             </div>
             <div class="text-sm cursor-pointer" @click="toggleMenu = !toggleMenu">
-              <p class="font-medium text-white">{{ authStore.user ? authStore.user.name : 'Admin' }}</p>
+              <p class="font-medium text-white">{{ displayName }}</p>
               <p class="text-xs text-gray-500">{{ authStore.user ? authStore.user.email : 'root@server' }}</p>
             </div>
             <ChevronDown class="w-4 h-4 text-gray-500 cursor-pointer" @click="toggleMenu = !toggleMenu" />
@@ -594,6 +594,16 @@ const pageTitle = computed(() => {
   const routeName = String(route.name || '')
   const key = routeTitleKeys[routeName]
   return key ? t(key) : routeName
+})
+const displayName = computed(() => {
+  const user = authStore.user || {}
+  const fallback = String(user.username || user.email || 'Admin').trim()
+  const raw = String(user.name || '').trim()
+  return raw || fallback
+})
+const avatarInitial = computed(() => {
+  const firstChar = displayName.value.charAt(0).trim()
+  return firstChar ? firstChar.toUpperCase() : 'A'
 })
 
 const can = (path) => canAccessPath(path, authStore.role)
