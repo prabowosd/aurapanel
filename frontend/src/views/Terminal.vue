@@ -36,6 +36,8 @@ let dataDisposable = null
 function buildTerminalUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const isDevPort = window.location.port === '5173'
+  // In production, connect directly to the gateway port.
+  // The backend uses token query param for auth.
   const host = isDevPort ? `${window.location.hostname}:8090` : window.location.host
   return `${protocol}//${host}/api/v1/terminal/ws?token=${encodeURIComponent(authStore.token || '')}`
 }

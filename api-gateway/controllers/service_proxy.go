@@ -57,6 +57,14 @@ func NewServiceProxy() (http.Handler, error) {
 		originalDirector(req)
 		req.Host = target.Host
 		req.Header.Set("X-Forwarded-Host", req.Host)
+		
+		// Ensure Websocket headers pass through correctly
+		if isWebsocketUpgrade(req) {
+			req.URL.Scheme = "ws"
+			if target.Scheme == "https" {
+				req.URL.Scheme = "wss"
+			}
+		}
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		w.Header().Set("Content-Type", "application/json")
@@ -68,6 +76,15 @@ func NewServiceProxy() (http.Handler, error) {
 	}
 
 	return proxy, nil
+}
+
+func isWebsocketUpgrade(r *http.Request) bool {
+	if strings.HasSuffix(strings.TrimSpace(r.URL.Path), "/terminal/ws") {
+		return true
+	}
+	upgrade := strings.ToLower(strings.TrimSpace(r.Header.Get("Upgrade")))
+	connection := strings.ToLower(strings.TrimSpace(r.Header.Get("Connection")))
+	return upgrade == "websocket" || strings.Contains(connection, "upgrade")
 }
 
 var ErrNonLoopbackServiceTarget = &serviceProxyPolicyError{msg: "gateway-only mode requires loopback AURAPANEL_SERVICE_URL"}
