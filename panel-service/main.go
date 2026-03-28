@@ -367,9 +367,18 @@ func persistenceMiddleware(next http.Handler, svc *service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec := &statusCapturingResponseWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
-		if r.Method == http.MethodGet || r.Method == http.MethodHead || rec.status >= http.StatusBadRequest {
+		
+		// Sadece GET ve OPTIONS isteklerini kaydetmiyoruz. 
+		// Diger her turlu mutation (POST) sonucunda state diske yazilir (Hata donse bile)
+		// Cunku bazi durumlarda islem yarida kalsa da DB (state) guncellenmis olabilir.
+		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
 			return
 		}
+		
+		// Eger 500 Internal Server error vb bir cok kritik hata varsa state bozmamak icin yazmayabiliriz,
+		// ama guvenlik amaciyla genel olarak mutation sonrasi state'i senkronize etmekte fayda var.
+		// Sadece validation hatalarinda (400) eger hicbir sey degismediyse diye pas geciyorduk, 
+		// ancak biz simdilik her halukarda save yapalim ki state ile in-memory kopmasin.
 		if err := svc.saveRuntimeState(); err != nil {
 			log.Printf("runtime state save failed after %s %s: %v", r.Method, r.URL.Path, err)
 		}
@@ -697,9 +706,13 @@ func (s *service) handleVhostCreate(w http.ResponseWriter, r *http.Request) {
 	s.ensureUserLocked(owner, fmt.Sprintf("%s@example.com", owner), "user", "default", "")
 	s.recountSitesLocked()
 	if err := s.provisionWebsiteArtifactsLocked(site); err != nil {
+		// Even if artifacts fail, we might want to keep the site in DB, but rollback is safer
+		s.state.Websites = s.state.Websites[:len(s.state.Websites)-1]
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	
+	s.saveRuntimeStateLocked()
 
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Website created.", Data: site})
 }
@@ -729,6 +742,7 @@ func (s *service) handleVhostDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.recountSitesLocked()
+	s.saveRuntimeStateLocked()
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Website removed."})
 }
 
