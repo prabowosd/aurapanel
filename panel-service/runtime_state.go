@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const defaultRuntimeStatePath = "/var/lib/aurapanel/panel-service-state.json"
@@ -42,6 +43,11 @@ func (s *service) loadRuntimeState() error {
 
 	s.state = persisted.State
 	s.modules = persisted.Modules
+	if rehydrateSeedCredentials(&s.state) {
+		if err := s.saveRuntimeStateLocked(); err != nil {
+			return fmt.Errorf("persist migrated runtime state: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -101,4 +107,52 @@ func cloneValue[T any](input T) (T, error) {
 		return zero, err
 	}
 	return output, nil
+}
+
+func rehydrateSeedCredentials(state *appState) bool {
+	adminEmail, adminHash := loadAdminSeedCredentials()
+	if strings.TrimSpace(adminHash) == "" {
+		return false
+	}
+
+	changed := false
+	for i := range state.Users {
+		user := &state.Users[i]
+		if !isSeedAdminUser(*user, adminEmail) {
+			continue
+		}
+		if strings.TrimSpace(user.PasswordHash) == "" {
+			user.PasswordHash = adminHash
+			changed = true
+		}
+		return changed
+	}
+
+	seeded := seedState().Users[0]
+	seeded.Email = adminEmail
+	seeded.PasswordHash = adminHash
+	seeded.ID = nextSeedUserID(*state)
+	state.Users = append(state.Users, seeded)
+	if state.NextUserID <= seeded.ID {
+		state.NextUserID = seeded.ID + 1
+	}
+	return true
+}
+
+func isSeedAdminUser(user PanelUser, adminEmail string) bool {
+	return strings.EqualFold(strings.TrimSpace(user.Email), strings.TrimSpace(adminEmail)) ||
+		(strings.EqualFold(strings.TrimSpace(user.Username), "admin") && strings.EqualFold(strings.TrimSpace(user.Role), "admin"))
+}
+
+func nextSeedUserID(state appState) int {
+	nextID := state.NextUserID
+	if nextID < 1 {
+		nextID = 1
+	}
+	for _, user := range state.Users {
+		if user.ID >= nextID {
+			nextID = user.ID + 1
+		}
+	}
+	return nextID
 }

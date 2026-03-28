@@ -87,7 +87,7 @@ type PanelUser struct {
 	Sites        int    `json:"sites"`
 	Active       bool   `json:"active"`
 	TwoFAEnabled bool   `json:"two_fa_enabled"`
-	PasswordHash string `json:"-"`
+	PasswordHash string `json:"password_hash,omitempty"`
 }
 
 type DatabaseRecord struct {
@@ -104,7 +104,7 @@ type DatabaseUser struct {
 	Host         string `json:"host"`
 	Engine       string `json:"engine"`
 	LinkedDBName string `json:"db_name,omitempty"`
-	PasswordHash string `json:"-"`
+	PasswordHash string `json:"password_hash,omitempty"`
 }
 
 type RemoteAccessRule struct {

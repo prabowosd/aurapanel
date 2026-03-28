@@ -7,9 +7,13 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type hijackableResponseWriter struct {
@@ -150,6 +154,92 @@ func TestHandleVhostCreateRollsBackStateOnProvisionFailure(t *testing.T) {
 	}
 	if user := svc.findUserLocked("ghostuser"); user != nil {
 		t.Fatalf("ghostuser still exists after rollback")
+	}
+}
+
+func TestRuntimeStatePersistsUserPasswordHashes(t *testing.T) {
+	t.Setenv("AURAPANEL_STATE_FILE", filepath.Join(t.TempDir(), "panel-service-state.json"))
+
+	svc := &service{
+		startedAt: seedTime(),
+		state:     seedState(),
+		modules:   seedModuleState(),
+	}
+	svc.bootstrapModules()
+
+	expectedHash := mustHashPassword("super-secret")
+	svc.state.Users = append(svc.state.Users, PanelUser{
+		ID:           99,
+		Username:     "aura",
+		Name:         "Aura",
+		Email:        "aura@example.com",
+		Role:         "user",
+		Package:      "default",
+		Sites:        0,
+		Active:       true,
+		TwoFAEnabled: false,
+		PasswordHash: expectedHash,
+	})
+
+	if err := svc.saveRuntimeStateLocked(); err != nil {
+		t.Fatalf("saveRuntimeStateLocked: %v", err)
+	}
+
+	restored := &service{
+		startedAt: seedTime(),
+		state:     seedState(),
+		modules:   seedModuleState(),
+	}
+	if err := restored.loadRuntimeState(); err != nil {
+		t.Fatalf("loadRuntimeState: %v", err)
+	}
+
+	user := restored.findUserLocked("aura")
+	if user == nil {
+		t.Fatalf("expected aura user after reload")
+	}
+	if user.PasswordHash != expectedHash {
+		t.Fatalf("expected persisted password hash to survive reload")
+	}
+}
+
+func TestLoadRuntimeStateRehydratesSeedAdminPasswordHash(t *testing.T) {
+	t.Setenv("AURAPANEL_STATE_FILE", filepath.Join(t.TempDir(), "panel-service-state.json"))
+	t.Setenv("AURAPANEL_ADMIN_EMAIL", "admin@server.com")
+	t.Setenv("AURAPANEL_ADMIN_PASSWORD", "rehydrated-secret")
+
+	state := seedState()
+	state.Users[0].PasswordHash = ""
+
+	raw, err := json.Marshal(persistedRuntimeState{
+		State:   state,
+		Modules: seedModuleState(),
+	})
+	if err != nil {
+		t.Fatalf("marshal runtime state: %v", err)
+	}
+	if err := os.WriteFile(runtimeStatePath(), raw, 0o600); err != nil {
+		t.Fatalf("write runtime state: %v", err)
+	}
+
+	svc := &service{
+		startedAt: seedTime(),
+		state:     seedState(),
+		modules:   seedModuleState(),
+	}
+	if err := svc.loadRuntimeState(); err != nil {
+		t.Fatalf("loadRuntimeState: %v", err)
+	}
+
+	admin := svc.findUserLocked("admin")
+	if admin == nil {
+		t.Fatalf("expected admin user after reload")
+	}
+	if strings.TrimSpace(admin.PasswordHash) == "" {
+		t.Fatalf("expected admin password hash to be rehydrated")
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), []byte("rehydrated-secret")); err != nil {
+		t.Fatalf("expected rehydrated admin password hash to match env password: %v", err)
 	}
 }
 
