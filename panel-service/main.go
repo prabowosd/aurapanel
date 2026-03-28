@@ -1653,6 +1653,11 @@ func (s *service) handleSSLIssue(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	
 	_ = exec.Command("chown", "-R", siteOwner+":"+siteOwner, filepath.Dir(docroot)).Run()
+	
+	// Pre-sync OpenLiteSpeed configs so it can serve the acme-challenge before issuing the SSL
+	s.mu.Lock()
+	_ = s.syncOLSVhostsLocked()
+	s.mu.Unlock()
 
 	if err := issueLetsEncryptCertificate(domains, docroot, false); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
