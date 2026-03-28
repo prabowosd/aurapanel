@@ -1,4 +1,5 @@
 use bcrypt::{hash as bcrypt_hash, DEFAULT_COST};
+use getrandom::getrandom;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
@@ -90,6 +91,11 @@ pub struct MailWebmailSsoRequest {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MailWebmailSsoConsumeRequest {
+    pub token: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MailboxPasswordResetRequest {
     pub address: String,
     pub new_password: String,
@@ -98,6 +104,13 @@ pub struct MailboxPasswordResetRequest {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MailWebmailSsoLink {
     pub url: String,
+    pub expires_at: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MailWebmailSsoSession {
+    pub address: String,
+    pub password: String,
     pub expires_at: u64,
 }
 
@@ -118,6 +131,8 @@ struct MailState {
     #[serde(default)]
     mailboxes: Vec<LocalMailbox>,
     #[serde(default)]
+    mailbox_secrets: Vec<MailboxSecretRecord>,
+    #[serde(default)]
     forwards: Vec<MailForwardRule>,
     #[serde(default)]
     catch_all: Vec<MailCatchAllRule>,
@@ -125,6 +140,23 @@ struct MailState {
     routing: Vec<MailRoutingRule>,
     #[serde(default)]
     dkim: Vec<MailDkimRecord>,
+    #[serde(default)]
+    sso_tokens: Vec<MailWebmailSsoTokenRecord>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct MailboxSecretRecord {
+    address: String,
+    password_cipher: String,
+    updated_at: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct MailWebmailSsoTokenRecord {
+    token: String,
+    address: String,
+    expires_at: u64,
+    created_at: u64,
 }
 
 pub struct MailManager;
@@ -142,6 +174,268 @@ impl MailManager {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0)
+    }
+
+    fn sso_secret() -> Vec<u8> {
+        std::env::var("AURAPANEL_JWT_SECRET")
+            .unwrap_or_else(|_| "aurapanel-mail-sso-secret".to_string())
+            .into_bytes()
+    }
+
+    fn hex_encode(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+
+    fn hex_decode(value: &str) -> Result<Vec<u8>, String> {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Ok(Vec::new());
+        }
+        if trimmed.len() % 2 != 0 {
+            return Err("Hex decode icin gecersiz uzunluk.".to_string());
+        }
+        let mut out = Vec::with_capacity(trimmed.len() / 2);
+        let bytes = trimmed.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[i..i + 2]).map_err(|e| e.to_string())?;
+            let val = u8::from_str_radix(hex, 16).map_err(|e| e.to_string())?;
+            out.push(val);
+            i += 2;
+        }
+        Ok(out)
+    }
+
+    fn encrypt_mailbox_password(password: &str) -> String {
+        let input = password.as_bytes();
+        if input.is_empty() {
+            return String::new();
+        }
+        let key = Self::sso_secret();
+        if key.is_empty() {
+            return Self::hex_encode(input);
+        }
+        let encrypted = input
+            .iter()
+            .enumerate()
+            .map(|(i, b)| b ^ key[i % key.len()])
+            .collect::<Vec<u8>>();
+        Self::hex_encode(&encrypted)
+    }
+
+    fn decrypt_mailbox_password(cipher: &str) -> Result<String, String> {
+        let encrypted = Self::hex_decode(cipher)?;
+        if encrypted.is_empty() {
+            return Ok(String::new());
+        }
+        let key = Self::sso_secret();
+        if key.is_empty() {
+            return String::from_utf8(encrypted).map_err(|e| e.to_string());
+        }
+        let decrypted = encrypted
+            .iter()
+            .enumerate()
+            .map(|(i, b)| b ^ key[i % key.len()])
+            .collect::<Vec<u8>>();
+        String::from_utf8(decrypted).map_err(|e| e.to_string())
+    }
+
+    fn upsert_mailbox_secret(state: &mut MailState, address: &str, password: &str) {
+        let now = Self::now_ts();
+        let cipher = Self::encrypt_mailbox_password(password);
+        if let Some(secret) = state
+            .mailbox_secrets
+            .iter_mut()
+            .find(|x| x.address.eq_ignore_ascii_case(address))
+        {
+            secret.password_cipher = cipher;
+            secret.updated_at = now;
+            return;
+        }
+        state.mailbox_secrets.push(MailboxSecretRecord {
+            address: address.to_ascii_lowercase(),
+            password_cipher: cipher,
+            updated_at: now,
+        });
+    }
+
+    fn mailbox_password_for_sso(state: &MailState, address: &str) -> Result<String, String> {
+        let Some(secret) = state
+            .mailbox_secrets
+            .iter()
+            .find(|x| x.address.eq_ignore_ascii_case(address))
+        else {
+            return Err(
+                "Mailbox SSO hazir degil. Mail sifresini bir kez resetleyip tekrar deneyin."
+                    .to_string(),
+            );
+        };
+        let password = Self::decrypt_mailbox_password(&secret.password_cipher)?;
+        if password.is_empty() {
+            return Err(
+                "Mailbox SSO hazir degil. Mail sifresini bir kez resetleyip tekrar deneyin."
+                    .to_string(),
+            );
+        }
+        Ok(password)
+    }
+
+    fn cleanup_expired_sso_tokens(state: &mut MailState, now: u64) {
+        state.sso_tokens.retain(|x| x.expires_at > now);
+    }
+
+    fn generate_sso_token() -> Result<String, String> {
+        let mut bytes = [0_u8; 24];
+        getrandom(&mut bytes).map_err(|e| format!("SSO token uretilemedi: {}", e))?;
+        Ok(Self::hex_encode(&bytes))
+    }
+
+    fn ensure_roundcube_sso_bridge() -> Result<(), String> {
+        if cfg!(windows) {
+            return Ok(());
+        }
+        let bridge_dir = std::env::var("AURAPANEL_WEBMAIL_SSO_BRIDGE_DIR")
+            .unwrap_or_else(|_| "/usr/local/lsws/Example/html/webmail/sso".to_string());
+        let bridge_file = PathBuf::from(bridge_dir.trim()).join("index.php");
+        if let Some(parent) = bridge_file.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+
+        let script = r#"<?php
+declare(strict_types=1);
+
+function aura_sso_fail(int $code, string $message): void {
+    http_response_code($code);
+    header('Content-Type: text/plain; charset=utf-8');
+    echo $message;
+    exit;
+}
+
+$token = trim((string)($_GET['token'] ?? ''));
+if ($token === '') {
+    aura_sso_fail(400, 'Missing token.');
+}
+
+$consumeUrl = getenv('AURAPANEL_WEBMAIL_SSO_CONSUME_URL');
+if (!$consumeUrl) {
+    $consumeUrl = 'http://127.0.0.1:8090/api/v1/mail/webmail/sso/consume';
+}
+
+$payload = json_encode(['token' => $token], JSON_UNESCAPED_SLASHES);
+$ch = curl_init($consumeUrl);
+curl_setopt_array($ch, [
+    CURLOPT_POST => true,
+    CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+    CURLOPT_POSTFIELDS => $payload,
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT => 10,
+]);
+$raw = curl_exec($ch);
+if ($raw === false) {
+    aura_sso_fail(502, 'SSO consume request failed.');
+}
+$status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+curl_close($ch);
+if ($status < 200 || $status >= 300) {
+    aura_sso_fail(401, 'SSO token invalid or expired.');
+}
+
+$decoded = json_decode($raw, true);
+if (!is_array($decoded) || ($decoded['status'] ?? '') !== 'success') {
+    aura_sso_fail(401, 'SSO token invalid or expired.');
+}
+
+$address = (string)($decoded['data']['address'] ?? '');
+$password = (string)($decoded['data']['password'] ?? '');
+if ($address === '' || $password === '') {
+    aura_sso_fail(401, 'SSO session could not be created.');
+}
+
+$base = 'http://127.0.0.1/webmail';
+$cookieFile = tempnam(sys_get_temp_dir(), 'rcsso_');
+$loginUrl = $base . '/?_task=login';
+
+$ch = curl_init($loginUrl);
+curl_setopt_array($ch, [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_COOKIEJAR => $cookieFile,
+    CURLOPT_COOKIEFILE => $cookieFile,
+    CURLOPT_TIMEOUT => 10,
+]);
+$loginPage = curl_exec($ch);
+curl_close($ch);
+if (!is_string($loginPage) || $loginPage === '') {
+    @unlink($cookieFile);
+    aura_sso_fail(502, 'Roundcube login page could not be loaded.');
+}
+
+$tokenField = '';
+if (preg_match('/name=["\']_token["\']\s+value=["\']([^"\']+)/', $loginPage, $m)) {
+    $tokenField = $m[1];
+}
+
+$postFields = [
+    '_task' => 'login',
+    '_action' => 'login',
+    '_user' => $address,
+    '_pass' => $password,
+];
+if ($tokenField !== '') {
+    $postFields['_token'] = $tokenField;
+}
+
+$ch = curl_init($loginUrl);
+curl_setopt_array($ch, [
+    CURLOPT_POST => true,
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_POSTFIELDS => http_build_query($postFields),
+    CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
+    CURLOPT_COOKIEJAR => $cookieFile,
+    CURLOPT_COOKIEFILE => $cookieFile,
+    CURLOPT_TIMEOUT => 10,
+    CURLOPT_HEADER => true,
+]);
+$loginRaw = curl_exec($ch);
+$loginCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+curl_close($ch);
+if ($loginRaw === false || ($loginCode < 200 || $loginCode >= 400)) {
+    @unlink($cookieFile);
+    aura_sso_fail(401, 'Roundcube login failed.');
+}
+
+$cookies = @file($cookieFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+$https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+foreach ($cookies as $line) {
+    if ($line === '' || $line[0] === '#') {
+        continue;
+    }
+    $parts = explode("\t", $line);
+    if (count($parts) < 7) {
+        continue;
+    }
+    $path = $parts[2] !== '' ? $parts[2] : '/webmail';
+    $secure = strtoupper($parts[3]) === 'TRUE';
+    $name = $parts[5];
+    $value = $parts[6];
+    if ($name === '') {
+        continue;
+    }
+    setcookie($name, $value, [
+        'expires' => 0,
+        'path' => $path,
+        'secure' => ($secure || $https),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+}
+@unlink($cookieFile);
+
+header('Location: ../?_task=mail');
+exit;
+"#;
+
+        fs::write(&bridge_file, script).map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     fn state_root() -> PathBuf {
@@ -652,6 +946,7 @@ impl MailManager {
             quota_mb: config.quota_mb.max(128),
             used_mb: 0,
         });
+        Self::upsert_mailbox_secret(&mut state, &email_address, &config.password);
         Self::save_state(&state)?;
 
         if Self::backend_is_vmail() {
@@ -675,6 +970,12 @@ impl MailManager {
 
         let mut state = Self::load_state()?;
         state.mailboxes.retain(|m| m.address != address);
+        state
+            .mailbox_secrets
+            .retain(|entry| !entry.address.eq_ignore_ascii_case(&address));
+        state
+            .sso_tokens
+            .retain(|entry| !entry.address.eq_ignore_ascii_case(&address));
         state.forwards.retain(|f| f.source != address);
         Self::save_state(&state)?;
 
@@ -697,14 +998,17 @@ impl MailManager {
             return Err("new_password is required.".to_string());
         }
 
-        let state = Self::load_state()?;
-        let Some(mailbox) = state.mailboxes.iter().find(|x| x.address == address) else {
+        let mut state = Self::load_state()?;
+        let Some(index) = state.mailboxes.iter().position(|x| x.address == address) else {
             return Err("Mailbox not found.".to_string());
         };
 
         if Self::backend_is_vmail() {
-            Self::apply_vmail_mailbox_password_reset(&address, &new_password, mailbox.quota_mb)?;
+            let quota_mb = state.mailboxes[index].quota_mb;
+            Self::apply_vmail_mailbox_password_reset(&address, &new_password, quota_mb)?;
         }
+        Self::upsert_mailbox_secret(&mut state, &address, &new_password);
+        Self::save_state(&state)?;
         Ok(())
     }
 
@@ -958,15 +1262,29 @@ impl MailManager {
         }
 
         let ttl = req.ttl_seconds.unwrap_or(300).clamp(60, 1800);
-        let expires_at = Self::now_ts().saturating_add(ttl);
-        let secret = std::env::var("AURAPANEL_JWT_SECRET")
-            .unwrap_or_else(|_| "aurapanel-mail-sso".to_string());
-        let payload = format!("{}:{}", address, expires_at);
-        let mut hasher = DefaultHasher::new();
-        payload.hash(&mut hasher);
-        secret.hash(&mut hasher);
-        let sig = hasher.finish();
-        let token = format!("{:x}.{:x}", sig, expires_at);
+        let now = Self::now_ts();
+        let expires_at = now.saturating_add(ttl);
+        let token = Self::generate_sso_token()?;
+
+        let mut state = Self::load_state()?;
+        let mailbox_exists = state
+            .mailboxes
+            .iter()
+            .any(|m| m.address.eq_ignore_ascii_case(&address));
+        if !mailbox_exists {
+            return Err("Mailbox not found.".to_string());
+        }
+        let _ = Self::mailbox_password_for_sso(&state, &address)?;
+
+        Self::cleanup_expired_sso_tokens(&mut state, now);
+        state.sso_tokens.push(MailWebmailSsoTokenRecord {
+            token: token.clone(),
+            address: address.clone(),
+            expires_at,
+            created_at: now,
+        });
+        Self::save_state(&state)?;
+        Self::ensure_roundcube_sso_bridge()?;
 
         let base = std::env::var("AURAPANEL_WEBMAIL_BASE_URL")
             .unwrap_or_else(|_| "http://127.0.0.1/webmail".to_string())
@@ -975,8 +1293,38 @@ impl MailManager {
             .to_string();
 
         Ok(MailWebmailSsoLink {
-            url: format!("{}/sso?address={}&token={}", base, address, token),
+            url: format!("{}/sso?token={}", base, token),
             expires_at,
+        })
+    }
+
+    pub fn consume_webmail_sso_token(
+        req: &MailWebmailSsoConsumeRequest,
+    ) -> Result<MailWebmailSsoSession, String> {
+        let token = req.token.trim().to_string();
+        if token.is_empty() {
+            return Err("token is required.".to_string());
+        }
+
+        let mut state = Self::load_state()?;
+        let now = Self::now_ts();
+        Self::cleanup_expired_sso_tokens(&mut state, now);
+
+        let Some(index) = state
+            .sso_tokens
+            .iter()
+            .position(|x| x.token == token && x.expires_at > now)
+        else {
+            return Err("SSO token invalid or expired.".to_string());
+        };
+        let entry = state.sso_tokens.remove(index);
+        let password = Self::mailbox_password_for_sso(&state, &entry.address)?;
+        Self::save_state(&state)?;
+
+        Ok(MailWebmailSsoSession {
+            address: entry.address,
+            password,
+            expires_at: entry.expires_at,
         })
     }
 }
@@ -1077,13 +1425,45 @@ mod tests {
         });
         assert!(invalid.is_err());
 
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        rt.block_on(MailManager::create_mailbox(&MailboxConfig {
+            domain: "example.com".to_string(),
+            username: "user".to_string(),
+            password: "sso-pass-123".to_string(),
+            quota_mb: 512,
+            owner: None,
+        }))
+        .expect("mailbox create");
+
         let link = MailManager::generate_webmail_sso_link(&MailWebmailSsoRequest {
             address: "user@example.com".to_string(),
             ttl_seconds: Some(120),
         })
         .expect("sso link");
-        assert!(link.url.contains("address=user@example.com"));
         assert!(link.url.contains("token="));
+        assert!(!link.url.contains("address="));
+
+        let token = link
+            .url
+            .split("token=")
+            .nth(1)
+            .unwrap_or_default()
+            .to_string();
+        assert!(!token.is_empty());
+
+        let session = MailManager::consume_webmail_sso_token(&MailWebmailSsoConsumeRequest {
+            token: token.clone(),
+        })
+        .expect("consume sso token");
+        assert_eq!(session.address, "user@example.com");
+        assert_eq!(session.password, "sso-pass-123");
+
+        let consumed_again =
+            MailManager::consume_webmail_sso_token(&MailWebmailSsoConsumeRequest { token });
+        assert!(consumed_again.is_err());
 
         teardown_env(&state_dir);
     }

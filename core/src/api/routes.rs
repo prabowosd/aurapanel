@@ -34,7 +34,8 @@ use crate::services::federated::{FederatedManager, WireguardConfig};
 use crate::services::filemanager::FileManager;
 use crate::services::mail::{
     MailCatchAllConfig, MailForwardConfig, MailForwardDeleteRequest, MailManager,
-    MailRoutingConfig, MailRoutingDeleteRequest, MailWebmailSsoRequest, MailboxConfig,
+    MailRoutingConfig, MailRoutingDeleteRequest, MailWebmailSsoConsumeRequest,
+    MailWebmailSsoRequest, MailboxConfig,
     MailboxPasswordResetRequest,
 };
 use crate::services::malware::{
@@ -931,6 +932,10 @@ pub fn routes() -> Router {
     Router::new()
         .route("/health", get(health_check))
         .route("/auth/login", post(auth_login_handler))
+        .route(
+            "/mail/webmail/sso/consume",
+            post(mail_webmail_sso_consume_public_handler),
+        )
         .merge(protected)
 }
 
@@ -4263,6 +4268,23 @@ async fn mail_webmail_sso_handler(
     match MailManager::generate_webmail_sso_link(&payload) {
         Ok(data) => Json(json!({ "status": "success", "data": data })),
         Err(e) => Json(json!({ "status": "error", "message": e })),
+    }
+}
+
+async fn mail_webmail_sso_consume_public_handler(
+    Json(payload): Json<MailWebmailSsoConsumeRequest>,
+) -> impl IntoResponse {
+    match MailManager::consume_webmail_sso_token(&payload) {
+        Ok(data) => (
+            StatusCode::OK,
+            Json(json!({ "status": "success", "data": data })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "status": "error", "message": e })),
+        )
+            .into_response(),
     }
 }
 
