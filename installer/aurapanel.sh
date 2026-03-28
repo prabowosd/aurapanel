@@ -58,6 +58,42 @@ fail() {
   exit 1
 }
 
+package_manager_busy() {
+  if [ "${PKG_MGR}" = "apt" ]; then
+    if pgrep -fa 'apt|apt-get|dpkg|unattended-upgrade|unattended-upgrades' >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+
+  if [ "${PKG_MGR}" = "dnf" ]; then
+    if pgrep -fa 'dnf|yum|rpm' >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+wait_for_package_manager() {
+  local timeout step elapsed
+  timeout="${AURAPANEL_PACKAGE_LOCK_TIMEOUT:-900}"
+  step=5
+  elapsed=0
+
+  while package_manager_busy; do
+    if [ "${elapsed}" -eq 0 ]; then
+      warn "Package manager is busy, waiting for existing operations to finish..."
+    fi
+
+    if [ "${elapsed}" -ge "${timeout}" ]; then
+      fail "Package manager remained busy for ${timeout}s. Re-run the installer after package activity completes."
+    fi
+
+    sleep "${step}"
+    elapsed=$((elapsed + step))
+  done
+}
+
 if [ "${EUID}" -ne 0 ]; then
   fail "Please run as root."
 fi
@@ -88,8 +124,10 @@ install_packages() {
   fi
 
   if [ "${PKG_MGR}" = "apt" ]; then
+    wait_for_package_manager
     DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
   else
+    wait_for_package_manager
     dnf install -y "$@"
   fi
 }
@@ -473,6 +511,7 @@ ensure_node20() {
   fi
 
   log "Installing Node.js 20.x from mirror..."
+  wait_for_package_manager
   curl -fsSL "${NODE_SETUP_URL}" | bash -
   install_packages nodejs
   ok "Node.js installed: $(node -v)"
@@ -495,6 +534,7 @@ ensure_openlitespeed() {
     ok "OpenLiteSpeed already installed."
   else
     log "Installing OpenLiteSpeed..."
+    wait_for_package_manager
     curl -fsSL "${LITESPEED_REPO_SCRIPT_URL}" | bash
 
     install_packages openlitespeed || fail "OpenLiteSpeed installation failed."
@@ -1129,10 +1169,12 @@ main() {
 
   log "Installing system prerequisites..."
   if [ "${PKG_MGR}" = "apt" ]; then
+    wait_for_package_manager
     apt-get update -y
     install_packages curl wget git rsync build-essential cmake pkg-config libssl-dev gcc ufw ca-certificates openssl jq unzip tar
     install_packages software-properties-common gnupg lsb-release
   else
+    wait_for_package_manager
     dnf update -y
     dnf groupinstall -y "Development Tools"
     install_packages curl wget git rsync cmake openssl-devel openssl gcc firewalld ca-certificates jq unzip tar
