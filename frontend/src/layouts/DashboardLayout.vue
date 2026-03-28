@@ -30,7 +30,7 @@
         </router-link>
 
         <div v-if="canHostingGroup" class="mt-3">
-          <button @click="hostingMenuOpen = !hostingMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'sidebar-link-section-active': isHostingRoute }">
+          <button @click="toggleTopLevelMenu('hosting')" class="sidebar-link w-full justify-between" :class="{ 'sidebar-link-section-active': isHostingRoute }">
             <div class="flex items-center">
               <Box class="w-5 h-5 mr-3" />
               <span>{{ t('layout.groups.hosting') }}</span>
@@ -60,7 +60,7 @@
         </div>
 
         <div v-if="canWebAppsGroup" class="mt-2">
-          <button @click="webAppsMenuOpen = !webAppsMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'sidebar-link-section-active': isWebAppsRoute }">
+          <button @click="toggleTopLevelMenu('webApps')" class="sidebar-link w-full justify-between" :class="{ 'sidebar-link-section-active': isWebAppsRoute }">
             <div class="flex items-center">
               <Globe class="w-5 h-5 mr-3" />
               <span>{{ t('layout.groups.web_apps') }}</span>
@@ -134,7 +134,7 @@
         </div>
 
         <div v-if="canDataAccessGroup" class="mt-2">
-          <button @click="dataAccessMenuOpen = !dataAccessMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'sidebar-link-section-active': isDataAccessRoute }">
+          <button @click="toggleTopLevelMenu('dataAccess')" class="sidebar-link w-full justify-between" :class="{ 'sidebar-link-section-active': isDataAccessRoute }">
             <div class="flex items-center">
               <Database class="w-5 h-5 mr-3" />
               <span>{{ t('layout.groups.data_access') }}</span>
@@ -196,7 +196,7 @@
         </div>
 
         <div v-if="canSecurityGroup" class="mt-2">
-          <button @click="securityLogsMenuOpen = !securityLogsMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'sidebar-link-section-active': isSecurityLogsRoute }">
+          <button @click="toggleTopLevelMenu('securityLogs')" class="sidebar-link w-full justify-between" :class="{ 'sidebar-link-section-active': isSecurityLogsRoute }">
             <div class="flex items-center">
               <Shield class="w-5 h-5 mr-3" />
               <span>{{ t('layout.groups.security_logs') }}</span>
@@ -260,7 +260,7 @@
         </div>
 
         <div v-if="canDevopsGroup" class="mt-2">
-          <button @click="devopsMenuOpen = !devopsMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'sidebar-link-section-active': isDevopsRoute }">
+          <button @click="toggleTopLevelMenu('devops')" class="sidebar-link w-full justify-between" :class="{ 'sidebar-link-section-active': isDevopsRoute }">
             <div class="flex items-center">
               <Container class="w-5 h-5 mr-3" />
               <span>{{ t('layout.groups.devops') }}</span>
@@ -321,7 +321,7 @@
         </div>
 
         <div v-if="canSystemGroup" class="mt-2">
-          <button @click="systemMenuOpen = !systemMenuOpen" class="sidebar-link w-full justify-between" :class="{ 'sidebar-link-section-active': isSystemRoute }">
+          <button @click="toggleTopLevelMenu('system')" class="sidebar-link w-full justify-between" :class="{ 'sidebar-link-section-active': isSystemRoute }">
             <div class="flex items-center">
               <Settings2 class="w-5 h-5 mr-3" />
               <span>{{ t('layout.groups.system') }}</span>
@@ -681,6 +681,23 @@ const isDevopsRoute = computed(() =>
 const isSystemRoute = computed(() =>
   ['/server-status', '/ols-tuning', '/panel-port'].some(prefix => route.path.startsWith(prefix))
 )
+const topLevelMenus = {
+  hosting: hostingMenuOpen,
+  webApps: webAppsMenuOpen,
+  dataAccess: dataAccessMenuOpen,
+  securityLogs: securityLogsMenuOpen,
+  devops: devopsMenuOpen,
+  system: systemMenuOpen,
+}
+const activeTopLevelMenu = computed(() => {
+  if (isHostingRoute.value) return 'hosting'
+  if (isWebAppsRoute.value) return 'webApps'
+  if (isDataAccessRoute.value) return 'dataAccess'
+  if (isSecurityLogsRoute.value) return 'securityLogs'
+  if (isDevopsRoute.value) return 'devops'
+  if (isSystemRoute.value) return 'system'
+  return ''
+})
 const allMenusExpanded = computed(() =>
   hostingMenuOpen.value &&
   webAppsMenuOpen.value &&
@@ -706,24 +723,23 @@ const filteredCommandItems = computed(() => {
   return roleFilteredCommandItems.value.filter(i => i.label.toLowerCase().includes(q) || i.path.toLowerCase().includes(q))
 })
 
+const toggleTopLevelMenu = (targetKey) => {
+  const targetMenu = topLevelMenus[targetKey]
+  if (!targetMenu) return
+
+  const nextState = !targetMenu.value
+  Object.values(topLevelMenus).forEach((menuRef) => {
+    menuRef.value = false
+  })
+  targetMenu.value = nextState
+}
+
 const syncMenuState = () => {
-  if (isHostingRoute.value) {
-    hostingMenuOpen.value = true
-  }
-  if (isWebAppsRoute.value) {
-    webAppsMenuOpen.value = true
-  }
-  if (isDataAccessRoute.value) {
-    dataAccessMenuOpen.value = true
-  }
-  if (isSecurityLogsRoute.value) {
-    securityLogsMenuOpen.value = true
-  }
-  if (isDevopsRoute.value) {
-    devopsMenuOpen.value = true
-  }
-  if (isSystemRoute.value) {
-    systemMenuOpen.value = true
+  const activeMenu = activeTopLevelMenu.value
+  if (activeMenu) {
+    Object.entries(topLevelMenus).forEach(([key, menuRef]) => {
+      menuRef.value = key === activeMenu
+    })
   }
   if (isDockerRoute.value) {
     dockerMenuOpen.value = true
