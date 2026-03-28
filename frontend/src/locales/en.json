@@ -179,7 +179,9 @@
     "save_success": "File saved",
     "delete_success": "Deleted",
     "upload_success": "Upload complete",
-    "confirm_delete": "Are you sure you want to delete this?"
+    "confirm_delete": "Are you sure you want to delete this?",
+    "compress_success": "Archive created successfully.",
+    "extract_success": "Archive extracted successfully."
   },
   "php": {
     "title": "PHP Management",

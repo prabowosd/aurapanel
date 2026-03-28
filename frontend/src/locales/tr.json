@@ -179,7 +179,9 @@
     "save_success": "Dosya kaydedildi",
     "delete_success": "Silindi",
     "upload_success": "Yükleme tamamlandı",
-    "confirm_delete": "Silmek istediğinize emin misiniz?"
+    "confirm_delete": "Silmek istediğinize emin misiniz?",
+    "compress_success": "Arşiv başarıyla oluşturuldu.",
+    "extract_success": "Arşiv başarıyla çıkarıldı."
   },
   "php": {
     "title": "PHP Yönetimi",

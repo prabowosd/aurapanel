@@ -121,30 +121,30 @@
       <div class="aura-card">
         <div class="flex items-center justify-between mb-4">
           <div>
-            <h2 class="text-lg font-bold text-white">Fail2Ban Yöneticisi</h2>
-            <p class="text-sm text-gray-400">Sunucunuza yapılan bruteforce ve yetkisiz erişim denemelerini tespit edip engeller.</p>
+            <h2 class="text-lg font-bold text-white">{{ t('security_center.fail2ban.title') }}</h2>
+            <p class="text-sm text-gray-400">{{ t('security_center.fail2ban.desc') }}</p>
           </div>
           <button class="btn-secondary" @click="loadFail2ban" :disabled="fail2banLoading">
-            {{ fail2banLoading ? 'Yenileniyor...' : 'Yenile' }}
+            {{ fail2banLoading ? t('common.loading') : t('common.refresh') || 'Yenile' }}
           </button>
         </div>
 
         <div class="rounded-xl border border-panel-border bg-panel-dark p-4">
           <div class="flex items-center gap-3 mb-4">
             <div class="w-3 h-3 rounded-full" :class="fail2banStatus.status === 'active' ? 'bg-green-500' : 'bg-red-500'"></div>
-            <span class="font-semibold text-white">Servis Durumu: {{ fail2banStatus.status === 'active' ? 'Çalışıyor' : 'Pasif/Kapalı' }}</span>
+            <span class="font-semibold text-white">{{ t('security_center.fail2ban.status_label') }}: {{ fail2banStatus.status === 'active' ? t('common.active') : t('common.inactive') }}</span>
           </div>
           
           <div class="mt-4">
-            <h3 class="text-sm font-semibold text-gray-300 mb-2">Fail2Ban Logları / Durum Çıktısı</h3>
-            <pre class="bg-black/50 p-4 rounded-lg text-xs font-mono text-gray-300 overflow-x-auto whitespace-pre-wrap">{{ fail2banStatus.raw || 'Veri yok' }}</pre>
+            <h3 class="text-sm font-semibold text-gray-300 mb-2">{{ t('security_center.fail2ban.logs_title') }}</h3>
+            <pre class="bg-black/50 p-4 rounded-lg text-xs font-mono text-gray-300 overflow-x-auto whitespace-pre-wrap">{{ fail2banStatus.raw || t('common.no_data') }}</pre>
           </div>
           
           <div class="mt-6 border-t border-panel-border pt-4">
-            <h3 class="text-sm font-semibold text-gray-300 mb-3">IP Engeli Kaldır (Unban)</h3>
+            <h3 class="text-sm font-semibold text-gray-300 mb-3">{{ t('security_center.fail2ban.unban_title') }}</h3>
             <div class="flex gap-3 max-w-md">
               <input type="text" id="unbanIpInput" placeholder="Örn: 192.168.1.1" class="aura-input flex-1" />
-              <button class="btn-primary" @click="() => { const el = document.getElementById('unbanIpInput'); if(el.value) unbanIp(el.value); }">Unban IP</button>
+              <button class="btn-primary" @click="() => { const el = document.getElementById('unbanIpInput'); if(el.value) unbanIp(el.value); }">{{ t('security_center.fail2ban.unban_btn') }}</button>
             </div>
           </div>
         </div>

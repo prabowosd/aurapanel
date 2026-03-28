@@ -62,37 +62,38 @@
       <div v-if="tuningEngine === 'mariadb'" class="aura-card">
         <div class="flex items-center justify-between mb-4">
           <div>
-            <h2 class="text-lg font-bold text-white">MariaDB İnce Ayar (Tuning)</h2>
-            <p class="text-sm text-gray-400">Veritabanı sunucunuzun RAM ve CPU limitlerine göre performansını optimize edin.</p>
+            <h2 class="text-lg font-bold text-white">{{ t('database_manager.tuning.mariadb_title') }}</h2>
+            <p class="text-sm text-gray-400">{{ t('database_manager.tuning.mariadb_desc') }}</p>
           </div>
-          <button class="btn-secondary" @click="loadTuning">Yenile</button>
+          <button class="btn-secondary" @click="loadTuning">{{ t('common.refresh') || 'Yenile' }}</button>
         </div>
         
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Max Connections (Maks. Bağlantı)</label>
+            <label class="block text-sm text-gray-400 mb-1">Max Connections</label>
             <input v-model="tuningForm.max_connections" type="text" class="aura-input w-full" placeholder="Örn: 151" />
-            <p class="text-xs text-gray-500 mt-1">Eşzamanlı maksimum veritabanı bağlantı sayısı.</p>
+            <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.max_conn_desc') }}</p>
           </div>
           <div>
             <label class="block text-sm text-gray-400 mb-1">InnoDB Buffer Pool Size</label>
             <input v-model="tuningForm.innodb_buffer_pool_size" type="text" class="aura-input w-full" placeholder="Örn: 128M" />
-            <p class="text-xs text-gray-500 mt-1">Veri ve indekslerin önbelleğe alındığı RAM miktarı. (Sunucu RAM'inin %50-70'i önerilir)</p>
+            <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.innodb_pool_desc') }}</p>
           </div>
           <div>
             <label class="block text-sm text-gray-400 mb-1">Key Buffer Size</label>
             <input v-model="tuningForm.key_buffer_size" type="text" class="aura-input w-full" placeholder="Örn: 16M" />
+            <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.key_buffer_desc') }}</p>
           </div>
           <div>
             <label class="block text-sm text-gray-400 mb-1">Max Allowed Packet</label>
             <input v-model="tuningForm.max_allowed_packet" type="text" class="aura-input w-full" placeholder="Örn: 16M" />
-            <p class="text-xs text-gray-500 mt-1">Tek bir sorgunun/paketin alabileceği maksimum boyut.</p>
+            <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.max_packet_desc') }}</p>
           </div>
         </div>
         
         <div class="mt-6 flex justify-end">
           <button class="btn-primary" @click="saveTuning" :disabled="tuningSaving">
-            {{ tuningSaving ? 'Kaydediliyor & Restart...' : 'Ayarları Kaydet ve MariaDB\'yi Yeniden Başlat' }}
+            {{ tuningSaving ? t('database_manager.tuning.saving') : t('database_manager.tuning.save_mariadb') }}
           </button>
         </div>
       </div>
@@ -101,38 +102,38 @@
       <div v-if="tuningEngine === 'postgresql'" class="aura-card">
         <div class="flex items-center justify-between mb-4">
           <div>
-            <h2 class="text-lg font-bold text-white">PostgreSQL İnce Ayar (Tuning)</h2>
-            <p class="text-sm text-gray-400">PostgreSQL sunucunuzun RAM tüketimini ve eşzamanlı işlem kapasitesini ayarlayın.</p>
+            <h2 class="text-lg font-bold text-white">{{ t('database_manager.tuning.pg_title') }}</h2>
+            <p class="text-sm text-gray-400">{{ t('database_manager.tuning.pg_desc') }}</p>
           </div>
-          <button class="btn-secondary" @click="loadTuning">Yenile</button>
+          <button class="btn-secondary" @click="loadTuning">{{ t('common.refresh') || 'Yenile' }}</button>
         </div>
         
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label class="block text-sm text-gray-400 mb-1">Max Connections</label>
             <input v-model="pgTuningForm.max_connections" type="text" class="aura-input w-full" placeholder="Örn: 100" />
-            <p class="text-xs text-gray-500 mt-1">Maksimum veritabanı istemcisi bağlantı sayısı.</p>
+            <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.max_conn_desc') }}</p>
           </div>
           <div>
             <label class="block text-sm text-gray-400 mb-1">Shared Buffers</label>
             <input v-model="pgTuningForm.shared_buffers" type="text" class="aura-input w-full" placeholder="Örn: 128MB" />
-            <p class="text-xs text-gray-500 mt-1">PostgreSQL için ayrılan paylaşımlı bellek. (Sunucu RAM'inin %25'i önerilir)</p>
+            <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.shared_buffers_desc') }}</p>
           </div>
           <div>
             <label class="block text-sm text-gray-400 mb-1">Work Mem</label>
             <input v-model="pgTuningForm.work_mem" type="text" class="aura-input w-full" placeholder="Örn: 4MB" />
-            <p class="text-xs text-gray-500 mt-1">Her bir sorgu (SORT, HASH) işlemi için ayrılan RAM.</p>
+            <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.work_mem_desc') }}</p>
           </div>
           <div>
             <label class="block text-sm text-gray-400 mb-1">Maintenance Work Mem</label>
             <input v-model="pgTuningForm.maintenance_work_mem" type="text" class="aura-input w-full" placeholder="Örn: 64MB" />
-            <p class="text-xs text-gray-500 mt-1">VACUUM, CREATE INDEX gibi bakım işlemleri için maksimum bellek.</p>
+            <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.maintenance_work_mem_desc') }}</p>
           </div>
         </div>
         
         <div class="mt-6 flex justify-end">
           <button class="btn-primary" @click="saveTuning" :disabled="tuningSaving">
-            {{ tuningSaving ? 'Kaydediliyor & Restart...' : 'Ayarları Kaydet ve PostgreSQL\'i Yeniden Başlat' }}
+            {{ tuningSaving ? t('database_manager.tuning.saving') : t('database_manager.tuning.save_pg') }}
           </button>
         </div>
       </div>

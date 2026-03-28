@@ -34,37 +34,37 @@
       <div class="aura-card">
         <div class="flex items-center justify-between mb-4">
           <div>
-            <h2 class="text-lg font-bold text-white">Pure-FTPd Tuning</h2>
-            <p class="text-sm text-gray-400">FTP sunucunuzun bağlantı portlarını ve güvenlik seviyelerini yapılandırın.</p>
+            <h2 class="text-lg font-bold text-white">{{ t('ftp_manager.tuning.title') }}</h2>
+            <p class="text-sm text-gray-400">{{ t('ftp_manager.tuning.desc') }}</p>
           </div>
-          <button class="btn-secondary" @click="loadTuning">Yenile</button>
+          <button class="btn-secondary" @click="loadTuning">{{ t('common.refresh') || 'Yenile' }}</button>
         </div>
         
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label class="block text-sm text-gray-400 mb-1">Passive Port Range</label>
             <input v-model="tuningForm.PassivePortRange" type="text" class="aura-input w-full" placeholder="Örn: 30000 30049" />
-            <p class="text-xs text-gray-500 mt-1">FTP pasif bağlantıları için kullanılacak port aralığı.</p>
+            <p class="text-xs text-gray-500 mt-1">{{ t('ftp_manager.tuning.passive_port_desc') }}</p>
           </div>
           <div>
             <label class="block text-sm text-gray-400 mb-1">Max Clients Number</label>
             <input v-model="tuningForm.MaxClientsNumber" type="text" class="aura-input w-full" placeholder="Örn: 50" />
-            <p class="text-xs text-gray-500 mt-1">Aynı anda bağlanabilecek maksimum kullanıcı sayısı.</p>
+            <p class="text-xs text-gray-500 mt-1">{{ t('ftp_manager.tuning.max_clients_desc') }}</p>
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">TLS Encryption Level</label>
+            <label class="block text-sm text-gray-400 mb-1">TLS</label>
             <select v-model="tuningForm.TLS" class="aura-input w-full">
-              <option value="0">0 - TLS Kapalı (Sadece düz metin)</option>
-              <option value="1">1 - TLS İsteğe Bağlı</option>
-              <option value="2">2 - TLS Zorunlu (Önerilen)</option>
+              <option value="0">{{ t('ftp_manager.tuning.tls_0') }}</option>
+              <option value="1">{{ t('ftp_manager.tuning.tls_1') }}</option>
+              <option value="2">{{ t('ftp_manager.tuning.tls_2') }}</option>
             </select>
-            <p class="text-xs text-gray-500 mt-1">Bağlantıların şifrelenme zorunluluğu.</p>
+            <p class="text-xs text-gray-500 mt-1">{{ t('ftp_manager.tuning.tls_desc') }}</p>
           </div>
         </div>
         
         <div class="mt-6 flex justify-end">
           <button class="btn-primary" @click="saveTuning" :disabled="tuningSaving">
-            {{ tuningSaving ? 'Kaydediliyor & Restart...' : 'Ayarları Kaydet ve Pure-FTPd\'yi Yeniden Başlat' }}
+            {{ tuningSaving ? t('ftp_manager.tuning.saving') : t('ftp_manager.tuning.save') }}
           </button>
         </div>
       </div>

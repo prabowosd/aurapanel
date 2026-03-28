@@ -258,6 +258,59 @@ Object.assign(extraEn, {
       container_create_failed: 'Container could not be created.',
     },
   },
+  ftp_manager: {
+    tuning: {
+      title: 'Pure-FTPd Tuning',
+      desc: 'Configure FTP server ports and connection limits.',
+      passive_port_desc: 'Passive port range to be opened in firewall.',
+      max_clients_desc: 'Maximum simultaneous FTP clients.',
+      tls_0: '0 - Cleartext only',
+      tls_1: '1 - Optional TLS',
+      tls_2: '2 - Mandatory TLS (Recommended)',
+      tls_desc: 'Encryption requirement level.',
+      saving: 'Saving & Restarting...',
+      save: 'Save & Restart Pure-FTPd'
+    }
+  },
+  database_manager: {
+    tuning: {
+      mariadb_title: 'MariaDB Tuning',
+      mariadb_desc: 'Optimize database performance based on your server RAM and CPU.',
+      pg_title: 'PostgreSQL Tuning',
+      pg_desc: 'Configure PostgreSQL RAM consumption and connection limits.',
+      max_conn_desc: 'Maximum simultaneous client connections.',
+      innodb_pool_desc: 'RAM allocated for caching data and indexes. (50-70% of total RAM recommended)',
+      key_buffer_desc: 'Index cache size for MyISAM tables.',
+      max_packet_desc: 'Maximum size of a single query/packet.',
+      shared_buffers_desc: 'Shared memory allocated for PostgreSQL. (25% of total RAM recommended)',
+      work_mem_desc: 'RAM allocated per operation (SORT, HASH).',
+      maintenance_work_mem_desc: 'Maximum memory for maintenance operations like VACUUM and CREATE INDEX.',
+      saving: 'Saving & Restarting...',
+      save_mariadb: 'Save & Restart MariaDB',
+      save_pg: 'Save & Restart PostgreSQL'
+    }
+  },
+  email_manager: {
+    tuning: {
+      title: 'Mail Server (Postfix) Tuning',
+      desc: 'Manage your mail server connection limits and size constraints.',
+      msg_size_desc: 'Maximum size of an email including attachments in bytes. (e.g., 10MB = 10485760)',
+      mbox_size_desc: 'Default size limit for virtual mailboxes if panel limit is 0.',
+      max_conn_desc: 'Maximum simultaneous connections from a single IP. (Spam protection)',
+      saving: 'Saving & Restarting...',
+      save: 'Save & Restart Postfix'
+    }
+  },
+  security_center: {
+    fail2ban: {
+      title: 'Fail2Ban Manager',
+      desc: 'Detect and block bruteforce and unauthorized access attempts.',
+      status_label: 'Service Status',
+      logs_title: 'Fail2Ban Logs / Status Output',
+      unban_title: 'Unban IP Address',
+      unban_btn: 'Unban IP'
+    }
+  },
 })
 
 Object.assign(extraTr, {
@@ -499,6 +552,59 @@ Object.assign(extraTr, {
       container_created: '"{name}" konteyneri olusturuldu.',
       container_create_failed: 'Konteyner olusturulamadi.',
     },
+  },
+  ftp_manager: {
+    tuning: {
+      title: 'Pure-FTPd İnce Ayar (Tuning)',
+      desc: 'FTP sunucunuzun bağlantı portlarını ve güvenlik seviyelerini yapılandırın.',
+      passive_port_desc: 'FTP pasif bağlantıları için kullanılacak port aralığı.',
+      max_clients_desc: 'Aynı anda bağlanabilecek maksimum kullanıcı sayısı.',
+      tls_0: '0 - TLS Kapalı (Sadece düz metin)',
+      tls_1: '1 - TLS İsteğe Bağlı',
+      tls_2: '2 - TLS Zorunlu (Önerilen)',
+      tls_desc: 'Bağlantıların şifrelenme zorunluluğu.',
+      saving: 'Kaydediliyor & Restart...',
+      save: 'Ayarları Kaydet ve Pure-FTPd\'yi Yeniden Başlat'
+    }
+  },
+  database_manager: {
+    tuning: {
+      mariadb_title: 'MariaDB İnce Ayar (Tuning)',
+      mariadb_desc: 'Veritabanı sunucunuzun RAM ve CPU limitlerine göre performansını optimize edin.',
+      pg_title: 'PostgreSQL İnce Ayar (Tuning)',
+      pg_desc: 'PostgreSQL sunucunuzun RAM tüketimini ve eşzamanlı işlem kapasitesini ayarlayın.',
+      max_conn_desc: 'Eşzamanlı maksimum veritabanı bağlantı sayısı.',
+      innodb_pool_desc: 'Veri ve indekslerin önbelleğe alındığı RAM miktarı. (Sunucu RAM\'inin %50-70\'i önerilir)',
+      key_buffer_desc: 'MyISAM tabloları için indeks önbelleği.',
+      max_packet_desc: 'Tek bir sorgunun/paketin alabileceği maksimum boyut.',
+      shared_buffers_desc: 'PostgreSQL için ayrılan paylaşımlı bellek. (Sunucu RAM\'inin %25\'i önerilir)',
+      work_mem_desc: 'Her bir sorgu (SORT, HASH) işlemi için ayrılan RAM.',
+      maintenance_work_mem_desc: 'VACUUM, CREATE INDEX gibi bakım işlemleri için maksimum bellek.',
+      saving: 'Kaydediliyor & Restart...',
+      save_mariadb: 'Ayarları Kaydet ve MariaDB\'yi Yeniden Başlat',
+      save_pg: 'Ayarları Kaydet ve PostgreSQL\'i Yeniden Başlat'
+    }
+  },
+  email_manager: {
+    tuning: {
+      title: 'Mail Server (Postfix) Tuning',
+      desc: 'Posta sunucunuzun bağlantı limitlerini ve boyut kısıtlamalarını yönetin.',
+      msg_size_desc: 'Gelen/giden e-postanın toplam maksimum boyutu. (Örn 10MB = 10485760)',
+      mbox_size_desc: 'Sanal posta kutularının (eğer panel limiti 0 ise) varsayılan limiti.',
+      max_conn_desc: 'Tek bir IP\'den yapılabilecek eşzamanlı bağlantı sayısı. (Spam koruması)',
+      saving: 'Kaydediliyor & Restart...',
+      save: 'Ayarları Kaydet ve Postfix\'i Yeniden Başlat'
+    }
+  },
+  security_center: {
+    fail2ban: {
+      title: 'Fail2Ban Yöneticisi',
+      desc: 'Sunucunuza yapılan bruteforce ve yetkisiz erişim denemelerini tespit edip engeller.',
+      status_label: 'Servis Durumu',
+      logs_title: 'Fail2Ban Logları / Durum Çıktısı',
+      unban_title: 'IP Engeli Kaldır (Unban)',
+      unban_btn: 'Unban IP'
+    }
   },
 })
 

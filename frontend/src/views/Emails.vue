@@ -25,33 +25,33 @@
       <div class="aura-card">
         <div class="flex items-center justify-between mb-4">
           <div>
-            <h2 class="text-lg font-bold text-white">Mail Server (Postfix) Tuning</h2>
-            <p class="text-sm text-gray-400">Posta sunucunuzun bağlantı limitlerini ve boyut kısıtlamalarını yönetin.</p>
+            <h2 class="text-lg font-bold text-white">{{ t('email_manager.tuning.title') }}</h2>
+            <p class="text-sm text-gray-400">{{ t('email_manager.tuning.desc') }}</p>
           </div>
-          <button class="btn-secondary" @click="loadTuning">Yenile</button>
+          <button class="btn-secondary" @click="loadTuning">{{ t('common.refresh') || 'Yenile' }}</button>
         </div>
         
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Message Size Limit (Maks Ek Boyutu - Byte)</label>
+            <label class="block text-sm text-gray-400 mb-1">Message Size Limit</label>
             <input v-model="tuningForm.message_size_limit" type="text" class="aura-input w-full" placeholder="Örn: 10485760 (10MB)" />
-            <p class="text-xs text-gray-500 mt-1">Gelen/giden e-postanın toplam maksimum boyutu. (Örn 10MB = 10485760)</p>
+            <p class="text-xs text-gray-500 mt-1">{{ t('email_manager.tuning.msg_size_desc') }}</p>
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Mailbox Size Limit (Byte)</label>
+            <label class="block text-sm text-gray-400 mb-1">Mailbox Size Limit</label>
             <input v-model="tuningForm.mailbox_size_limit" type="text" class="aura-input w-full" placeholder="Örn: 51200000 (50MB)" />
-            <p class="text-xs text-gray-500 mt-1">Sanal posta kutularının (eğer panel limiti 0 ise) varsayılan limiti.</p>
+            <p class="text-xs text-gray-500 mt-1">{{ t('email_manager.tuning.mbox_size_desc') }}</p>
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Max Client Connections (smtpd_client_connection_count_limit)</label>
+            <label class="block text-sm text-gray-400 mb-1">Max Client Connections</label>
             <input v-model="tuningForm.smtpd_client_connection_count_limit" type="text" class="aura-input w-full" placeholder="Örn: 50" />
-            <p class="text-xs text-gray-500 mt-1">Tek bir IP'den yapılabilecek eşzamanlı bağlantı sayısı. (Spam koruması)</p>
+            <p class="text-xs text-gray-500 mt-1">{{ t('email_manager.tuning.max_conn_desc') }}</p>
           </div>
         </div>
         
         <div class="mt-6 flex justify-end">
           <button class="btn-primary" @click="saveTuning" :disabled="tuningSaving">
-            {{ tuningSaving ? 'Kaydediliyor & Restart...' : 'Ayarları Kaydet ve Postfix\'i Yeniden Başlat' }}
+            {{ tuningSaving ? t('email_manager.tuning.saving') : t('email_manager.tuning.save') }}
           </button>
         </div>
       </div>
