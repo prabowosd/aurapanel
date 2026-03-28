@@ -221,6 +221,8 @@ func olsManagedVhostName(domain string) string {
 			b.WriteRune(r)
 		case r >= '0' && r <= '9':
 			b.WriteRune(r)
+		case r == '.':
+			b.WriteByte('_')
 		default:
 			b.WriteByte('_')
 		}
