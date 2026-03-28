@@ -74,7 +74,9 @@ func syncOLSRuntimeState(sites []Website, advanced map[string]WebsiteAdvancedCon
 		return err
 	}
 
+	// Always do a gracefull reload to apply new vhost configs immediately
 	if err := reloadOpenLiteSpeed(); err != nil {
+		// Rollback if reload fails due to syntax error
 		_ = os.WriteFile(olsHTTPDConfigPath, previousHTTPD, 0o640)
 		_ = restoreOLSManagedVhostFiles(previousVhostFiles)
 		_ = reloadOpenLiteSpeed()
