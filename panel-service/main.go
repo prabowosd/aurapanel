@@ -1446,9 +1446,7 @@ func (s *service) handleCollectEBPF(w http.ResponseWriter) {
 }
 
 func (s *service) handleFirewallRulesList(w http.ResponseWriter) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.state.FirewallRules})
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: listFirewallRuntimeRules()})
 }
 
 func (s *service) handleFirewallRuleCreate(w http.ResponseWriter, r *http.Request) {
@@ -1462,37 +1460,28 @@ func (s *service) handleFirewallRuleCreate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.state.FirewallRules = append(s.state.FirewallRules, payload)
+	if err := addFirewallRuntimeRule(payload); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Firewall rule added."})
 }
 
 func (s *service) handleFirewallRuleDelete(w http.ResponseWriter, r *http.Request) {
 	ip := strings.TrimSpace(r.URL.Query().Get("ip_address"))
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i := range s.state.FirewallRules {
-		if s.state.FirewallRules[i].IPAddress == ip {
-			s.state.FirewallRules = append(s.state.FirewallRules[:i], s.state.FirewallRules[i+1:]...)
-			writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Firewall rule deleted."})
-			return
-		}
+	if err := deleteFirewallRuntimeRule(ip); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
 	}
-	writeError(w, http.StatusNotFound, "Firewall rule not found.")
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Firewall rule deleted."})
 }
 
 func (s *service) handleSSHKeysList(w http.ResponseWriter, r *http.Request) {
 	user := strings.TrimSpace(r.URL.Query().Get("user"))
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var keys []SSHKey
-	for _, key := range s.state.SSHKeys {
-		if user == "" || key.User == user {
-			keys = append(keys, key)
-		}
+	if user == "" {
+		user = "root"
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: keys})
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: listAuthorizedKeys(user)})
 }
 
 func (s *service) handleSSHKeyCreate(w http.ResponseWriter, r *http.Request) {
@@ -1510,32 +1499,25 @@ func (s *service) handleSSHKeyCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	key := SSHKey{
-		ID:        generateSecret(10),
-		User:      strings.TrimSpace(payload.User),
-		Title:     firstNonEmpty(strings.TrimSpace(payload.Title), "Imported key"),
-		PublicKey: strings.TrimSpace(payload.PublicKey),
+	key, err := addAuthorizedKey(strings.TrimSpace(payload.User), strings.TrimSpace(payload.Title), strings.TrimSpace(payload.PublicKey))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
-	s.state.SSHKeys = append(s.state.SSHKeys, key)
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "SSH key added.", Data: key})
 }
 
 func (s *service) handleSSHKeyDelete(w http.ResponseWriter, r *http.Request) {
 	user := strings.TrimSpace(r.URL.Query().Get("user"))
 	keyID := strings.TrimSpace(r.URL.Query().Get("key_id"))
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i := range s.state.SSHKeys {
-		item := s.state.SSHKeys[i]
-		if item.User == user && item.ID == keyID {
-			s.state.SSHKeys = append(s.state.SSHKeys[:i], s.state.SSHKeys[i+1:]...)
-			writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "SSH key removed."})
-			return
-		}
+	if user == "" {
+		user = "root"
 	}
-	writeError(w, http.StatusNotFound, "SSH key not found.")
+	if err := deleteAuthorizedKey(user, keyID); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "SSH key removed."})
 }
 
 func (s *service) handleHardeningApply(w http.ResponseWriter, r *http.Request) {
@@ -1734,6 +1716,7 @@ func (s *service) provisionWebsiteArtifactsLocked(site Website) {
 	if site.MailDomain {
 		s.ensureMailArtifactsLocked(site)
 	}
+	_ = s.syncCloudflareZoneRecordsLocked(site.Domain)
 }
 
 func (s *service) ensureDNSArtifactsLocked(domain string, mailDomain bool) {
@@ -1809,25 +1792,6 @@ func (s *service) ensureMailArtifactsLocked(site Website) {
 		return
 	}
 
-	addMailbox := func(address, user string, quotaMB int) {
-		for _, mailbox := range s.modules.Mailboxes {
-			if mailbox.Address == address {
-				return
-			}
-		}
-		s.modules.Mailboxes = append(s.modules.Mailboxes, Mailbox{
-			Address: address,
-			Domain:  normalizedDomain,
-			User:    user,
-			Owner:   site.Owner,
-			QuotaMB: quotaMB,
-			UsedMB:  0,
-		})
-	}
-
-	addMailbox(fmt.Sprintf("postmaster@%s", normalizedDomain), "postmaster", 1024)
-	addMailbox(fmt.Sprintf("webmaster@%s", normalizedDomain), "webmaster", 1024)
-
 	if s.modules.MailCatchAll == nil {
 		s.modules.MailCatchAll = map[string]MailCatchAll{}
 	}
@@ -1850,6 +1814,7 @@ func (s *service) ensureMailArtifactsLocked(site Website) {
 		}
 	}
 
+	_ = provisionMailDomain(normalizedDomain)
 	s.recordIssuedCertificateLocked(fmt.Sprintf("mail.%s", normalizedDomain), "Let's Encrypt", false)
 }
 

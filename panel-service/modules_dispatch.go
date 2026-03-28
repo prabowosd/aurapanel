@@ -382,7 +382,7 @@ func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) b
 		s.handleACLEffectiveGet(w, r)
 		return true
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cloudflare/zones":
-		s.handleCloudflareZones(w)
+		s.handleCloudflareZones(w, r)
 		return true
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cloudflare/dns/list":
 		s.handleCloudflareDNSList(w, r)

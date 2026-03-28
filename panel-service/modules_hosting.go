@@ -630,8 +630,12 @@ func (s *service) handleDefaultNameserversReset(w http.ResponseWriter) {
 
 func (s *service) handleMailboxesList(w http.ResponseWriter) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.Mailboxes})
+	quotaByAddress := map[string]int{}
+	for _, mailbox := range s.modules.Mailboxes {
+		quotaByAddress[mailbox.Address] = mailbox.QuotaMB
+	}
+	s.mu.RUnlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: loadSystemMailboxes(quotaByAddress)})
 }
 
 func (s *service) handleMailboxCreate(w http.ResponseWriter, r *http.Request) {
@@ -652,6 +656,10 @@ func (s *service) handleMailboxCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Domain and username are required.")
 		return
 	}
+	if strings.TrimSpace(payload.Password) == "" {
+		writeError(w, http.StatusBadRequest, "Mailbox password is required.")
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	address := fmt.Sprintf("%s@%s", username, domain)
@@ -669,6 +677,11 @@ func (s *service) handleMailboxCreate(w http.ResponseWriter, r *http.Request) {
 		QuotaMB: maxInt(payload.QuotaMB, 256),
 		UsedMB:  0,
 	})
+	if err := upsertSystemMailbox(address, payload.Password); err != nil {
+		s.modules.Mailboxes = s.modules.Mailboxes[:len(s.modules.Mailboxes)-1]
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Mailbox created."})
 }
 
@@ -697,6 +710,10 @@ func (s *service) handleMailboxDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Mailbox not found.")
 		return
 	}
+	if err := deleteSystemMailbox(address); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Mailbox deleted."})
 }
 
@@ -713,13 +730,18 @@ func (s *service) handleMailboxPassword(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "Address and new password are required.")
 		return
 	}
+	if err := updateSystemMailboxPassword(payload.Address, payload.NewPassword); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Mailbox password updated."})
 }
 
 func (s *service) handleMailForwardsList(w http.ResponseWriter) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.MailForwards})
+	items := append([]MailForward(nil), s.modules.MailForwards...)
+	s.mu.RUnlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: items})
 }
 
 func (s *service) handleMailForwardCreate(w http.ResponseWriter, r *http.Request) {
@@ -735,6 +757,10 @@ func (s *service) handleMailForwardCreate(w http.ResponseWriter, r *http.Request
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.modules.MailForwards = append(s.modules.MailForwards, MailForward{Domain: normalizeDomain(payload.Domain), Source: payload.Source, Target: payload.Target})
+	if err := upsertSystemForward(payload.Domain, payload.Source, payload.Target); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Mail forward added."})
 }
 
@@ -764,6 +790,10 @@ func (s *service) handleMailForwardDelete(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, "Mail forward not found.")
 		return
 	}
+	if err := deleteSystemForward(payload.Domain, payload.Source); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Mail forward deleted."})
 }
 
@@ -782,6 +812,10 @@ func (s *service) handleMailCatchAllSet(w http.ResponseWriter, r *http.Request) 
 	defer s.mu.Unlock()
 	payload.Domain = domain
 	s.modules.MailCatchAll[domain] = payload
+	if err := setSystemCatchAll(domain, payload.Target, payload.Enabled); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Catch-all updated.", Data: payload})
 }
 

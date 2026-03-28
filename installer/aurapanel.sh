@@ -409,6 +409,27 @@ configure_standard_firewall() {
   fi
 }
 
+ensure_firewall_manager_active() {
+  if [ "${PKG_MGR}" = "apt" ]; then
+    if command -v ufw >/dev/null 2>&1; then
+      if ! ufw status 2>/dev/null | grep -qi "Status: active"; then
+        log "Activating ufw baseline policy..."
+        ufw --force reset >/dev/null 2>&1 || true
+        ufw default deny incoming >/dev/null 2>&1 || true
+        ufw default allow outgoing >/dev/null 2>&1 || true
+        ufw allow 22/tcp >/dev/null 2>&1 || true
+        ufw --force enable >/dev/null 2>&1 || true
+      fi
+    fi
+    return
+  fi
+
+  if command -v firewall-cmd >/dev/null 2>&1; then
+    systemctl enable firewalld >/dev/null 2>&1 || true
+    systemctl start firewalld >/dev/null 2>&1 || true
+  fi
+}
+
 configure_pureftpd() {
   if ! command -v pure-pw >/dev/null 2>&1; then
     warn "pure-pw binary is missing. PureFTPd may not be installed on this distro."
@@ -542,13 +563,14 @@ configure_mail_stack_vmail() {
   chown -R "${vmail_uid}:${vmail_gid}" "${vmail_base}" >/dev/null 2>&1 || true
   chmod 750 "${vmail_base}" >/dev/null 2>&1 || true
 
-  touch /etc/dovecot/users /etc/postfix/vmailbox /etc/postfix/virtual /etc/postfix/virtual_regexp
-  chmod 640 /etc/dovecot/users /etc/postfix/vmailbox /etc/postfix/virtual /etc/postfix/virtual_regexp >/dev/null 2>&1 || true
+  touch /etc/dovecot/users /etc/postfix/vmailbox /etc/postfix/vmailbox_domains /etc/postfix/virtual /etc/postfix/virtual_regexp
+  chmod 640 /etc/dovecot/users /etc/postfix/vmailbox /etc/postfix/vmailbox_domains /etc/postfix/virtual /etc/postfix/virtual_regexp >/dev/null 2>&1 || true
   if getent group dovecot >/dev/null 2>&1; then
     chgrp dovecot /etc/dovecot/users >/dev/null 2>&1 || true
   fi
 
   if command -v postmap >/dev/null 2>&1; then
+    postmap /etc/postfix/vmailbox_domains >/dev/null 2>&1 || true
     postmap /etc/postfix/vmailbox >/dev/null 2>&1 || true
     postmap /etc/postfix/virtual >/dev/null 2>&1 || true
   fi
@@ -577,6 +599,7 @@ EOF
 
   if command -v postconf >/dev/null 2>&1; then
     postconf -e "virtual_mailbox_base = ${vmail_base}" >/dev/null 2>&1 || true
+    postconf -e "virtual_mailbox_domains = hash:/etc/postfix/vmailbox_domains" >/dev/null 2>&1 || true
     postconf -e "virtual_mailbox_maps = hash:/etc/postfix/vmailbox" >/dev/null 2>&1 || true
     postconf -e "virtual_alias_maps = hash:/etc/postfix/virtual,regexp:/etc/postfix/virtual_regexp" >/dev/null 2>&1 || true
     postconf -e "virtual_minimum_uid = ${vmail_uid}" >/dev/null 2>&1 || true
@@ -993,6 +1016,10 @@ AURAPANEL_MAIL_BACKEND=vmail
 AURAPANEL_MAIL_VMAIL_UID=5000
 AURAPANEL_MAIL_VMAIL_GID=5000
 AURAPANEL_MAIL_VMAIL_BASE=/var/mail/vhosts
+AURAPANEL_CLOUDFLARE_EMAIL=
+AURAPANEL_CLOUDFLARE_API_KEY=
+AURAPANEL_CLOUDFLARE_API_TOKEN=
+AURAPANEL_CLOUDFLARE_AUTO_SYNC=0
 EOF
 
     chmod 600 "${SERVICE_ENV_FILE}"
@@ -1042,6 +1069,10 @@ EOF
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_UID" "5000"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_GID" "5000"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_BASE" "/var/mail/vhosts"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_CLOUDFLARE_EMAIL" "$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_CLOUDFLARE_EMAIL")"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_CLOUDFLARE_API_KEY" "$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_CLOUDFLARE_API_KEY")"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_CLOUDFLARE_API_TOKEN" "$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_CLOUDFLARE_API_TOKEN")"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_CLOUDFLARE_AUTO_SYNC" "$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_CLOUDFLARE_AUTO_SYNC")"
 
   chmod 600 "${GATEWAY_ENV_FILE}" "${SERVICE_ENV_FILE}"
 }
@@ -1244,6 +1275,15 @@ smoke_check() {
   if systemctl list-unit-files | grep -q '^pure-ftpd\.service'; then
     systemctl is-active --quiet pure-ftpd || fail "pure-ftpd is not active"
   fi
+  if systemctl list-unit-files | grep -q '^postfix\.service'; then
+    systemctl is-active --quiet postfix || fail "postfix is not active"
+  fi
+  if systemctl list-unit-files | grep -q '^dovecot\.service'; then
+    systemctl is-active --quiet dovecot || fail "dovecot is not active"
+  fi
+  if command -v ufw >/dev/null 2>&1; then
+    ufw status 2>/dev/null | grep -qi "Status: active" || warn "ufw is installed but not active."
+  fi
 
   curl -fsS http://127.0.0.1:8081/api/v1/health >/dev/null || fail "Panel service health check failed"
   curl -fsS "http://127.0.0.1:${panel_port}/api/health" >/dev/null || fail "Gateway health check failed"
@@ -1324,6 +1364,7 @@ main() {
 
   sync_project
   write_service_env_defaults
+  ensure_firewall_manager_active
   configure_minio_service
   configure_roundcube
   configure_mail_stack_vmail

@@ -1,0 +1,667 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"os/exec"
+	"os/user"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+
+	"golang.org/x/crypto/ssh"
+)
+
+type firewallRuntimeRule struct {
+	Number    int
+	IPAddress string
+	Block     bool
+	Reason    string
+}
+
+type systemMailbox struct {
+	Address string
+	Maildir string
+}
+
+func sshKeyManagerAvailable() bool {
+	return runtimeHostLinux()
+}
+
+func runtimeHostLinux() bool {
+	return runtime.GOOS == "linux"
+}
+
+func listFirewallRuntimeRules() []FirewallRule {
+	snapshot := collectSecuritySnapshot()
+	switch snapshot.FirewallManager {
+	case "ufw":
+		return listUFFirewallRules()
+	case "firewalld":
+		return listFirewalldRules()
+	default:
+		return []FirewallRule{}
+	}
+}
+
+func addFirewallRuntimeRule(rule FirewallRule) error {
+	snapshot := collectSecuritySnapshot()
+	switch snapshot.FirewallManager {
+	case "ufw":
+		return addUFFirewallRule(rule)
+	case "firewalld":
+		return addFirewalldRule(rule)
+	default:
+		return fmt.Errorf("no supported active firewall manager detected")
+	}
+}
+
+func deleteFirewallRuntimeRule(ipAddress string) error {
+	snapshot := collectSecuritySnapshot()
+	switch snapshot.FirewallManager {
+	case "ufw":
+		return deleteUFFirewallRule(ipAddress)
+	case "firewalld":
+		return deleteFirewalldRule(ipAddress)
+	default:
+		return fmt.Errorf("no supported active firewall manager detected")
+	}
+}
+
+func listUFFirewallRules() []FirewallRule {
+	cmd := exec.Command("ufw", "status", "numbered")
+	output, err := cmd.Output()
+	if err != nil {
+		return []FirewallRule{}
+	}
+
+	rules := []FirewallRule{}
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	for scanner.Scan() {
+		runtimeRule, ok := parseUFWNumberedRule(scanner.Text())
+		if !ok {
+			continue
+		}
+		rules = append(rules, FirewallRule{
+			IPAddress: runtimeRule.IPAddress,
+			Block:     runtimeRule.Block,
+			Reason:    runtimeRule.Reason,
+		})
+	}
+	return rules
+}
+
+func parseUFWNumberedRule(line string) (firewallRuntimeRule, bool) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "[") {
+		return firewallRuntimeRule{}, false
+	}
+
+	endIdx := strings.Index(trimmed, "]")
+	if endIdx <= 1 {
+		return firewallRuntimeRule{}, false
+	}
+
+	number, err := strconv.Atoi(strings.TrimSpace(trimmed[1:endIdx]))
+	if err != nil {
+		return firewallRuntimeRule{}, false
+	}
+
+	comment := ""
+	body := strings.TrimSpace(trimmed[endIdx+1:])
+	if idx := strings.Index(body, "#"); idx >= 0 {
+		comment = strings.TrimSpace(body[idx+1:])
+		body = strings.TrimSpace(body[:idx])
+	}
+
+	fields := strings.Fields(body)
+	if len(fields) < 4 {
+		return firewallRuntimeRule{}, false
+	}
+
+	actionField := strings.ToUpper(strings.TrimSpace(fields[1]))
+	if actionField != "ALLOW" && actionField != "DENY" && actionField != "REJECT" {
+		return firewallRuntimeRule{}, false
+	}
+
+	from := strings.TrimSpace(fields[len(fields)-1])
+	if !looksLikeIPAddress(from) {
+		return firewallRuntimeRule{}, false
+	}
+
+	return firewallRuntimeRule{
+		Number:    number,
+		IPAddress: from,
+		Block:     actionField == "DENY" || actionField == "REJECT",
+		Reason:    comment,
+	}, true
+}
+
+func addUFFirewallRule(rule FirewallRule) error {
+	action := "allow"
+	if rule.Block {
+		action = "deny"
+	}
+
+	args := []string{"--force", "insert", "1", action, "from", strings.TrimSpace(rule.IPAddress)}
+	if reason := strings.TrimSpace(rule.Reason); reason != "" {
+		args = append(args, "comment", truncateShellComment(reason, 60))
+	}
+	return exec.Command("ufw", args...).Run()
+}
+
+func deleteUFFirewallRule(ipAddress string) error {
+	cmd := exec.Command("ufw", "status", "numbered")
+	output, err := cmd.Output()
+	if err != nil {
+		return err
+	}
+
+	numbers := []int{}
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	for scanner.Scan() {
+		rule, ok := parseUFWNumberedRule(scanner.Text())
+		if ok && strings.EqualFold(rule.IPAddress, strings.TrimSpace(ipAddress)) {
+			numbers = append(numbers, rule.Number)
+		}
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(numbers)))
+	if len(numbers) == 0 {
+		return fmt.Errorf("firewall rule not found")
+	}
+
+	for _, number := range numbers {
+		if err := exec.Command("ufw", "--force", "delete", strconv.Itoa(number)).Run(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func listFirewalldRules() []FirewallRule {
+	cmd := exec.Command("firewall-cmd", "--permanent", "--list-rich-rules")
+	output, err := cmd.Output()
+	if err != nil {
+		return []FirewallRule{}
+	}
+
+	rules := []FirewallRule{}
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.Contains(line, "source address=") {
+			continue
+		}
+		ipAddress := extractBetween(line, `source address="`, `"`)
+		if !looksLikeIPAddress(ipAddress) {
+			continue
+		}
+		rules = append(rules, FirewallRule{
+			IPAddress: ipAddress,
+			Block:     strings.Contains(line, " drop") || strings.Contains(line, " reject"),
+			Reason:    "",
+		})
+	}
+	return rules
+}
+
+func addFirewalldRule(rule FirewallRule) error {
+	action := "accept"
+	if rule.Block {
+		action = "drop"
+	}
+	richRule := fmt.Sprintf(`rule family="ipv4" source address="%s" %s`, strings.TrimSpace(rule.IPAddress), action)
+	if err := exec.Command("firewall-cmd", "--permanent", "--add-rich-rule", richRule).Run(); err != nil {
+		return err
+	}
+	return exec.Command("firewall-cmd", "--reload").Run()
+}
+
+func deleteFirewalldRule(ipAddress string) error {
+	for _, action := range []string{"accept", "drop"} {
+		richRule := fmt.Sprintf(`rule family="ipv4" source address="%s" %s`, strings.TrimSpace(ipAddress), action)
+		_ = exec.Command("firewall-cmd", "--permanent", "--remove-rich-rule", richRule).Run()
+	}
+	return exec.Command("firewall-cmd", "--reload").Run()
+}
+
+func looksLikeIPAddress(value string) bool {
+	if value == "" || strings.EqualFold(value, "Anywhere") {
+		return false
+	}
+	return ipAddressPattern.MatchString(value)
+}
+
+var ipAddressPattern = regexp.MustCompile(`^([0-9]{1,3}\.){3}[0-9]{1,3}(/[0-9]{1,2})?$`)
+
+func extractBetween(value, prefix, suffix string) string {
+	start := strings.Index(value, prefix)
+	if start < 0 {
+		return ""
+	}
+	start += len(prefix)
+	end := strings.Index(value[start:], suffix)
+	if end < 0 {
+		return ""
+	}
+	return value[start : start+end]
+}
+
+func truncateShellComment(value string, maxLen int) string {
+	cleaned := strings.TrimSpace(strings.ReplaceAll(value, `"`, ""))
+	if maxLen <= 0 || len(cleaned) <= maxLen {
+		return cleaned
+	}
+	return cleaned[:maxLen]
+}
+
+func listAuthorizedKeys(userName string) []SSHKey {
+	account, err := user.Lookup(strings.TrimSpace(userName))
+	if err != nil {
+		return []SSHKey{}
+	}
+	authorizedKeysPath := filepath.Join(account.HomeDir, ".ssh", "authorized_keys")
+	raw, err := os.ReadFile(authorizedKeysPath)
+	if err != nil {
+		return []SSHKey{}
+	}
+
+	keys := []SSHKey{}
+	scanner := bufio.NewScanner(bytes.NewReader(raw))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		title := sshKeyComment(line)
+		keys = append(keys, SSHKey{
+			ID:        stableKeyID(line),
+			User:      userName,
+			Title:     firstNonEmpty(title, "Imported key"),
+			PublicKey: line,
+		})
+	}
+	return keys
+}
+
+func addAuthorizedKey(userName, title, publicKey string) (SSHKey, error) {
+	account, err := user.Lookup(strings.TrimSpace(userName))
+	if err != nil {
+		return SSHKey{}, err
+	}
+	if _, _, _, _, err := ssh.ParseAuthorizedKey([]byte(publicKey)); err != nil {
+		return SSHKey{}, fmt.Errorf("invalid SSH public key")
+	}
+
+	sshDir := filepath.Join(account.HomeDir, ".ssh")
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		return SSHKey{}, err
+	}
+	uid, _ := strconv.Atoi(account.Uid)
+	gid, _ := strconv.Atoi(account.Gid)
+	_ = os.Chown(sshDir, uid, gid)
+
+	authorizedKeysPath := filepath.Join(sshDir, "authorized_keys")
+	line := strings.TrimSpace(publicKey)
+	existing := listAuthorizedKeys(userName)
+	for _, item := range existing {
+		if strings.TrimSpace(item.PublicKey) == line {
+			return item, nil
+		}
+	}
+
+	fh, err := os.OpenFile(authorizedKeysPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return SSHKey{}, err
+	}
+	defer fh.Close()
+	if _, err := fh.WriteString(line + "\n"); err != nil {
+		return SSHKey{}, err
+	}
+	_ = os.Chown(authorizedKeysPath, uid, gid)
+
+	return SSHKey{
+		ID:        stableKeyID(line),
+		User:      userName,
+		Title:     firstNonEmpty(strings.TrimSpace(title), sshKeyComment(line), "Imported key"),
+		PublicKey: line,
+	}, nil
+}
+
+func deleteAuthorizedKey(userName, keyID string) error {
+	account, err := user.Lookup(strings.TrimSpace(userName))
+	if err != nil {
+		return err
+	}
+	authorizedKeysPath := filepath.Join(account.HomeDir, ".ssh", "authorized_keys")
+	raw, err := os.ReadFile(authorizedKeysPath)
+	if err != nil {
+		return err
+	}
+
+	lines := []string{}
+	deleted := false
+	scanner := bufio.NewScanner(bytes.NewReader(raw))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		if stableKeyID(line) == keyID {
+			deleted = true
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if !deleted {
+		return fmt.Errorf("SSH key not found")
+	}
+
+	content := strings.Join(lines, "\n")
+	if content != "" {
+		content += "\n"
+	}
+	return os.WriteFile(authorizedKeysPath, []byte(content), 0600)
+}
+
+func stableKeyID(line string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(line)))
+	return hex.EncodeToString(sum[:8])
+}
+
+func sshKeyComment(line string) string {
+	fields := strings.Fields(line)
+	if len(fields) >= 3 {
+		return strings.Join(fields[2:], " ")
+	}
+	return ""
+}
+
+func mailProvisioningAvailable() bool {
+	return strings.EqualFold(mailBackendMode(), "vmail")
+}
+
+func mailBackendMode() string {
+	return strings.ToLower(strings.TrimSpace(envOr("AURAPANEL_MAIL_BACKEND", "vmail")))
+}
+
+func vmailUsersFilePath() string {
+	return envOr("AURAPANEL_MAIL_USERS_FILE", "/etc/dovecot/users")
+}
+
+func postfixVmailboxPath() string {
+	return envOr("AURAPANEL_POSTFIX_VMAILBOX_FILE", "/etc/postfix/vmailbox")
+}
+
+func postfixVirtualPath() string {
+	return envOr("AURAPANEL_POSTFIX_VIRTUAL_FILE", "/etc/postfix/virtual")
+}
+
+func postfixVirtualRegexpPath() string {
+	return envOr("AURAPANEL_POSTFIX_VIRTUAL_REGEXP_FILE", "/etc/postfix/virtual_regexp")
+}
+
+func postfixVmailboxDomainsPath() string {
+	return envOr("AURAPANEL_POSTFIX_VMAILBOX_DOMAINS_FILE", "/etc/postfix/vmailbox_domains")
+}
+
+func mailVmailBaseDir() string {
+	return envOr("AURAPANEL_MAIL_VMAIL_BASE", "/var/mail/vhosts")
+}
+
+func mailVmailUID() int {
+	value, _ := strconv.Atoi(envOr("AURAPANEL_MAIL_VMAIL_UID", "5000"))
+	if value <= 0 {
+		return 5000
+	}
+	return value
+}
+
+func mailVmailGID() int {
+	value, _ := strconv.Atoi(envOr("AURAPANEL_MAIL_VMAIL_GID", "5000"))
+	if value <= 0 {
+		return 5000
+	}
+	return value
+}
+
+func provisionMailDomain(domain string) error {
+	if !mailProvisioningAvailable() {
+		return nil
+	}
+
+	normalizedDomain := normalizeDomain(domain)
+	if normalizedDomain == "" {
+		return fmt.Errorf("domain is required")
+	}
+	baseDir := filepath.Join(mailVmailBaseDir(), normalizedDomain)
+	if err := os.MkdirAll(baseDir, 0750); err != nil {
+		return err
+	}
+	_ = os.Chown(baseDir, mailVmailUID(), mailVmailGID())
+	return upsertSimpleMapLine(postfixVmailboxDomainsPath(), normalizedDomain, normalizedDomain)
+}
+
+func loadSystemMailboxes(defaultQuotas map[string]int) []Mailbox {
+	items := parseSimpleMapFile(postfixVmailboxPath())
+	out := make([]Mailbox, 0, len(items))
+	for address, maildir := range items {
+		parts := strings.SplitN(address, "@", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		quota := defaultQuotas[address]
+		if quota <= 0 {
+			quota = 1024
+		}
+		out = append(out, Mailbox{
+			Address: address,
+			Domain:  parts[1],
+			User:    parts[0],
+			QuotaMB: quota,
+			UsedMB:  0,
+			Owner:   "",
+		})
+		_ = maildir
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Address < out[j].Address })
+	return out
+}
+
+func upsertSystemMailbox(address, password string) error {
+	if !mailProvisioningAvailable() {
+		return nil
+	}
+	address = strings.ToLower(strings.TrimSpace(address))
+	parts := strings.SplitN(address, "@", 2)
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid mailbox address")
+	}
+	domain := normalizeDomain(parts[1])
+	username := sanitizeName(parts[0])
+	if username == "" || domain == "" {
+		return fmt.Errorf("invalid mailbox address")
+	}
+	if strings.TrimSpace(password) == "" {
+		return fmt.Errorf("mailbox password is required")
+	}
+
+	if err := provisionMailDomain(domain); err != nil {
+		return err
+	}
+
+	maildir := filepath.Join(mailVmailBaseDir(), domain, username)
+	for _, dirName := range []string{"", "Maildir", filepath.Join("Maildir", "cur"), filepath.Join("Maildir", "new"), filepath.Join("Maildir", "tmp")} {
+		target := filepath.Join(maildir, dirName)
+		if err := os.MkdirAll(target, 0750); err != nil {
+			return err
+		}
+		_ = os.Chown(target, mailVmailUID(), mailVmailGID())
+	}
+
+	hashed, err := hashMailPassword(password)
+	if err != nil {
+		return err
+	}
+
+	if err := upsertSimpleMapLine(vmailUsersFilePath(), address, "{SHA512-CRYPT}"+hashed); err != nil {
+		return err
+	}
+	if err := upsertSimpleMapLine(postfixVmailboxPath(), address, fmt.Sprintf("%s/%s/", domain, username)); err != nil {
+		return err
+	}
+
+	return reloadMailRuntime()
+}
+
+func deleteSystemMailbox(address string) error {
+	if !mailProvisioningAvailable() {
+		return nil
+	}
+	address = strings.ToLower(strings.TrimSpace(address))
+	if err := deleteSimpleMapLine(vmailUsersFilePath(), address); err != nil {
+		return err
+	}
+	if err := deleteSimpleMapLine(postfixVmailboxPath(), address); err != nil {
+		return err
+	}
+	return reloadMailRuntime()
+}
+
+func updateSystemMailboxPassword(address, newPassword string) error {
+	if !mailProvisioningAvailable() {
+		return nil
+	}
+	address = strings.ToLower(strings.TrimSpace(address))
+	if address == "" || strings.TrimSpace(newPassword) == "" {
+		return fmt.Errorf("address and password are required")
+	}
+	hashed, err := hashMailPassword(newPassword)
+	if err != nil {
+		return err
+	}
+	if err := upsertSimpleMapLine(vmailUsersFilePath(), address, "{SHA512-CRYPT}"+hashed); err != nil {
+		return err
+	}
+	return reloadMailRuntime()
+}
+
+func upsertSystemForward(domain, source, target string) error {
+	key := strings.ToLower(strings.TrimSpace(source)) + "@" + normalizeDomain(domain)
+	if err := upsertSimpleMapLine(postfixVirtualPath(), key, strings.TrimSpace(target)); err != nil {
+		return err
+	}
+	return reloadMailRuntime()
+}
+
+func deleteSystemForward(domain, source string) error {
+	key := strings.ToLower(strings.TrimSpace(source)) + "@" + normalizeDomain(domain)
+	if err := deleteSimpleMapLine(postfixVirtualPath(), key); err != nil {
+		return err
+	}
+	return reloadMailRuntime()
+}
+
+func setSystemCatchAll(domain, target string, enabled bool) error {
+	normalizedDomain := normalizeDomain(domain)
+	if normalizedDomain == "" {
+		return fmt.Errorf("domain is required")
+	}
+	pattern := fmt.Sprintf("/^(.+)@%s$/", regexp.QuoteMeta(normalizedDomain))
+	if !enabled || strings.TrimSpace(target) == "" {
+		if err := deleteSimpleMapLine(postfixVirtualRegexpPath(), pattern); err != nil {
+			return err
+		}
+		return reloadMailRuntime()
+	}
+	if err := upsertSimpleMapLine(postfixVirtualRegexpPath(), pattern, strings.TrimSpace(target)); err != nil {
+		return err
+	}
+	return reloadMailRuntime()
+}
+
+func reloadMailRuntime() error {
+	for _, mapPath := range []string{postfixVmailboxDomainsPath(), postfixVmailboxPath(), postfixVirtualPath()} {
+		_ = exec.Command("postmap", mapPath).Run()
+	}
+	for _, unit := range []string{"postfix", "dovecot"} {
+		_ = exec.Command("systemctl", "restart", unit).Run()
+	}
+	return nil
+}
+
+func hashMailPassword(password string) (string, error) {
+	if err := exec.Command("openssl", "version").Run(); err != nil {
+		return "", err
+	}
+	cmd := exec.Command("openssl", "passwd", "-6", strings.TrimSpace(password))
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func parseSimpleMapFile(path string) map[string]string {
+	items := map[string]string{}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return items
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(raw))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		key := fields[0]
+		value := strings.TrimSpace(strings.Join(fields[1:], " "))
+		items[key] = value
+	}
+	return items
+}
+
+func upsertSimpleMapLine(path, key, value string) error {
+	items := parseSimpleMapFile(path)
+	items[key] = value
+	return writeSimpleMapFile(path, items)
+}
+
+func deleteSimpleMapLine(path, key string) error {
+	items := parseSimpleMapFile(path)
+	delete(items, key)
+	return writeSimpleMapFile(path, items)
+}
+
+func writeSimpleMapFile(path string, items map[string]string) error {
+	keys := make([]string, 0, len(items))
+	for key := range items {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	var builder strings.Builder
+	for _, key := range keys {
+		builder.WriteString(key)
+		builder.WriteByte(' ')
+		builder.WriteString(items[key])
+		builder.WriteByte('\n')
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(builder.String()), 0640)
+}

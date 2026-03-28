@@ -113,7 +113,7 @@ func collectSecuritySnapshot() securitySnapshot {
 		EBPFMonitoring:         serviceActive("cilium", "falco", "tetragon"),
 		MLWAFActive:            false,
 		OneClickHardening:      false,
-		SSHKeyManager:          false,
+		SSHKeyManager:          sshKeyManagerAvailable(),
 		ImmutableOS:            false,
 	}
 }

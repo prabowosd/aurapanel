@@ -381,149 +381,237 @@ func (s *service) handleMalwareQuarantineRestore(w http.ResponseWriter, r *http.
 	writeError(w, http.StatusNotFound, "Quarantine record not found.")
 }
 
-func (s *service) handleCloudflareZones(w http.ResponseWriter) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.CloudflareZones})
+func (s *service) handleCloudflareZones(w http.ResponseWriter, r *http.Request) {
+	var payload map[string]interface{}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid Cloudflare credentials payload.")
+		return
+	}
+	creds := cloudflareRequestCredentials(payload)
+	if !creds.valid() {
+		writeError(w, http.StatusBadRequest, "Cloudflare credentials are required.")
+		return
+	}
+	zones, err := cloudflareListZones(creds)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.mu.Lock()
+	s.modules.CloudflareZones = zones
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: zones})
 }
 
 func (s *service) handleCloudflareDNSList(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		ZoneID string `json:"zone_id"`
-	}
+	var payload map[string]interface{}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid Cloudflare DNS list payload.")
 		return
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.CloudflareDNS[payload.ZoneID]})
+	creds := cloudflareRequestCredentials(payload)
+	zoneID := strings.TrimSpace(stringValue(payload["zone_id"]))
+	if !creds.valid() || zoneID == "" {
+		writeError(w, http.StatusBadRequest, "Cloudflare credentials and zone_id are required.")
+		return
+	}
+	records, err := cloudflareListDNSRecords(creds, zoneID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.mu.Lock()
+	s.modules.CloudflareDNS[zoneID] = records
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: records})
 }
 
 func (s *service) handleCloudflareDNSCreate(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		ZoneID  string `json:"zone_id"`
-		Type    string `json:"type"`
-		Name    string `json:"name"`
-		Content string `json:"content"`
-		TTL     int    `json:"ttl"`
-		Proxied bool   `json:"proxied"`
-	}
+	var payload map[string]interface{}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid Cloudflare DNS create payload.")
 		return
 	}
+	creds := cloudflareRequestCredentials(payload)
+	zoneID := strings.TrimSpace(stringValue(payload["zone_id"]))
 	record := CloudflareDNSRecord{
-		ID:      "cfdns-" + generateSecret(5),
-		Type:    strings.ToUpper(payload.Type),
-		Name:    payload.Name,
-		Content: payload.Content,
-		TTL:     maxInt(payload.TTL, 1),
-		Proxied: payload.Proxied,
+		Type:    strings.ToUpper(strings.TrimSpace(stringValue(payload["type"]))),
+		Name:    strings.TrimSpace(stringValue(payload["name"])),
+		Content: strings.TrimSpace(stringValue(payload["content"])),
+		TTL:     intValue(payload["ttl"], 1),
+		Proxied: boolValue(payload["proxied"]),
+	}
+	if !creds.valid() || zoneID == "" || record.Type == "" || record.Name == "" || record.Content == "" {
+		writeError(w, http.StatusBadRequest, "Cloudflare credentials, zone_id and DNS record fields are required.")
+		return
+	}
+	created, err := cloudflareCreateDNSRecord(creds, zoneID, record)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.modules.CloudflareDNS[payload.ZoneID] = append(s.modules.CloudflareDNS[payload.ZoneID], record)
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Cloudflare DNS record created.", Data: record})
+	s.modules.CloudflareDNS[zoneID] = append(s.modules.CloudflareDNS[zoneID], created)
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Cloudflare DNS record created.", Data: created})
 }
 
 func (s *service) handleCloudflareDNSDelete(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		ZoneID   string `json:"zone_id"`
-		RecordID string `json:"record_id"`
-	}
+	var payload map[string]interface{}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid Cloudflare DNS delete payload.")
 		return
 	}
+	creds := cloudflareRequestCredentials(payload)
+	zoneID := strings.TrimSpace(stringValue(payload["zone_id"]))
+	recordID := strings.TrimSpace(stringValue(payload["record_id"]))
+	if !creds.valid() || zoneID == "" || recordID == "" {
+		writeError(w, http.StatusBadRequest, "Cloudflare credentials, zone_id and record_id are required.")
+		return
+	}
+	if err := cloudflareDeleteDNSRecord(creds, zoneID, recordID); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	items := s.modules.CloudflareDNS[payload.ZoneID]
+	items := s.modules.CloudflareDNS[zoneID]
 	filtered := items[:0]
-	deleted := false
 	for _, item := range items {
-		if item.ID == payload.RecordID {
-			deleted = true
+		if item.ID == recordID {
 			continue
 		}
 		filtered = append(filtered, item)
 	}
-	s.modules.CloudflareDNS[payload.ZoneID] = filtered
-	if !deleted {
-		writeError(w, http.StatusNotFound, "Cloudflare DNS record not found.")
-		return
-	}
+	s.modules.CloudflareDNS[zoneID] = filtered
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Cloudflare DNS record deleted."})
 }
 
 func (s *service) handleCloudflareSSL(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		ZoneID string `json:"zone_id"`
-		Mode   string `json:"mode"`
-	}
+	var payload map[string]interface{}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid Cloudflare SSL payload.")
 		return
 	}
+	creds := cloudflareRequestCredentials(payload)
+	zoneID := strings.TrimSpace(stringValue(payload["zone_id"]))
+	mode := firstNonEmpty(strings.TrimSpace(stringValue(payload["mode"])), "full")
+	if !creds.valid() || zoneID == "" {
+		writeError(w, http.StatusBadRequest, "Cloudflare credentials and zone_id are required.")
+		return
+	}
+	if err := cloudflarePatchSetting(creds, zoneID, "ssl", mode); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	settings := s.modules.CloudflareSettings[payload.ZoneID]
-	settings.SSLMode = firstNonEmpty(payload.Mode, "full")
-	s.modules.CloudflareSettings[payload.ZoneID] = settings
+	settings := s.modules.CloudflareSettings[zoneID]
+	settings.SSLMode = mode
+	s.modules.CloudflareSettings[zoneID] = settings
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Cloudflare SSL mode updated."})
 }
 
 func (s *service) handleCloudflareSecurity(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		ZoneID string `json:"zone_id"`
-		Level  string `json:"level"`
-	}
+	var payload map[string]interface{}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid Cloudflare security payload.")
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	settings := s.modules.CloudflareSettings[payload.ZoneID]
-	settings.SecurityLevel = firstNonEmpty(payload.Level, "medium")
-	s.modules.CloudflareSettings[payload.ZoneID] = settings
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Cloudflare security level updated."})
-}
-
-func (s *service) handleCloudflareDevMode(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		ZoneID  string `json:"zone_id"`
-		Enabled bool   `json:"enabled"`
+	creds := cloudflareRequestCredentials(payload)
+	zoneID := strings.TrimSpace(stringValue(payload["zone_id"]))
+	level := firstNonEmpty(strings.TrimSpace(stringValue(payload["level"])), "medium")
+	if !creds.valid() || zoneID == "" {
+		writeError(w, http.StatusBadRequest, "Cloudflare credentials and zone_id are required.")
+		return
 	}
-	if err := decodeJSON(r, &payload); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid Cloudflare dev mode payload.")
+	if err := cloudflarePatchSetting(creds, zoneID, "security_level", level); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	settings := s.modules.CloudflareSettings[payload.ZoneID]
-	settings.DevMode = payload.Enabled
-	s.modules.CloudflareSettings[payload.ZoneID] = settings
+	settings := s.modules.CloudflareSettings[zoneID]
+	settings.SecurityLevel = level
+	s.modules.CloudflareSettings[zoneID] = settings
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Cloudflare security level updated."})
+}
+
+func (s *service) handleCloudflareDevMode(w http.ResponseWriter, r *http.Request) {
+	var payload map[string]interface{}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid Cloudflare dev mode payload.")
+		return
+	}
+	creds := cloudflareRequestCredentials(payload)
+	zoneID := strings.TrimSpace(stringValue(payload["zone_id"]))
+	enabled := boolValue(payload["enabled"])
+	if !creds.valid() || zoneID == "" {
+		writeError(w, http.StatusBadRequest, "Cloudflare credentials and zone_id are required.")
+		return
+	}
+	mode := "off"
+	if enabled {
+		mode = "on"
+	}
+	if err := cloudflarePatchSetting(creds, zoneID, "development_mode", mode); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	settings := s.modules.CloudflareSettings[zoneID]
+	settings.DevMode = enabled
+	s.modules.CloudflareSettings[zoneID] = settings
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Cloudflare development mode updated."})
 }
 
 func (s *service) handleCloudflareCachePurge(w http.ResponseWriter, r *http.Request) {
+	var payload map[string]interface{}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid Cloudflare cache purge payload.")
+		return
+	}
+	creds := cloudflareRequestCredentials(payload)
+	zoneID := strings.TrimSpace(stringValue(payload["zone_id"]))
+	if !creds.valid() || zoneID == "" {
+		writeError(w, http.StatusBadRequest, "Cloudflare credentials and zone_id are required.")
+		return
+	}
+	requestBody := map[string]interface{}{}
+	if boolValue(payload["purge_everything"]) {
+		requestBody["purge_everything"] = true
+	} else if files, ok := payload["files"].([]interface{}); ok && len(files) > 0 {
+		requestBody["files"] = files
+	} else {
+		writeError(w, http.StatusBadRequest, "Specify purge_everything or files.")
+		return
+	}
+	if err := cloudflarePurgeCache(creds, zoneID, requestBody); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Cloudflare cache purge requested."})
 }
 
 func (s *service) handleCloudflareAnalytics(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, apiResponse{
-		Status: "success",
-		Data: map[string]interface{}{
-			"result": map[string]interface{}{
-				"totals": map[string]interface{}{
-					"requests":  map[string]interface{}{"all": 93241},
-					"pageviews": map[string]interface{}{"all": 43812},
-					"bandwidth": map[string]interface{}{"all": 987654321},
-				},
-			},
-		},
-	})
+	var payload map[string]interface{}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid Cloudflare analytics payload.")
+		return
+	}
+	creds := cloudflareRequestCredentials(payload)
+	zoneID := strings.TrimSpace(stringValue(payload["zone_id"]))
+	if !creds.valid() || zoneID == "" {
+		writeError(w, http.StatusBadRequest, "Cloudflare credentials and zone_id are required.")
+		return
+	}
+	result, err := cloudflareAnalytics(creds, zoneID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: result})
 }
 
 func (s *service) handleMigrationUpload(w http.ResponseWriter, r *http.Request) {
