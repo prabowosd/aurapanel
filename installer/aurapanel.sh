@@ -225,6 +225,81 @@ gateway_port() {
   echo "${port}"
 }
 
+generate_safe_password() {
+  local length="${1:-24}"
+  local generated=""
+
+  generated="$(LC_ALL=C tr -dc 'A-Za-z0-9@#%+=._-' < /dev/urandom | head -c "${length}" || true)"
+  if [ -z "${generated}" ]; then
+    generated="$(openssl rand -hex 16 | tr -d '\n')"
+  fi
+
+  printf '%s' "${generated}"
+}
+
+panel_admin_email() {
+  local admin_email
+  admin_email="$(read_env_value "${GATEWAY_ENV_FILE}" "AURAPANEL_ADMIN_EMAIL")"
+  admin_email="${admin_email:-admin@server.com}"
+  printf '%s' "${admin_email}"
+}
+
+panel_admin_password() {
+  local admin_pass
+  admin_pass="$(read_env_value "${GATEWAY_ENV_FILE}" "AURAPANEL_ADMIN_PASSWORD")"
+
+  if [ -z "${admin_pass}" ] && [ -f "${PROJECT_DIR}/logs/initial_password.txt" ]; then
+    admin_pass="$(tr -d '\r\n' < "${PROJECT_DIR}/logs/initial_password.txt")"
+  fi
+
+  printf '%s' "${admin_pass}"
+}
+
+sync_panel_admin_credentials() {
+  local admin_email admin_pass initial_password_file
+  initial_password_file="${PROJECT_DIR}/logs/initial_password.txt"
+
+  mkdir -p "${GATEWAY_ENV_DIR}" "${PROJECT_DIR}/logs"
+  touch "${GATEWAY_ENV_FILE}"
+
+  admin_email="$(panel_admin_email)"
+  admin_pass="$(panel_admin_password)"
+
+  if [ -z "${admin_pass}" ]; then
+    admin_pass="$(generate_safe_password 24)"
+    ok "Generated AuraPanel initial admin password."
+  fi
+
+  upsert_env "${GATEWAY_ENV_FILE}" "AURAPANEL_ADMIN_EMAIL" "${admin_email}"
+  upsert_env "${GATEWAY_ENV_FILE}" "AURAPANEL_ADMIN_PASSWORD" "${admin_pass}"
+  delete_env "${GATEWAY_ENV_FILE}" "AURAPANEL_ADMIN_PASSWORD_BCRYPT"
+
+  printf '%s\n' "${admin_pass}" > "${initial_password_file}"
+  chmod 600 "${initial_password_file}"
+
+  if [ -f "${SERVICE_ENV_FILE}" ]; then
+    upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_ADMIN_EMAIL" "${admin_email}"
+    upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_ADMIN_PASSWORD" "${admin_pass}"
+    delete_env "${SERVICE_ENV_FILE}" "AURAPANEL_ADMIN_PASSWORD_BCRYPT"
+    chmod 600 "${SERVICE_ENV_FILE}"
+  fi
+
+  chmod 600 "${GATEWAY_ENV_FILE}"
+}
+
+ols_admin_user() {
+  local ols_user
+  ols_user="$(read_env_value "${OLS_ADMIN_STATE_FILE}" "AURAPANEL_OLS_ADMIN_USER")"
+  ols_user="${ols_user:-admin}"
+  printf '%s' "${ols_user}"
+}
+
+ols_admin_password() {
+  local ols_pass
+  ols_pass="$(read_env_value "${OLS_ADMIN_STATE_FILE}" "AURAPANEL_OLS_ADMIN_PASSWORD")"
+  printf '%s' "${ols_pass}"
+}
+
 configure_panel_firewall() {
   # Backward-compatible wrapper. Main flow calls configure_standard_firewall.
   configure_standard_firewall "$1"
@@ -779,10 +854,7 @@ configure_ols_admin_credentials() {
   ols_user="${ols_user:-admin}"
 
   if [ -z "${ols_pass}" ]; then
-    ols_pass="$(LC_ALL=C tr -dc 'A-Za-z0-9@#%+=._-' < /dev/urandom | head -c 22 || true)"
-    if [ -z "${ols_pass}" ]; then
-      ols_pass="$(openssl rand -hex 16 | tr -d '\n')"
-    fi
+    ols_pass="$(generate_safe_password 22)"
   fi
 
   mkdir -p "${GATEWAY_ENV_DIR}" "${ols_conf_dir}"
@@ -820,19 +892,12 @@ EOF
 write_access_summary() {
   local panel_port panel_user panel_pass ols_user ols_pass
   panel_port="$(gateway_port)"
-  panel_user="$(read_env_value "${GATEWAY_ENV_FILE}" "AURAPANEL_ADMIN_EMAIL")"
-  panel_pass="$(read_env_value "${GATEWAY_ENV_FILE}" "AURAPANEL_ADMIN_PASSWORD")"
-  ols_user="$(read_env_value "${OLS_ADMIN_STATE_FILE}" "AURAPANEL_OLS_ADMIN_USER")"
-  ols_pass="$(read_env_value "${OLS_ADMIN_STATE_FILE}" "AURAPANEL_OLS_ADMIN_PASSWORD")"
+  panel_user="$(panel_admin_email)"
+  panel_pass="$(panel_admin_password)"
+  ols_user="$(ols_admin_user)"
+  ols_pass="$(ols_admin_password)"
 
-  panel_user="${panel_user:-admin@server.com}"
-  if [ -z "${panel_pass}" ] && [ -f "${PROJECT_DIR}/logs/initial_password.txt" ]; then
-    panel_pass="$(tr -d '\r\n' < "${PROJECT_DIR}/logs/initial_password.txt")"
-  fi
-  ols_user="${ols_user:-admin}"
-
-  if [ ! -f "${CREDENTIALS_SUMMARY_FILE}" ]; then
-    cat <<EOF > "${CREDENTIALS_SUMMARY_FILE}"
+  cat <<EOF > "${CREDENTIALS_SUMMARY_FILE}"
 AuraPanel Initial Access
 =======================
 Panel URL: http://YOUR_SERVER_IP:${panel_port}
@@ -845,9 +910,8 @@ OpenLiteSpeed Password: ${ols_pass:-<not available>}
 
 ${ONE_TIME_PASSWORD_NOTE}
 EOF
-    chmod 600 "${CREDENTIALS_SUMMARY_FILE}"
-    ok "Access summary written to ${CREDENTIALS_SUMMARY_FILE}"
-  fi
+  chmod 600 "${CREDENTIALS_SUMMARY_FILE}"
+  ok "Access summary written to ${CREDENTIALS_SUMMARY_FILE}"
 
   ok "AuraPanel Login: ${panel_user}"
   ok "AuraPanel Password: ${panel_pass:-<not available>}"
@@ -879,7 +943,7 @@ write_service_env_defaults() {
 
   if [ ! -f "${GATEWAY_ENV_FILE}" ]; then
     local admin_pass jwt_secret
-    admin_pass="$(openssl rand -base64 18 | tr -d '\n')"
+    admin_pass="$(generate_safe_password 24)"
     jwt_secret="$(openssl rand -hex 32 | tr -d '\n')"
     shared_jwt_secret="${jwt_secret}"
 
@@ -897,9 +961,6 @@ AURAPANEL_PANEL_DIST=/opt/aurapanel/frontend/dist
 EOF
 
     chmod 600 "${GATEWAY_ENV_FILE}"
-    echo "${admin_pass}" > "${PROJECT_DIR}/logs/initial_password.txt"
-    chmod 600 "${PROJECT_DIR}/logs/initial_password.txt"
-    ok "Initial admin password written to ${PROJECT_DIR}/logs/initial_password.txt"
   fi
 
   if [ -z "${shared_jwt_secret}" ]; then
@@ -937,6 +998,8 @@ EOF
     chmod 600 "${SERVICE_ENV_FILE}"
   fi
 
+  sync_panel_admin_credentials
+
   upsert_env "${GATEWAY_ENV_FILE}" "AURAPANEL_GATEWAY_ONLY" "1"
   upsert_env "${GATEWAY_ENV_FILE}" "AURAPANEL_SERVICE_URL" "http://127.0.0.1:8081"
   upsert_env "${GATEWAY_ENV_FILE}" "AURAPANEL_GATEWAY_ADDR" ":${PANEL_PORT_DEFAULT}"
@@ -945,8 +1008,8 @@ EOF
   delete_env "${GATEWAY_ENV_FILE}" "${legacy_gateway_core_url_key}"
 
   local shared_admin_email shared_admin_password shared_admin_hash
-  shared_admin_email="$(read_env_value "${GATEWAY_ENV_FILE}" "AURAPANEL_ADMIN_EMAIL")"
-  shared_admin_password="$(read_env_value "${GATEWAY_ENV_FILE}" "AURAPANEL_ADMIN_PASSWORD")"
+  shared_admin_email="$(panel_admin_email)"
+  shared_admin_password="$(panel_admin_password)"
   shared_admin_hash="$(read_env_value "${GATEWAY_ENV_FILE}" "AURAPANEL_ADMIN_PASSWORD_BCRYPT")"
 
   if [ -n "${shared_admin_email}" ]; then
@@ -1171,7 +1234,7 @@ EOF
 
 smoke_check() {
   log "Running post-install smoke checks..."
-  local panel_port
+  local panel_port panel_user panel_pass login_payload ols_user ols_pass ols_status
   panel_port="$(gateway_port)"
 
   systemctl is-active --quiet aurapanel-service || fail "aurapanel-service is not active"
@@ -1187,6 +1250,33 @@ smoke_check() {
   curl -fsS "http://127.0.0.1:${panel_port}/" >/dev/null || fail "Panel static endpoint failed"
   curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null || fail "MinIO health check failed"
   curl -fsS http://127.0.0.1/webmail/ >/dev/null 2>&1 || warn "Roundcube endpoint check skipped/failed (non-fatal)."
+
+  panel_user="$(panel_admin_email)"
+  panel_pass="$(panel_admin_password)"
+  if [ -z "${panel_pass}" ]; then
+    fail "Panel admin password is missing after install."
+  fi
+
+  login_payload="$(jq -nc --arg email "${panel_user}" --arg password "${panel_pass}" '{email:$email,password:$password}')"
+  curl -fsS -H "Content-Type: application/json" -d "${login_payload}" "http://127.0.0.1:${panel_port}/api/v1/auth/login" >/dev/null || fail "Panel login verification failed (/api/v1/auth/login)"
+  curl -fsS -H "Content-Type: application/json" -d "${login_payload}" "http://127.0.0.1:${panel_port}/api/auth/login" >/dev/null || fail "Gateway login verification failed (/api/auth/login)"
+  ok "AuraPanel login credentials verified."
+
+  ols_user="$(ols_admin_user)"
+  ols_pass="$(ols_admin_password)"
+  if [ -z "${ols_pass}" ]; then
+    fail "OpenLiteSpeed admin password is missing after install."
+  fi
+
+  ols_status="$(curl -k -sS -o /dev/null -w '%{http_code}' -u "${ols_user}:${ols_pass}" https://127.0.0.1:7080/ || true)"
+  case "${ols_status}" in
+    2*|3*)
+      ok "OpenLiteSpeed WebAdmin credentials verified."
+      ;;
+    *)
+      fail "OpenLiteSpeed WebAdmin login verification failed (HTTP ${ols_status:-unknown})."
+      ;;
+  esac
 
   if command -v ss >/dev/null 2>&1; then
     if ! ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq '(^|:)80$'; then

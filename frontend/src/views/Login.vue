@@ -16,7 +16,10 @@
       </div>
 
       <div class="aura-card p-8">
-        <h2 class="text-xl font-semibold text-white mb-6">{{ t('login.title') }}</h2>
+        <h2 class="text-xl font-semibold text-white">{{ t('login.title') }}</h2>
+        <p class="mt-2 mb-6 text-sm leading-6 text-slate-300">
+          {{ t('login.subtitle') }}
+        </p>
 
         <form @submit.prevent="handleLogin" class="space-y-4">
           <div v-if="errorMsg" class="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm flex items-center gap-2">
@@ -28,7 +31,7 @@
             <label class="text-sm font-medium text-gray-300">{{ t('login.email_label') }}</label>
             <div class="relative">
               <User class="w-5 h-5 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input v-model="email" type="text" class="aura-input pl-10" :placeholder="t('login.email_placeholder')" required />
+              <input v-model="email" type="email" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" class="aura-input pl-10" :placeholder="t('login.email_placeholder')" required />
             </div>
           </div>
 
@@ -38,7 +41,7 @@
             </div>
             <div class="relative">
               <KeyRound class="w-5 h-5 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input v-model="password" type="password" class="aura-input pl-10" :placeholder="t('login.password_placeholder')" required />
+              <input v-model="password" type="password" autocomplete="current-password" class="aura-input pl-10" :placeholder="t('login.password_placeholder')" required />
             </div>
           </div>
 
@@ -61,6 +64,10 @@
               <LogOut v-else class="w-5 h-5 rotate-180" />
               {{ loading ? t('login.submitting') : t('login.submit') }}
             </button>
+          </div>
+
+          <div class="rounded-lg border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
+            {{ t('login.hint') }}
           </div>
         </form>
       </div>
