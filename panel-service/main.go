@@ -220,6 +220,7 @@ type appState struct {
 	EBPFEvents          []string
 	MalwareJobs         []MalwareJob
 	Quarantine          []QuarantineRecord
+	TwoFASecrets        map[string]string
 	NextPackageID       int
 	NextUserID          int
 	NextProcessPID      int
@@ -256,12 +257,14 @@ func newService() *service {
 		state:     seedState(),
 		modules:   seedModuleState(),
 	}
+	if err := svc.loadRuntimeState(); err != nil {
+		log.Printf("runtime state load skipped: %v", err)
+	}
 	svc.bootstrapModules()
 	return svc
 }
 
 func seedState() appState {
-	now := time.Now().UTC().Unix()
 	adminEmail, adminHash := loadAdminSeedCredentials()
 
 	users := []PanelUser{
@@ -272,45 +275,16 @@ func seedState() appState {
 			Email:        adminEmail,
 			Role:         "admin",
 			Package:      "default",
-			Sites:        1,
+			Sites:        0,
 			Active:       true,
 			TwoFAEnabled: false,
 			PasswordHash: adminHash,
-		},
-		{
-			ID:           2,
-			Username:     "aura",
-			Name:         "Aura Operator",
-			Email:        "aura@example.com",
-			Role:         "reseller",
-			Package:      "default",
-			Sites:        1,
-			Active:       true,
-			TwoFAEnabled: false,
-			PasswordHash: mustHashPassword("password123"),
 		},
 	}
 
 	return appState{
 		GatewayPort: defaultGatewayPort,
-		Websites: []Website{
-			{
-				Domain:        "example.com",
-				Owner:         "aura",
-				User:          "aura",
-				PHP:           "8.3",
-				PHPVersion:    "8.3",
-				Package:       "default",
-				Email:         "webmaster@example.com",
-				Status:        "active",
-				SSL:           true,
-				DiskUsage:     "1.4 GB",
-				Quota:         "10 GB",
-				MailDomain:    true,
-				ApacheBackend: false,
-				CreatedAt:     now,
-			},
-		},
+		Websites:    []Website{},
 		Packages: []Package{
 			{
 				ID:          1,
@@ -339,76 +313,35 @@ func seedState() appState {
 				IOLimit:     100,
 			},
 		},
-		Users: users,
-		MariaDBs: []DatabaseRecord{
-			{Name: "example_app", Size: "128 MB", Tables: 12, Engine: "mariadb", Owner: "aura", SiteDomain: "example.com"},
-		},
-		PostgresDBs: []DatabaseRecord{
-			{Name: "analytics", Size: "64 MB", Tables: 8, Engine: "postgresql", Owner: "admin", SiteDomain: ""},
-		},
-		MariaUsers: []DatabaseUser{
-			{Username: "example_user", Host: "localhost", Engine: "mariadb", LinkedDBName: "example_app", PasswordHash: mustHashPassword("password123")},
-		},
-		PostgresUsers: []DatabaseUser{
-			{Username: "analytics_user", Host: "localhost", Engine: "postgresql", LinkedDBName: "analytics", PasswordHash: mustHashPassword("password123")},
-		},
-		MariaRemoteRules: []RemoteAccessRule{
-			{Engine: "mariadb", DBUser: "example_user", DBName: "example_app", Remote: "127.0.0.1/32", AuthMethod: "password"},
-		},
-		PostgresRemoteRules: []RemoteAccessRule{
-			{Engine: "postgresql", DBUser: "analytics_user", DBName: "analytics", Remote: "127.0.0.1/32", AuthMethod: "scram-sha-256"},
-		},
-		DBLinks: []WebsiteDBLink{
-			{Domain: "example.com", Engine: "mariadb", DBName: "example_app", DBUser: "example_user", LinkedAt: now},
-		},
-		Subdomains: []Subdomain{
-			{FQDN: "blog.example.com", ParentDomain: "example.com", PHPVersion: "8.3", SSLEnabled: true, CreatedAt: now},
-		},
-		Aliases: []DomainAlias{
-			{Domain: "example.com", Alias: "www.example.com"},
-		},
-		AdvancedConfig: map[string]WebsiteAdvancedConfig{
-			"example.com": {
-				OpenBasedir:  true,
-				RewriteRules: "RewriteEngine On\nRewriteCond %{HTTPS} off\nRewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]",
-				VhostConfig:  "docRoot                   $VH_ROOT/public_html\nindex  {\n  useServer               0\n  indexFiles              index.php, index.html\n}",
-			},
-		},
-		CustomSSL: map[string]WebsiteCustomSSL{},
-		Services: []ServiceStatus{
-			{Name: "api-gateway", Desc: "Edge gateway and auth layer", Status: "running"},
-			{Name: "panel-service", Desc: "Panel domain service", Status: "running"},
-			{Name: "frontend", Desc: "Vue SPA", Status: "running"},
-			{Name: "mariadb", Desc: "Primary relational engine", Status: "running"},
-			{Name: "postgresql", Desc: "Secondary relational engine", Status: "running"},
-			{Name: "openlitespeed", Desc: "Web server integration target", Status: "running"},
-		},
-		Processes: []ProcessInfo{
-			{PID: 1201, User: "root", CPU: 0.5, Mem: 1.2, Command: "aurapanel-api-gateway"},
-			{PID: 1202, User: "root", CPU: 0.4, Mem: 1.6, Command: "aurapanel-panel-service"},
-			{PID: 1203, User: "www-data", CPU: 1.1, Mem: 4.8, Command: "openlitespeed"},
-			{PID: 1204, User: "mysql", CPU: 0.8, Mem: 6.1, Command: "mariadbd"},
-		},
-		FirewallRules: []FirewallRule{
-			{IPAddress: "10.10.10.10", Block: true, Reason: "Suspicious scan"},
-		},
-		SSHKeys: []SSHKey{},
-		EBPFEvents: []string{
-			"Policy sync completed for panel-service.",
-			"Gateway -> service contract validation passed.",
-			"Runtime telemetry collector is active.",
-		},
-		MalwareJobs:    []MalwareJob{},
-		Quarantine:     []QuarantineRecord{},
-		NextPackageID:  3,
-		NextUserID:     3,
-		NextProcessPID: 1205,
+		Users:               users,
+		MariaDBs:            []DatabaseRecord{},
+		PostgresDBs:         []DatabaseRecord{},
+		MariaUsers:          []DatabaseUser{},
+		PostgresUsers:       []DatabaseUser{},
+		MariaRemoteRules:    []RemoteAccessRule{},
+		PostgresRemoteRules: []RemoteAccessRule{},
+		DBLinks:             []WebsiteDBLink{},
+		Subdomains:          []Subdomain{},
+		Aliases:             []DomainAlias{},
+		AdvancedConfig:      map[string]WebsiteAdvancedConfig{},
+		CustomSSL:           map[string]WebsiteCustomSSL{},
+		Services:            []ServiceStatus{},
+		Processes:           []ProcessInfo{},
+		FirewallRules:       []FirewallRule{},
+		SSHKeys:             []SSHKey{},
+		EBPFEvents:          []string{},
+		MalwareJobs:         []MalwareJob{},
+		Quarantine:          []QuarantineRecord{},
+		TwoFASecrets:        map[string]string{},
+		NextPackageID:       3,
+		NextUserID:          2,
+		NextProcessPID:      1201,
 	}
 }
 
 func (s *service) routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/api/v1/", loggingMiddleware(http.HandlerFunc(s.handleCompat)))
+	mux.Handle("/api/v1/", persistenceMiddleware(loggingMiddleware(http.HandlerFunc(s.handleCompat)), s))
 	return mux
 }
 
@@ -417,6 +350,29 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		log.Printf("[%s] %s %s", time.Since(start).Round(time.Millisecond), r.Method, r.URL.Path)
+	})
+}
+
+type statusCapturingResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusCapturingResponseWriter) WriteHeader(status int) {
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func persistenceMiddleware(next http.Handler, svc *service) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &statusCapturingResponseWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		if r.Method == http.MethodGet || r.Method == http.MethodHead || rec.status >= http.StatusBadRequest {
+			return
+		}
+		if err := svc.saveRuntimeState(); err != nil {
+			log.Printf("runtime state save failed after %s %s: %v", r.Method, r.URL.Path, err)
+		}
 	})
 }
 
@@ -525,11 +481,11 @@ func (s *service) handleCompat(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/security/firewall/rules":
 		s.handleFirewallRuleDelete(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/security/waf":
-		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Allowed: true, Score: 8, Reason: "Request matched baseline allow rules in Go service mode."})
+		s.handleSecurityWAF(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/security/2fa/setup":
-		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: map[string]interface{}{"secret": generateSecret(16), "qr_base64": ""}})
+		s.handleTOTPSetup(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/security/2fa/verify":
-		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Valid: true})
+		s.handleTOTPVerify(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/security/ssh-keys":
 		s.handleSSHKeysList(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/security/ssh-keys":
@@ -537,7 +493,7 @@ func (s *service) handleCompat(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/security/ssh-keys":
 		s.handleSSHKeyDelete(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/security/immutable/status":
-		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: map[string]interface{}{"supported": false, "mode": "mutable-dev"}})
+		s.handleImmutableStatus(w)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/security/hardening/apply":
 		s.handleHardeningApply(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/monitor/logs/site":
@@ -567,8 +523,9 @@ func (s *service) handleHealth(w http.ResponseWriter) {
 
 func (s *service) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
+		Email     string `json:"email"`
+		Password  string `json:"password"`
+		TOTPToken string `json:"totp_token"`
 	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid login payload.")
@@ -599,6 +556,14 @@ func (s *service) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if !matched.Active {
 		writeError(w, http.StatusForbidden, "Account is inactive.")
+		return
+	}
+	if matched.TwoFAEnabled && !verifyStoredTOTPSecret(s.state.TwoFASecrets[matched.Username], strings.TrimSpace(payload.TOTPToken), time.Now().UTC()) {
+		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
+			"status":       "error",
+			"message":      "2FA code is required.",
+			"requires_2fa": true,
+		})
 		return
 	}
 	if bcrypt.CompareHashAndPassword([]byte(matched.PasswordHash), []byte(password)) != nil {
@@ -731,7 +696,10 @@ func (s *service) handleVhostCreate(w http.ResponseWriter, r *http.Request) {
 	s.state.Websites = append(s.state.Websites, site)
 	s.ensureUserLocked(owner, fmt.Sprintf("%s@example.com", owner), "user", "default", "")
 	s.recountSitesLocked()
-	s.provisionWebsiteArtifactsLocked(site)
+	if err := s.provisionWebsiteArtifactsLocked(site); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Website created.", Data: site})
 }
@@ -756,7 +724,10 @@ func (s *service) handleVhostDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.state.Websites = append(s.state.Websites[:index], s.state.Websites[index+1:]...)
-	s.removeSiteArtifactsLocked(domain)
+	if err := s.removeSiteArtifactsLocked(domain); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	s.recountSitesLocked()
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Website removed."})
 }
@@ -801,6 +772,10 @@ func (s *service) handleVhostUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.ensureUserLocked(owner, fmt.Sprintf("%s@example.com", owner), "user", site.Package, "")
 	s.recountSitesLocked()
+	if err := s.syncOLSVhostsLocked(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Website updated.", Data: site})
 }
@@ -994,18 +969,35 @@ func (s *service) handlePackagesDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *service) handleDatabaseList(w http.ResponseWriter, engine string) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	records, err := runtimeDatabaseList(engine)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.syncRuntimeDatabaseStateLocked(engine); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
 	if engine == "mariadb" {
 		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.state.MariaDBs})
 		return
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.state.PostgresDBs})
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: records})
 }
 
 func (s *service) handleDatabaseUsers(w http.ResponseWriter, engine string) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	if _, err := runtimeDatabaseUsers(engine); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.syncRuntimeDatabaseStateLocked(engine); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
 	if engine == "mariadb" {
 		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: publicDBUsers(s.state.MariaUsers)})
 		return
@@ -1014,8 +1006,16 @@ func (s *service) handleDatabaseUsers(w http.ResponseWriter, engine string) {
 }
 
 func (s *service) handleRemoteAccessList(w http.ResponseWriter, engine string) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	if _, err := runtimeRemoteAccessList(engine); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.syncRuntimeDatabaseStateLocked(engine); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
 	if engine == "mariadb" {
 		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.state.MariaRemoteRules})
 		return
@@ -1039,12 +1039,16 @@ func (s *service) handleDatabaseCreate(w http.ResponseWriter, r *http.Request, e
 		writeError(w, http.StatusBadRequest, "DB name and DB user are required.")
 		return
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	dbPass := firstNonEmpty(strings.TrimSpace(payload.DBPass), generateSecret(16))
+	dbName := sanitizeDBName(payload.DBName)
+	dbUser := sanitizeDBName(payload.DBUser)
+	if err := createRuntimeDatabase(engine, dbName, dbUser, dbPass); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	db := DatabaseRecord{
-		Name:       sanitizeDBName(payload.DBName),
+		Name:       dbName,
 		Size:       "0 MB",
 		Tables:     0,
 		Engine:     engine,
@@ -1052,23 +1056,25 @@ func (s *service) handleDatabaseCreate(w http.ResponseWriter, r *http.Request, e
 		SiteDomain: normalizeDomain(payload.SiteDomain),
 	}
 	user := DatabaseUser{
-		Username:     sanitizeDBName(payload.DBUser),
+		Username:     dbUser,
 		Host:         "localhost",
 		Engine:       engine,
 		LinkedDBName: db.Name,
-		PasswordHash: mustHashPassword(firstNonEmpty(strings.TrimSpace(payload.DBPass), "password123")),
+		PasswordHash: mustHashPassword(dbPass),
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if engine == "mariadb" {
-		s.state.MariaDBs = append(s.state.MariaDBs, db)
-		s.state.MariaUsers = append(s.state.MariaUsers, user)
+		s.state.MariaDBs = append(removeDatabaseByName(s.state.MariaDBs, db.Name), db)
+		s.state.MariaUsers = append(removeDatabaseUserByUsername(s.state.MariaUsers, user.Username), user)
 	} else {
-		s.state.PostgresDBs = append(s.state.PostgresDBs, db)
-		s.state.PostgresUsers = append(s.state.PostgresUsers, user)
+		s.state.PostgresDBs = append(removeDatabaseByName(s.state.PostgresDBs, db.Name), db)
+		s.state.PostgresUsers = append(removeDatabaseUserByUsername(s.state.PostgresUsers, user.Username), user)
 	}
 
 	if db.SiteDomain != "" {
-		s.state.DBLinks = append(s.state.DBLinks, WebsiteDBLink{
+		s.state.DBLinks = append(removeDBLinksByDBName(s.state.DBLinks, db.Name), WebsiteDBLink{
 			Domain:   db.SiteDomain,
 			Engine:   engine,
 			DBName:   db.Name,
@@ -1076,12 +1082,14 @@ func (s *service) handleDatabaseCreate(w http.ResponseWriter, r *http.Request, e
 			LinkedAt: time.Now().UTC().Unix(),
 		})
 	}
+	_ = s.syncRuntimeDatabaseStateLocked(engine)
 
 	writeJSON(w, http.StatusOK, apiResponse{
 		Status: "success",
 		Data: map[string]interface{}{
 			"db_name": db.Name,
 			"db_user": user.Username,
+			"db_pass": dbPass,
 			"engine":  engine,
 		},
 	})
@@ -1097,9 +1105,13 @@ func (s *service) handleDatabaseDrop(w http.ResponseWriter, r *http.Request, eng
 	}
 
 	target := sanitizeDBName(payload.Name)
+	if err := dropRuntimeDatabase(engine, target); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	if engine == "mariadb" {
 		s.state.MariaDBs = removeDatabaseByName(s.state.MariaDBs, target)
 		s.state.MariaUsers = removeDatabaseUsersByDBName(s.state.MariaUsers, target)
@@ -1127,10 +1139,14 @@ func (s *service) handleDatabasePasswordUpdate(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	target := sanitizeDBName(payload.DBUser)
+	if err := updateRuntimeDatabasePassword(engine, target, payload.NewPassword); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	target := sanitizeDBName(payload.DBUser)
 	users := &s.state.MariaUsers
 	if engine != "mariadb" {
 		users = &s.state.PostgresUsers
@@ -1160,9 +1176,6 @@ func (s *service) handleRemoteAccessCreate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	rule := RemoteAccessRule{
 		Engine:     engine,
 		DBUser:     sanitizeDBName(payload.DBUser),
@@ -1170,11 +1183,19 @@ func (s *service) handleRemoteAccessCreate(w http.ResponseWriter, r *http.Reques
 		Remote:     strings.TrimSpace(payload.RemoteIP),
 		AuthMethod: authMethodForEngine(engine),
 	}
+	if err := grantRuntimeRemoteAccess(engine, rule.DBUser, rule.DBName, rule.Remote); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if engine == "mariadb" {
 		s.state.MariaRemoteRules = append(s.state.MariaRemoteRules, rule)
 	} else {
 		s.state.PostgresRemoteRules = append(s.state.PostgresRemoteRules, rule)
 	}
+	_ = s.syncRuntimeDatabaseStateLocked(engine)
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Remote access granted.", Data: rule})
 }
 
@@ -1391,8 +1412,13 @@ func (s *service) handlePanelPortSet(w http.ResponseWriter, r *http.Request) {
 
 	firewallActions := []string{"Gateway restart requested"}
 	if payload.OpenFirewall {
-		firewallActions = append([]string{fmt.Sprintf("Allow tcp/%d on nftables", payload.Port)}, firewallActions...)
+		if err := openFirewallPort(payload.Port); err == nil {
+			firewallActions = append([]string{fmt.Sprintf("Allow tcp/%d on firewall", payload.Port)}, firewallActions...)
+		}
 	}
+	_ = writeEnvFileValues("/etc/aurapanel/aurapanel.env", map[string]string{
+		"AURAPANEL_GATEWAY_ADDR": fmt.Sprintf(":%d", payload.Port),
+	})
 
 	writeJSON(w, http.StatusOK, apiResponse{
 		Status:  "success",
@@ -1408,12 +1434,21 @@ func (s *service) handlePanelPortSet(w http.ResponseWriter, r *http.Request) {
 
 func (s *service) handleSecurityStatus(w http.ResponseWriter) {
 	snapshot := collectSecuritySnapshot()
+	twoFAEnabled := false
+	s.mu.RLock()
+	for _, user := range s.state.Users {
+		if user.TwoFAEnabled {
+			twoFAEnabled = true
+			break
+		}
+	}
+	s.mu.RUnlock()
 	writeJSON(w, http.StatusOK, apiResponse{
 		Status: "success",
 		Data: map[string]interface{}{
 			"ebpf_monitoring":          snapshot.EBPFMonitoring,
 			"ml_waf":                   snapshot.MLWAFActive,
-			"totp_2fa":                 true,
+			"totp_2fa":                 twoFAEnabled,
 			"wireguard_federation":     snapshot.WireGuardActive,
 			"immutable_os_support":     snapshot.ImmutableOS,
 			"live_patching":            snapshot.LivePatchingActive,
@@ -1434,16 +1469,18 @@ func (s *service) handleSecurityStatus(w http.ResponseWriter) {
 
 func (s *service) handleEBPFEvents(w http.ResponseWriter) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.state.EBPFEvents})
+	events := append([]string(nil), s.state.EBPFEvents...)
+	s.mu.RUnlock()
+	if len(events) == 0 {
+		events = collectEBPFStatusLines()
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: events})
 }
 
 func (s *service) handleCollectEBPF(w http.ResponseWriter) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.state.EBPFEvents = append([]string{
-		fmt.Sprintf("Telemetry snapshot collected at %s", time.Now().UTC().Format(time.RFC3339)),
-	}, s.state.EBPFEvents...)
+	s.state.EBPFEvents = append(collectEBPFStatusLines(), s.state.EBPFEvents...)
 	if len(s.state.EBPFEvents) > 20 {
 		s.state.EBPFEvents = s.state.EBPFEvents[:20]
 	}
@@ -1534,15 +1571,16 @@ func (s *service) handleHardeningApply(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid hardening payload.")
 		return
 	}
+	applied, err := applySystemHardeningProfile(firstNonEmpty(payload.Stack, "generic"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{
 		Status: "success",
 		Data: map[string]interface{}{
-			"domain": payload.Domain,
-			"applied_rules": []string{
-				fmt.Sprintf("%s stack defaults applied", firstNonEmpty(payload.Stack, "generic")),
-				"Trusted proxy headers normalized",
-				"Filesystem write permissions reviewed",
-			},
+			"domain":        payload.Domain,
+			"applied_rules": applied,
 		},
 	})
 }
@@ -1551,12 +1589,13 @@ func (s *service) handleSiteLogs(w http.ResponseWriter, r *http.Request) {
 	domain := normalizeDomain(r.URL.Query().Get("domain"))
 	kind := firstNonEmpty(strings.TrimSpace(r.URL.Query().Get("kind")), "access")
 	if domain == "" {
-		domain = "unknown-site"
+		writeError(w, http.StatusBadRequest, "Domain is required.")
+		return
 	}
-	lines := []string{
-		fmt.Sprintf("[%s] %s request accepted by panel-service", time.Now().UTC().Format(time.RFC3339), kind),
-		fmt.Sprintf("[%s] %s upstream contract now terminates in Go service", time.Now().UTC().Format(time.RFC3339), domain),
-		fmt.Sprintf("[%s] compatibility mode active for website operations", time.Now().UTC().Format(time.RFC3339)),
+	lines, err := realSiteLogs(domain, kind)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: lines})
 }
@@ -1570,12 +1609,24 @@ func (s *service) handleSSLIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
+	domains := []string{domain}
+	if normalizeDomain(domain) != "" {
+		domains = append(domains, "www."+domain)
+	}
+	if err := issueLetsEncryptCertificate(domains, domainDocroot(domain), false); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if site := s.findWebsiteLocked(domain); site != nil {
 		site.SSL = true
 	}
-	s.recordIssuedCertificateLocked(domain, "letsencrypt", false)
+	s.modules.SSLCertificates[domain] = inspectCertificate(domain)
+	if err := s.syncOLSVhostsLocked(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("SSL issued for %s.", domain)})
 }
 
@@ -1595,25 +1646,22 @@ func (s *service) setWebsiteStatus(w http.ResponseWriter, r *http.Request, statu
 		return
 	}
 	site.Status = status
+	if err := s.syncOLSVhostsLocked(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Website status updated.", Data: site})
 }
 
 func (s *service) handleFallback(w http.ResponseWriter, r *http.Request) {
-	payload := fallbackPayloadForPath(r.URL.Path)
-	response := apiResponse{
-		Status:  "success",
-		Message: "Endpoint is running in Go compatibility mode.",
-	}
-	if r.Method == http.MethodGet {
-		response.Data = payload
-	} else {
-		response.Data = map[string]interface{}{
+	writeJSON(w, http.StatusNotImplemented, apiResponse{
+		Status:  "error",
+		Message: "Endpoint has no real runtime integration yet.",
+		Data: map[string]interface{}{
 			"path":   r.URL.Path,
 			"method": r.Method,
-			"mode":   "compatibility",
-		}
-	}
-	writeJSON(w, http.StatusOK, response)
+		},
+	})
 }
 
 func (s *service) findWebsiteLocked(domain string) *Website {
@@ -1710,18 +1758,19 @@ func (s *service) ensureDefaultSiteArtifactsLocked(domain string) {
 		s.state.AdvancedConfig[key] = WebsiteAdvancedConfig{
 			OpenBasedir:  true,
 			RewriteRules: "RewriteEngine On",
-			VhostConfig:  fmt.Sprintf("vhDomain %s", key),
+			VhostConfig:  "",
 		}
 	}
 }
 
-func (s *service) provisionWebsiteArtifactsLocked(site Website) {
+func (s *service) provisionWebsiteArtifactsLocked(site Website) error {
 	s.ensureDefaultSiteArtifactsLocked(site.Domain)
 	s.ensureDNSArtifactsLocked(site.Domain, site.MailDomain)
 	if site.MailDomain {
 		s.ensureMailArtifactsLocked(site)
 	}
 	_ = s.syncCloudflareZoneRecordsLocked(site.Domain)
+	return s.syncOLSVhostsLocked()
 }
 
 func (s *service) ensureDNSArtifactsLocked(domain string, mailDomain bool) {
@@ -1823,12 +1872,13 @@ func (s *service) ensureMailArtifactsLocked(site Website) {
 	s.recordIssuedCertificateLocked(fmt.Sprintf("mail.%s", normalizedDomain), "Let's Encrypt", false)
 }
 
-func (s *service) removeSiteArtifactsLocked(domain string) {
+func (s *service) removeSiteArtifactsLocked(domain string) error {
 	delete(s.state.AdvancedConfig, domain)
 	delete(s.state.CustomSSL, domain)
 	s.state.Aliases = removeAliasesByDomain(s.state.Aliases, domain)
 	s.state.Subdomains = removeSubdomainsByParent(s.state.Subdomains, domain)
 	s.state.DBLinks = removeDBLinksByDomain(s.state.DBLinks, domain)
+	return s.syncOLSVhostsLocked()
 }
 
 func issueToken(user PanelUser) (string, error) {
@@ -2172,6 +2222,16 @@ func removeDatabaseUsersByDBName(items []DatabaseUser, dbName string) []Database
 	return filtered
 }
 
+func removeDatabaseUserByUsername(items []DatabaseUser, username string) []DatabaseUser {
+	filtered := items[:0]
+	for _, item := range items {
+		if item.Username != username {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
 func removeRemoteRulesByDBName(items []RemoteAccessRule, dbName string) []RemoteAccessRule {
 	filtered := items[:0]
 	for _, item := range items {
@@ -2196,6 +2256,26 @@ func removeDBLinksByDomain(items []WebsiteDBLink, domain string) []WebsiteDBLink
 	filtered := items[:0]
 	for _, item := range items {
 		if item.Domain != domain {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func removeTransferAccountByUsername(items []TransferAccount, username string) []TransferAccount {
+	filtered := items[:0]
+	for _, item := range items {
+		if item.Username != username {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func removeCronJobByID(items []CronJob, id string) []CronJob {
+	filtered := items[:0]
+	for _, item := range items {
+		if item.ID != id {
 			filtered = append(filtered, item)
 		}
 	}

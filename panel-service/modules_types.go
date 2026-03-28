@@ -251,6 +251,7 @@ type WordPressBackup struct {
 	BackupType string `json:"backup_type"`
 	SizeBytes  int64  `json:"size_bytes"`
 	CreatedAt  int64  `json:"created_at"`
+	Path       string `json:"-"`
 }
 
 type WordPressStaging struct {
@@ -292,10 +293,12 @@ type BackupSnapshot struct {
 
 type DBBackupRecord struct {
 	ID        string `json:"id"`
+	DBName    string `json:"db_name,omitempty"`
 	Filename  string `json:"filename"`
 	Engine    string `json:"engine"`
 	Size      string `json:"size"`
 	CreatedAt int64  `json:"created_at"`
+	Path      string `json:"-"`
 }
 
 type ActivityLogEntry struct {
@@ -451,213 +454,123 @@ func seedModuleState() moduleState {
 }
 
 func (s *service) bootstrapModules() {
-	now := time.Now().UTC()
-	nowUnix := now.Unix()
-
-	domain := "example.com"
-	owner := "aura"
-	email := "admin@example.com"
-	phpVersion := "8.3"
-	if len(s.state.Websites) > 0 {
-		site := s.state.Websites[0]
-		domain = firstNonEmpty(site.Domain, domain)
-		owner = firstNonEmpty(site.Owner, site.User, owner)
-		email = firstNonEmpty(site.Email, email)
-		phpVersion = firstNonEmpty(site.PHPVersion, site.PHP, phpVersion)
+	if s.modules.PHPIni == nil {
+		s.modules.PHPIni = map[string]string{}
+	}
+	if s.modules.MailCatchAll == nil {
+		s.modules.MailCatchAll = map[string]MailCatchAll{}
+	}
+	if s.modules.MailDKIM == nil {
+		s.modules.MailDKIM = map[string]DKIMRecord{}
+	}
+	if s.modules.DNSRecords == nil {
+		s.modules.DNSRecords = map[string][]DNSRecord{}
+	}
+	if s.modules.MinIOCredentials == nil {
+		s.modules.MinIOCredentials = map[string]MinIOCredential{}
+	}
+	if s.modules.WordPressPlugins == nil {
+		s.modules.WordPressPlugins = map[string][]WordPressPlugin{}
+	}
+	if s.modules.WordPressThemes == nil {
+		s.modules.WordPressThemes = map[string][]WordPressTheme{}
+	}
+	if s.modules.WordPressBackups == nil {
+		s.modules.WordPressBackups = map[string][]WordPressBackup{}
+	}
+	if s.modules.WordPressStaging == nil {
+		s.modules.WordPressStaging = map[string][]WordPressStaging{}
+	}
+	if s.modules.VirtualFiles == nil {
+		s.modules.VirtualFiles = map[string]*virtualFile{}
+	}
+	if s.modules.UploadedArchives == nil {
+		s.modules.UploadedArchives = map[string]string{}
+	}
+	if s.modules.MigrationAnalyses == nil {
+		s.modules.MigrationAnalyses = map[string]MigrationAnalysis{}
+	}
+	if s.modules.SSLCertificates == nil {
+		s.modules.SSLCertificates = map[string]SSLCertificateDetail{}
+	}
+	if s.modules.CloudflareDNS == nil {
+		s.modules.CloudflareDNS = map[string][]CloudflareDNSRecord{}
+	}
+	if s.modules.CloudflareSettings == nil {
+		s.modules.CloudflareSettings = map[string]cloudflareZoneConfig{}
+	}
+	if s.modules.WebmailTokens == nil {
+		s.modules.WebmailTokens = map[string]WebmailToken{}
 	}
 
-	s.modules.PHPVersions = []PHPVersionInfo{
-		{Version: "8.4", Installed: false, EOL: false},
-		{Version: "8.3", Installed: true, EOL: false},
-		{Version: "8.2", Installed: true, EOL: false},
-		{Version: "8.1", Installed: false, EOL: false},
-		{Version: "8.0", Installed: false, EOL: true},
-		{Version: "7.4", Installed: false, EOL: true},
+	if len(s.modules.PHPVersions) == 0 {
+		s.modules.PHPVersions = []PHPVersionInfo{
+			{Version: "8.4", Installed: false, EOL: false},
+			{Version: "8.3", Installed: true, EOL: false},
+			{Version: "8.2", Installed: false, EOL: false},
+			{Version: "8.1", Installed: false, EOL: false},
+			{Version: "8.0", Installed: false, EOL: true},
+			{Version: "7.4", Installed: false, EOL: true},
+		}
 	}
-	s.modules.PHPIni["8.3"] = defaultPHPIni("8.3")
-	s.modules.PHPIni["8.2"] = defaultPHPIni("8.2")
-
-	s.modules.DockerImages = []DockerImage{
-		{ID: "sha256:nginxstable", Repository: "nginx", Tag: "stable", Size: "142 MB", Created: "2026-03-20"},
-		{ID: "sha256:redisalpine", Repository: "redis", Tag: "7-alpine", Size: "48 MB", Created: "2026-03-18"},
+	for _, version := range []string{"8.3", "8.2"} {
+		if _, ok := s.modules.PHPIni[version]; !ok {
+			s.modules.PHPIni[version] = defaultPHPIni(version)
+		}
 	}
-	s.modules.DockerContainers = []DockerContainer{
-		{ID: "ctr-nginx", Name: "edge-nginx", Image: "nginx:stable", Status: "Up 3 hours", Ports: "80:80, 443:443", Created: "2026-03-28 01:10"},
-		{ID: "ctr-redis", Name: "cache-redis", Image: "redis:7-alpine", Status: "Exited (0) 20 minutes ago", Ports: "6379:6379", Created: "2026-03-27 22:40"},
+	if len(s.modules.DockerTemplates) == 0 {
+		s.modules.DockerTemplates = []DockerAppTemplate{
+			{ID: "redis", Name: "Redis", Description: "Low-latency cache for panel sites.", Image: "redis:7-alpine", Icon: "R", Category: "cache"},
+			{ID: "meilisearch", Name: "Meilisearch", Description: "Fast search node for application workloads.", Image: "getmeili/meilisearch:v1.13", Icon: "M", Category: "search"},
+			{ID: "n8n", Name: "n8n", Description: "Workflow automation service for integrations.", Image: "n8nio/n8n:latest", Icon: "N", Category: "automation"},
+		}
 	}
-	s.modules.DockerTemplates = []DockerAppTemplate{
-		{ID: "redis", Name: "Redis", Description: "Low-latency cache for panel sites.", Image: "redis:7-alpine", Icon: "R", Category: "cache"},
-		{ID: "meilisearch", Name: "Meilisearch", Description: "Fast search node for application workloads.", Image: "getmeili/meilisearch:v1.13", Icon: "M", Category: "search"},
-		{ID: "n8n", Name: "n8n", Description: "Workflow automation service for integrations.", Image: "n8nio/n8n:latest", Icon: "N", Category: "automation"},
+	if len(s.modules.DockerPackages) == 0 {
+		s.modules.DockerPackages = []DockerPackage{
+			{ID: "starter", Name: "Starter", MemoryLimit: "512 MB", CPULimit: "0.5", MaxContainers: 3},
+			{ID: "pro", Name: "Pro", MemoryLimit: "2 GB", CPULimit: "2.0", MaxContainers: 12},
+		}
 	}
-	s.modules.DockerInstalled = []DockerInstalledApp{
-		{Name: "redis-cache", Image: "redis:7-alpine", Status: "Up 2 hours", Ports: "6379:6379", Package: "starter"},
+	if s.modules.FederatedMode.Mode == "" {
+		s.modules.FederatedMode = FederatedMode{Mode: "standalone", Primary: true}
 	}
-	s.modules.DockerPackages = []DockerPackage{
-		{ID: "starter", Name: "Starter", MemoryLimit: "512 MB", CPULimit: "0.5", MaxContainers: 3},
-		{ID: "pro", Name: "Pro", MemoryLimit: "2 GB", CPULimit: "2.0", MaxContainers: 12},
+	if s.modules.OLSConfig.MaxConnections == 0 {
+		s.modules.OLSConfig = OLSTuningConfig{
+			MaxConnections:       10000,
+			MaxSSLConnections:    10000,
+			ConnTimeoutSecs:      300,
+			KeepAliveTimeoutSecs: 5,
+			MaxKeepAliveRequests: 10000,
+			GzipCompression:      true,
+			StaticCacheEnabled:   true,
+			StaticCacheMaxAgeSec: 3600,
+		}
 	}
-
-	s.modules.Mailboxes = []Mailbox{
-		{Address: fmt.Sprintf("info@%s", domain), Domain: domain, User: "info", Owner: owner, QuotaMB: 2048, UsedMB: 512},
-		{Address: fmt.Sprintf("support@%s", domain), Domain: domain, User: "support", Owner: owner, QuotaMB: 4096, UsedMB: 640},
-	}
-	s.modules.MailForwards = []MailForward{
-		{Domain: domain, Source: "sales", Target: "crm@example.net"},
-	}
-	s.modules.MailCatchAll[domain] = MailCatchAll{Domain: domain, Enabled: true, Target: fmt.Sprintf("postmaster@%s", domain)}
-	s.modules.MailRouting = []MailRoutingRule{
-		{ID: "route-1", Domain: domain, Pattern: "invoice+*", Target: "billing-bot@internal", Priority: 10},
-	}
-	s.modules.MailDKIM[domain] = DKIMRecord{
-		Domain:    domain,
-		Selector:  "selector1",
-		PublicKey: "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw9LZ9hvI2PKJYUpm3S1+demoKey",
-	}
-
-	s.modules.DNSZones = []DNSZone{
-		{ID: "zone-example", Name: domain, Kind: "native", Records: 4, DNSSECEnabled: true},
-	}
-	s.modules.DNSRecords[domain] = []DNSRecord{
-		{RecordType: "A", Name: domain, Content: "203.0.113.10", TTL: 3600},
-		{RecordType: "A", Name: "www", Content: "203.0.113.10", TTL: 3600},
-		{RecordType: "MX", Name: domain, Content: fmt.Sprintf("mail.%s", domain), TTL: 3600},
-		{RecordType: "TXT", Name: domain, Content: "v=spf1 mx a ~all", TTL: 3600},
-	}
-	s.modules.DefaultNameservers = DefaultNameservers{
-		NS1: fmt.Sprintf("ns1.%s", domain),
-		NS2: fmt.Sprintf("ns2.%s", domain),
-	}
-
-	s.modules.FTPUsers = []TransferAccount{
-		{Username: "ftp_main", Domain: domain, HomeDir: domainDocroot(domain), CreatedAt: nowUnix - 86400},
-	}
-	s.modules.SFTPUsers = []TransferAccount{
-		{Username: "deploy", HomeDir: domainDocroot(domain), CreatedAt: nowUnix - 43200},
-	}
-
-	s.modules.CronJobs = []CronJob{
-		{ID: "cron-100", User: owner, Schedule: "*/5 * * * *", Command: "php /home/example.com/public_html/artisan schedule:run"},
-	}
-	s.modules.OLSConfig = OLSTuningConfig{
-		MaxConnections:       10000,
-		MaxSSLConnections:    10000,
-		ConnTimeoutSecs:      300,
-		KeepAliveTimeoutSecs: 5,
-		MaxKeepAliveRequests: 10000,
-		GzipCompression:      true,
-		StaticCacheEnabled:   true,
-		StaticCacheMaxAgeSec: 3600,
-	}
-
-	s.modules.MinIOBuckets = []string{"site-assets", "weekly-backups"}
-	s.modules.MinIOCredentials["admin"] = MinIOCredential{User: "admin", AccessKey: "AURAADMIN", SecretKey: "aura-admin-secret"}
-	s.modules.FederatedMode = FederatedMode{Mode: "mesh", Primary: true}
-	s.modules.FederatedNodes = []FederatedNode{
-		{NodeName: "edge-eu-1", IPAddress: "10.20.30.40", PubKey: "pubkey-edge-eu-1"},
-	}
-
-	s.modules.RuntimeApps = []RuntimeApp{
-		{Runtime: "nodejs", Dir: domainDocroot(domain), AppName: "example-node", Status: "running"},
-		{Runtime: "python", Dir: domainDocroot(domain), AppName: "example-python", Status: "stopped"},
-	}
-
-	wpSite := buildWordPressSite(domain, owner, email, phpVersion)
-	s.modules.WordPressSites = []WordPressSite{wpSite}
-	s.modules.WordPressPlugins[domain] = []WordPressPlugin{
-		{Name: "woocommerce", Title: "WooCommerce", Version: "9.0.0", Status: "active", Update: "9.0.1 available"},
-		{Name: "seo-pack", Title: "SEO Pack", Version: "2.4.1", Status: "inactive", Update: "up-to-date"},
-		{Name: "cache-pro", Title: "Cache Pro", Version: "1.2.0", Status: "active", Update: "up-to-date"},
-	}
-	s.modules.WordPressThemes[domain] = []WordPressTheme{
-		{Name: "astra", Title: "Astra", Version: "4.1.0", Status: "active", Update: "4.1.2 available"},
-		{Name: "twentytwentyfour", Title: "Twenty Twenty-Four", Version: "1.0.0", Status: "inactive", Update: "up-to-date"},
-	}
-	s.modules.WordPressBackups[domain] = []WordPressBackup{
-		{ID: "wpb-1", Domain: domain, FileName: fmt.Sprintf("%s-full-20260328.tar.gz", domain), BackupType: "full", SizeBytes: 314572800, CreatedAt: nowUnix - 7200},
-	}
-	s.modules.WordPressStaging[domain] = []WordPressStaging{
-		{ID: "wps-1", SourceDomain: domain, StagingDomain: fmt.Sprintf("staging.%s", domain), Owner: owner, CreatedAt: nowUnix - 5400, Status: "ready"},
-	}
-
-	s.modules.BackupDestinations = []BackupDestination{
-		{ID: "dest-local", Name: "Local Restic", RemoteRepo: "/var/backups/restic", Password: "restic-demo-password", Enabled: true},
-		{ID: "dest-s3", Name: "Object Storage", RemoteRepo: "s3:https://object.example.net/aura", Password: "s3-secret", Enabled: false},
-	}
-	s.modules.BackupSchedules = []BackupSchedule{
-		{ID: "sched-1", Domain: domain, DestinationID: "dest-local", BackupPath: domainDocroot(domain), Cron: "0 3 * * *", Incremental: true, Enabled: true},
-	}
-	s.modules.BackupSnapshots = []BackupSnapshot{
-		{ID: "snap-1", ShortID: "snap-1", Time: now.Add(-6 * time.Hour).Format(time.RFC3339), Hostname: "aurapanel-dev", Tags: []string{"website", domain}, Domain: domain, BackupPath: domainDocroot(domain)},
-	}
-	s.modules.DBBackups = []DBBackupRecord{
-		{ID: "dbb-1", Filename: "example_app-20260328.sql.gz", Engine: "mariadb", Size: "22 MB", CreatedAt: now.Add(-3 * time.Hour).UnixMilli()},
-		{ID: "dbb-2", Filename: "analytics-20260327.dump.gz", Engine: "postgres", Size: "9 MB", CreatedAt: now.Add(-26 * time.Hour).UnixMilli()},
-	}
-
-	s.modules.ResellerQuotas = []ResellerQuota{
-		{Username: "aura", Plan: "reseller-starter", DiskGB: 50, BandwidthGB: 0, MaxSites: 25, UpdatedAt: nowUnix},
-	}
-	s.modules.WhiteLabels = []WhiteLabel{
-		{Username: "aura", PanelName: "Aura Hosting", LogoURL: "/branding/aura.svg", UpdatedAt: nowUnix},
-	}
-	s.modules.ACLPolicies = []ACLPolicy{
-		{ID: "acl-sites", Name: "Site Manager", Description: "Website, mail and backup management.", Permissions: []string{"websites:view", "mail:manage", "backup:run"}, UpdatedAt: nowUnix},
-		{ID: "acl-devops", Name: "DevOps", Description: "Runtime and deployment operations.", Permissions: []string{"apps:manage", "docker:view", "logs:view"}, UpdatedAt: nowUnix},
-	}
-	s.modules.ACLAssignments = []ACLAssignment{
-		{Username: "aura", PolicyID: "acl-sites", UpdatedAt: nowUnix},
-	}
-
-	s.modules.SSLBindings = SSLBindings{
-		HostnameSSLDomain: fmt.Sprintf("panel.%s", domain),
-		MailSSLDomain:     fmt.Sprintf("mail.%s", domain),
-		UpdatedAt:         nowUnix,
-	}
-	s.recordIssuedCertificateLocked(domain, "Let's Encrypt", false)
-	s.recordIssuedCertificateLocked(fmt.Sprintf("panel.%s", domain), "Let's Encrypt", false)
-	s.recordIssuedCertificateLocked(fmt.Sprintf("mail.%s", domain), "Let's Encrypt", false)
-
-	s.modules.CloudflareZones = []CloudflareZone{
-		{ID: "cf-zone-example", Name: domain, Status: "active", Plan: "pro", NameServers: []string{"ada.ns.cloudflare.com", "liam.ns.cloudflare.com"}},
-	}
-	s.modules.CloudflareDNS["cf-zone-example"] = []CloudflareDNSRecord{
-		{ID: "cfdns-1", Type: "A", Name: domain, Content: "203.0.113.10", TTL: 1, Proxied: true},
-		{ID: "cfdns-2", Type: "CNAME", Name: "www", Content: domain, TTL: 1, Proxied: true},
-	}
-	s.modules.CloudflareSettings["cf-zone-example"] = cloudflareZoneConfig{
-		SSLMode:       "full",
-		SecurityLevel: "medium",
-		DevMode:       false,
-		AlwaysHTTPS:   true,
-	}
-
-	s.modules.ActivityLogs = []ActivityLogEntry{
-		{ID: "act-1", Timestamp: now.Add(-10 * time.Minute).Format(time.RFC3339), User: "system", Action: "migrate", Detail: "Rust core removed from active runtime graph.", IP: "127.0.0.1"},
-		{ID: "act-2", Timestamp: now.Add(-8 * time.Minute).Format(time.RFC3339), User: "system", Action: "deploy", Detail: "Go panel-service compatibility layer enabled.", IP: "127.0.0.1"},
-		{ID: "act-3", Timestamp: now.Add(-4 * time.Minute).Format(time.RFC3339), User: owner, Action: "login", Detail: "Successful login through Go gateway.", IP: "127.0.0.1"},
+	if len(s.modules.ACLPolicies) == 0 {
+		s.modules.ACLPolicies = []ACLPolicy{
+			{ID: "acl-sites", Name: "Site Manager", Description: "Website, mail and backup management.", Permissions: []string{"websites:view", "mail:manage", "backup:run"}, UpdatedAt: time.Now().UTC().Unix()},
+			{ID: "acl-devops", Name: "DevOps", Description: "Runtime and deployment operations.", Permissions: []string{"apps:manage", "docker:view", "logs:view"}, UpdatedAt: time.Now().UTC().Unix()},
+		}
 	}
 
 	s.ensureVirtualDirLocked("/")
 	s.ensureVirtualDirLocked("/home")
-	s.ensureVirtualDirLocked("/home/backups")
-	s.ensureVirtualDirLocked("/home/example.com")
-	s.ensureVirtualDirLocked("/home/example.com/public_html")
-	s.ensureVirtualDirLocked("/home/example.com/logs")
 	s.ensureVirtualDirLocked("/var")
 	s.ensureVirtualDirLocked("/var/log")
 	s.ensureVirtualDirLocked("/var/log/aurapanel")
-	s.upsertVirtualFileLocked("/home/example.com/public_html/index.php", "<?php echo 'AuraPanel Go service is ready';\n", "0644")
-	s.upsertVirtualFileLocked("/home/example.com/public_html/wp-config.php", "<?php\ndefine('DB_NAME', 'example_app');\ndefine('DB_USER', 'example_user');\n", "0640")
-	s.upsertVirtualFileLocked("/home/example.com/public_html/.env", "APP_ENV=production\nAPP_DEBUG=false\n", "0640")
-	s.upsertVirtualFileLocked("/home/example.com/logs/access.log", "127.0.0.1 - - [28/Mar/2026:01:00:00 +0000] \"GET / HTTP/1.1\" 200 512\n", "0644")
-	s.upsertVirtualFileLocked("/var/log/aurapanel/panel.log", "[INFO] panel-service booted in go-only mode\n", "0644")
+
+	for _, site := range s.state.Websites {
+		s.ensureDefaultSiteArtifactsLocked(site.Domain)
+		if site.MailDomain {
+			s.ensureMailArtifactsLocked(site)
+		}
+	}
 }
 
 func buildWordPressSite(domain, owner, email, phpVersion string) WordPressSite {
 	return WordPressSite{
 		Domain:           domain,
-		Title:            "Aura Demo Site",
+		Title:            "WordPress Site",
 		SiteURL:          fmt.Sprintf("https://%s", domain),
 		Docroot:          domainDocroot(domain),
 		Status:           "active",

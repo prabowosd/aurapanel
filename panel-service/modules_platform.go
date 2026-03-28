@@ -3,14 +3,22 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
 func (s *service) handleDockerContainersGet(w http.ResponseWriter) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.DockerContainers})
+	containers, err := runtimeDockerContainers()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.mu.Lock()
+	s.modules.DockerContainers = containers
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: containers})
 }
 
 func (s *service) handleDockerContainerCreate(w http.ResponseWriter, r *http.Request) {
@@ -28,18 +36,27 @@ func (s *service) handleDockerContainerCreate(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, "Container name and image are required.")
 		return
 	}
-	container := DockerContainer{
-		ID:      generateSecret(8),
-		Name:    sanitizeName(payload.Name),
-		Image:   payload.Image,
-		Status:  "Up 10 seconds",
-		Ports:   strings.Join(payload.Ports, ", "),
-		Created: time.Now().UTC().Format("2006-01-02 15:04"),
+	if err := createRuntimeDockerContainer(payload.Name, payload.Image, payload.Ports, payload.RestartPolicy); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	containers, err := runtimeDockerContainers()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	var created DockerContainer
+	name := sanitizeName(payload.Name)
+	for _, item := range containers {
+		if item.Name == name {
+			created = item
+			break
+		}
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.modules.DockerContainers = append([]DockerContainer{container}, s.modules.DockerContainers...)
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Container created.", Data: container})
+	s.modules.DockerContainers = containers
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Container created.", Data: created})
 }
 
 func (s *service) handleDockerContainerAction(w http.ResponseWriter, r *http.Request, action string) {
@@ -50,32 +67,29 @@ func (s *service) handleDockerContainerAction(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, "Invalid container action payload.")
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i := range s.modules.DockerContainers {
-		if s.modules.DockerContainers[i].ID != payload.ID {
-			continue
-		}
-		switch action {
-		case "start":
-			s.modules.DockerContainers[i].Status = "Up 5 seconds"
-		case "stop":
-			s.modules.DockerContainers[i].Status = "Exited (0) just now"
-		case "restart":
-			s.modules.DockerContainers[i].Status = "Up 1 second"
-		case "remove":
-			s.modules.DockerContainers = append(s.modules.DockerContainers[:i], s.modules.DockerContainers[i+1:]...)
-		}
-		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Container action applied."})
+	if err := applyRuntimeDockerContainerAction(payload.ID, action); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeError(w, http.StatusNotFound, "Container not found.")
+	containers, err := runtimeDockerContainers()
+	if err == nil {
+		s.mu.Lock()
+		s.modules.DockerContainers = containers
+		s.mu.Unlock()
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Container action applied."})
 }
 
 func (s *service) handleDockerImagesGet(w http.ResponseWriter) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.DockerImages})
+	images, err := runtimeDockerImages()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.mu.Lock()
+	s.modules.DockerImages = images
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: images})
 }
 
 func (s *service) handleDockerImagePull(w http.ResponseWriter, r *http.Request) {
@@ -87,17 +101,28 @@ func (s *service) handleDockerImagePull(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "Invalid image pull payload.")
 		return
 	}
-	image := DockerImage{
-		ID:         "sha256:" + generateSecret(8),
-		Repository: firstNonEmpty(strings.TrimSpace(payload.Image), "custom"),
-		Tag:        firstNonEmpty(strings.TrimSpace(payload.Tag), "latest"),
-		Size:       "180 MB",
-		Created:    time.Now().UTC().Format("2006-01-02"),
+	if err := pullRuntimeDockerImage(payload.Image, payload.Tag); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	images, err := runtimeDockerImages()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	var pulled DockerImage
+	repo := firstNonEmpty(strings.TrimSpace(payload.Image), "custom")
+	tag := firstNonEmpty(strings.TrimSpace(payload.Tag), "latest")
+	for _, item := range images {
+		if item.Repository == repo && item.Tag == tag {
+			pulled = item
+			break
+		}
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.modules.DockerImages = append([]DockerImage{image}, s.modules.DockerImages...)
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Image pulled.", Data: image})
+	s.modules.DockerImages = images
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Image pulled.", Data: pulled})
 }
 
 func (s *service) handleDockerImageRemove(w http.ResponseWriter, r *http.Request) {
@@ -108,22 +133,15 @@ func (s *service) handleDockerImageRemove(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "Invalid image remove payload.")
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	items := s.modules.DockerImages
-	filtered := items[:0]
-	deleted := false
-	for _, item := range items {
-		if item.ID == payload.ID {
-			deleted = true
-			continue
-		}
-		filtered = append(filtered, item)
-	}
-	s.modules.DockerImages = filtered
-	if !deleted {
-		writeError(w, http.StatusNotFound, "Image not found.")
+	if err := removeRuntimeDockerImage(payload.ID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	images, err := runtimeDockerImages()
+	if err == nil {
+		s.mu.Lock()
+		s.modules.DockerImages = images
+		s.mu.Unlock()
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Image removed."})
 }
@@ -136,8 +154,9 @@ func (s *service) handleDockerTemplatesGet(w http.ResponseWriter) {
 
 func (s *service) handleDockerInstalledAppsGet(w http.ResponseWriter) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.DockerInstalled})
+	items := append([]DockerInstalledApp(nil), s.modules.DockerInstalled...)
+	s.mu.RUnlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: items})
 }
 
 func (s *service) handleDockerPackagesGet(w http.ResponseWriter) {
@@ -169,22 +188,22 @@ func (s *service) handleDockerAppInstall(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusNotFound, "Template not found.")
 		return
 	}
+	appName := firstNonEmpty(payload.AppName, "app-"+template.ID)
+	if err := createRuntimeDockerContainer(appName, template.Image, []string{"8080:8080"}, "unless-stopped"); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	app := DockerInstalledApp{
-		Name:    firstNonEmpty(payload.AppName, "app-"+template.ID),
+		Name:    appName,
 		Image:   template.Image,
-		Status:  "Up 5 seconds",
+		Status:  "running",
 		Ports:   "8080:8080",
 		Package: firstNonEmpty(payload.PackageID, "unlimited"),
 	}
-	s.modules.DockerInstalled = append([]DockerInstalledApp{app}, s.modules.DockerInstalled...)
-	s.modules.DockerContainers = append([]DockerContainer{{
-		ID:      generateSecret(8),
-		Name:    sanitizeName(app.Name),
-		Image:   app.Image,
-		Status:  app.Status,
-		Ports:   app.Ports,
-		Created: time.Now().UTC().Format("2006-01-02 15:04"),
-	}}, s.modules.DockerContainers...)
+	s.modules.DockerInstalled = append([]DockerInstalledApp{app}, filterDockerInstalledApps(s.modules.DockerInstalled, app.Name)...)
+	if containers, err := runtimeDockerContainers(); err == nil {
+		s.modules.DockerContainers = containers
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Docker app installed.", Data: app})
 }
 
@@ -195,6 +214,12 @@ func (s *service) handleDockerAppRemove(w http.ResponseWriter, r *http.Request) 
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid docker app remove payload.")
 		return
+	}
+	for _, item := range s.modules.DockerInstalled {
+		if item.Name == payload.AppName {
+			_ = applyRuntimeDockerContainerAction(item.Name, "remove")
+			break
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -212,6 +237,9 @@ func (s *service) handleDockerAppRemove(w http.ResponseWriter, r *http.Request) 
 	if !deleted {
 		writeError(w, http.StatusNotFound, "Installed app not found.")
 		return
+	}
+	if containers, err := runtimeDockerContainers(); err == nil {
+		s.modules.DockerContainers = containers
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Docker app removed."})
 }
@@ -286,24 +314,45 @@ func (s *service) handleFederatedJoin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *service) handleRuntimeAppsList(w http.ResponseWriter) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.RuntimeApps})
+	s.mu.Lock()
+	s.modules.RuntimeApps = runtimeAppsFromSystemd(s.modules.RuntimeApps)
+	items := append([]RuntimeApp(nil), s.modules.RuntimeApps...)
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: items})
 }
 
 func (s *service) handleRuntimeNodeInstall(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Dir string `json:"dir"`
+	}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid Node.js dependency payload.")
+		return
+	}
+	if err := installRuntimeNodeDeps(payload.Dir); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Node.js dependencies installed."})
 }
 
 func (s *service) handleRuntimeNodeStart(w http.ResponseWriter, r *http.Request) {
-	var payload RuntimeApp
+	var payload struct {
+		Dir         string `json:"dir"`
+		AppName     string `json:"app_name"`
+		StartScript string `json:"start_script"`
+	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid Node.js start payload.")
 		return
 	}
+	app, err := startRuntimeNodeApp(payload.Dir, payload.AppName, payload.StartScript)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	app := RuntimeApp{Runtime: "nodejs", Dir: payload.Dir, AppName: firstNonEmpty(payload.AppName, "node-app"), Status: "running"}
 	s.modules.RuntimeApps = append([]RuntimeApp{app}, filterRuntimeApps(s.modules.RuntimeApps, app.AppName)...)
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Node.js app started.", Data: app})
 }
@@ -314,6 +363,10 @@ func (s *service) handleRuntimeNodeStop(w http.ResponseWriter, r *http.Request) 
 	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid Node.js stop payload.")
+		return
+	}
+	if err := stopRuntimeApp(payload.AppName); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	s.mu.Lock()
@@ -327,22 +380,53 @@ func (s *service) handleRuntimeNodeStop(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *service) handleRuntimePythonVenv(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Dir string `json:"dir"`
+	}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid Python virtualenv payload.")
+		return
+	}
+	if err := createRuntimePythonVenv(payload.Dir); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Python virtualenv created."})
 }
 
 func (s *service) handleRuntimePythonInstall(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Dir string `json:"dir"`
+	}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid Python install payload.")
+		return
+	}
+	if err := installRuntimePythonRequirements(payload.Dir); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Python requirements installed."})
 }
 
 func (s *service) handleRuntimePythonStart(w http.ResponseWriter, r *http.Request) {
-	var payload RuntimeApp
+	var payload struct {
+		Dir        string `json:"dir"`
+		AppName    string `json:"app_name"`
+		WSGIModule string `json:"wsgi_module"`
+		Port       int    `json:"port"`
+	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid Python start payload.")
 		return
 	}
+	app, err := startRuntimePythonApp(payload.Dir, payload.AppName, payload.WSGIModule, payload.Port)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	app := RuntimeApp{Runtime: "python", Dir: payload.Dir, AppName: firstNonEmpty(payload.AppName, "python-app"), Status: "running"}
 	s.modules.RuntimeApps = append([]RuntimeApp{app}, filterRuntimeApps(s.modules.RuntimeApps, app.AppName)...)
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Python app started.", Data: app})
 }
@@ -351,6 +435,16 @@ func filterRuntimeApps(items []RuntimeApp, appName string) []RuntimeApp {
 	filtered := items[:0]
 	for _, item := range items {
 		if item.AppName != appName {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func filterDockerInstalledApps(items []DockerInstalledApp, appName string) []DockerInstalledApp {
+	filtered := items[:0]
+	for _, item := range items {
+		if item.Name != appName {
 			filtered = append(filtered, item)
 		}
 	}
@@ -606,13 +700,21 @@ func (s *service) handleWordPressBackupCreate(w http.ResponseWriter, r *http.Req
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
-	record := WordPressBackup{
-		ID:         generateSecret(8),
-		Domain:     domain,
-		FileName:   fmt.Sprintf("%s-%s-%s.tar.gz", domain, firstNonEmpty(payload.BackupType, "full"), time.Now().UTC().Format("20060102-150405")),
-		BackupType: firstNonEmpty(payload.BackupType, "full"),
-		SizeBytes:  157286400,
-		CreatedAt:  time.Now().UTC().Unix(),
+	s.mu.RLock()
+	siteIndex := s.findWordPressSiteIndexLocked(domain)
+	var site WordPressSite
+	if siteIndex >= 0 {
+		site = s.modules.WordPressSites[siteIndex]
+	}
+	s.mu.RUnlock()
+	if site.Domain == "" {
+		writeError(w, http.StatusNotFound, "WordPress site not found.")
+		return
+	}
+	record, err := createRuntimeWordPressBackup(site, payload.BackupType)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -627,7 +729,16 @@ func (s *service) handleWordPressBackupDownload(w http.ResponseWriter, r *http.R
 	for _, items := range s.modules.WordPressBackups {
 		for _, item := range items {
 			if item.ID == id {
-				writeBlob(w, item.FileName, "application/gzip", []byte("-- simulated wordpress backup --\n"))
+				path := item.Path
+				if path == "" {
+					path = filepath.Join(siteBackupDir(), item.FileName)
+				}
+				content, err := os.ReadFile(path)
+				if err != nil {
+					writeError(w, http.StatusNotFound, "WordPress backup file not found.")
+					return
+				}
+				writeBlob(w, item.FileName, "application/gzip", content)
 				return
 			}
 		}
@@ -643,7 +754,31 @@ func (s *service) handleWordPressBackupRestore(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusBadRequest, "Invalid WordPress restore payload.")
 		return
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("WordPress backup restore queued for %s.", payload.ID)})
+	s.mu.RLock()
+	var record WordPressBackup
+	found := false
+	for _, items := range s.modules.WordPressBackups {
+		for _, item := range items {
+			if item.ID == payload.ID {
+				record = item
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if !found {
+		writeError(w, http.StatusNotFound, "WordPress backup not found.")
+		return
+	}
+	if err := restoreRuntimeWordPressBackup(record); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("WordPress backup restored for %s.", record.Domain)})
 }
 
 func (s *service) handleWordPressStagingGet(w http.ResponseWriter, r *http.Request) {

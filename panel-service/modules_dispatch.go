@@ -135,6 +135,9 @@ func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) b
 	case r.URL.Path == "/api/v1/mail/webmail/sso/consume":
 		s.handleMailWebmailConsume(w, r)
 		return true
+	case r.URL.Path == "/api/v1/mail/webmail/sso/verify":
+		s.handleMailWebmailVerify(w, r)
+		return true
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/ftp/list":
 		s.handleTransferList(w, r, "ftp")
 		return true

@@ -3,15 +3,33 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
 func (s *service) handleSREPrediction(w http.ResponseWriter) {
+	metrics := collectHostMetrics(s.startedAt)
+	prediction := "Traffic profile is stable."
+	switch {
+	case metrics.DiskUsage >= 85:
+		prediction = "Primary pressure point is disk saturation; backups and logs should be trimmed before traffic grows."
+	case metrics.RAMUsage >= 85:
+		prediction = "Primary pressure point is memory pressure; PHP workers and database buffers need tuning."
+	case metrics.CPUUsage >= 85:
+		prediction = "Primary pressure point is CPU saturation; cache hit ratio and PHP concurrency should be reviewed."
+	case len(s.modules.BackupSchedules) > 0:
+		prediction = "Traffic profile is healthy. Next pressure point is backup windows overlapping with production traffic."
+	}
 	writeJSON(w, http.StatusOK, apiResponse{
 		Status: "success",
 		Data: map[string]interface{}{
-			"prediction": "Traffic profile is healthy. Next pressure point is disk-bound backup windows, not CPU saturation.",
+			"prediction": prediction,
+			"metrics": map[string]int{
+				"cpu_usage":  metrics.CPUUsage,
+				"ram_usage":  metrics.RAMUsage,
+				"disk_usage": metrics.DiskUsage,
+			},
 		},
 		Message: "SRE prediction generated.",
 	})
@@ -25,23 +43,94 @@ func (s *service) handleSRELogQuery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid SRE query payload.")
 		return
 	}
+	query := strings.TrimSpace(payload.Query)
+	if query == "" {
+		writeError(w, http.StatusBadRequest, "Query is required.")
+		return
+	}
+	queryLower := strings.ToLower(query)
+	matchedSources := []string{}
+	matches := []string{}
+
+	s.mu.RLock()
+	websites := append([]Website(nil), s.state.Websites...)
+	activities := append([]ActivityLogEntry(nil), s.modules.ActivityLogs...)
+	s.mu.RUnlock()
+
+	for _, item := range activities {
+		line := fmt.Sprintf("%s %s %s", item.Action, item.Detail, item.IP)
+		if strings.Contains(strings.ToLower(line), queryLower) {
+			matchedSources = appendIfMissing(matchedSources, "panel-service.activity")
+			matches = append(matches, line)
+			if len(matches) >= 5 {
+				break
+			}
+		}
+	}
+
+	for _, site := range websites {
+		if len(matches) >= 5 {
+			break
+		}
+		for _, kind := range []string{"error", "access"} {
+			paths := discoverSiteLogPaths(site.Domain, kind)
+			if len(paths) == 0 {
+				continue
+			}
+			lines, err := tailManagedFile(paths[0], 300)
+			if err != nil {
+				continue
+			}
+			for _, line := range lines {
+				if strings.Contains(strings.ToLower(line), queryLower) {
+					matchedSources = appendIfMissing(matchedSources, filepath.Base(paths[0]))
+					matches = append(matches, line)
+					if len(matches) >= 5 {
+						break
+					}
+				}
+			}
+		}
+	}
+
+	answerText := fmt.Sprintf("Query `%s` icin eslesen log bulunamadi.", query)
+	confidence := 0.25
+	if len(matches) > 0 {
+		answerText = fmt.Sprintf("Query `%s` icin %d eslesme bulundu.", query, len(matches))
+		confidence = 0.92
+	}
 	answer := map[string]interface{}{
-		"answer":          fmt.Sprintf("Query `%s` matched recent access/error samples in Go simulation mode.", payload.Query),
-		"confidence":      0.87,
-		"matched_sources": []string{"openlitespeed.access", "panel-service.activity", "mariadb.slowlog"},
+		"answer":          answerText,
+		"confidence":      confidence,
+		"matched_sources": matchedSources,
+		"matches":         matches,
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: answer})
 }
 
 func (s *service) handleSREOptimize(w http.ResponseWriter) {
+	metrics := collectHostMetrics(s.startedAt)
+	actions := []string{}
+	if metrics.DiskUsage >= 80 {
+		actions = append(actions, "Disk kullanimi yuksek; eski backup ve log dosyalarini rotate edin.")
+	}
+	if metrics.RAMUsage >= 80 {
+		actions = append(actions, "RAM kullanimi yuksek; lsphp process limitlerini ve DB bufferlarini yeniden ayarlayin.")
+	}
+	if metrics.CPUUsage >= 80 {
+		actions = append(actions, "CPU kullanimi yuksek; cache katmanlarini ve PHP worker sayisini optimize edin.")
+	}
+	if len(actions) == 0 {
+		actions = append(actions,
+			"Backup gorevlerini trafik piki disina tasiyin.",
+			"Statik icerik icin cache TTL degerlerini gozden gecirin.",
+			"Panel ve servis loglari icin rotate politikasini etkin tutun.",
+		)
+	}
 	writeJSON(w, http.StatusOK, apiResponse{
 		Status: "success",
 		Data: map[string]interface{}{
-			"actions": []string{
-				"Shift nightly backups away from the panel peak window.",
-				"Pin Redis memory ceiling per isolated instance.",
-				"Promote static cache TTL to 7200s for brochure sites.",
-			},
+			"actions": actions,
 		},
 	})
 }
@@ -57,7 +146,29 @@ func (s *service) handleGitOpsDeploy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid GitOps deploy payload.")
 		return
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("GitOps deployment queued for %s (%s@%s).", payload.Domain, payload.RepoURL, firstNonEmpty(payload.Branch, "main"))})
+	domain := normalizeDomain(payload.Domain)
+	deployPath := strings.TrimSpace(payload.DeployPath)
+	if deployPath == "" && domain != "" {
+		deployPath = domainDocroot(domain)
+	}
+	commit, err := deployRuntimeGitRepo(payload.RepoURL, payload.Branch, deployPath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.mu.Lock()
+	s.appendActivityLocked("system", "gitops_deploy", fmt.Sprintf("Git repo deployed to %s (%s).", deployPath, commit), "")
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{
+		Status:  "success",
+		Message: fmt.Sprintf("GitOps deployment completed for %s.", firstNonEmpty(domain, deployPath)),
+		Data: map[string]interface{}{
+			"domain":      domain,
+			"deploy_path": deployPath,
+			"branch":      firstNonEmpty(payload.Branch, "main"),
+			"commit":      commit,
+		},
+	})
 }
 
 func (s *service) handleRedisIsolation(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +180,16 @@ func (s *service) handleRedisIsolation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid Redis isolation payload.")
 		return
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("Isolated Redis planned for %s with %d MB max memory.", payload.Domain, maxInt(payload.MaxMemoryMB, 128))})
+	result, err := createRuntimeRedisIsolation(payload.Domain, maxInt(payload.MaxMemoryMB, 128))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{
+		Status:  "success",
+		Message: fmt.Sprintf("Isolated Redis created for %s.", normalizeDomain(payload.Domain)),
+		Data:    result,
+	})
 }
 
 func (s *service) handleResellerQuotasGet(w http.ResponseWriter) {
@@ -261,10 +381,22 @@ func (s *service) handleSecurityLivePatch(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "Invalid live patch payload.")
 		return
 	}
+	output, err := refreshRuntimeLivePatch(payload.Target)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.state.EBPFEvents = append([]string{fmt.Sprintf("Live patch prepared for %s", firstNonEmpty(payload.Target, "kernel"))}, s.state.EBPFEvents...)
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("Live patch scheduled for %s.", firstNonEmpty(payload.Target, "kernel"))})
+	s.state.EBPFEvents = append([]string{fmt.Sprintf("Live patch runtime checked for %s: %s", firstNonEmpty(payload.Target, "kernel"), output)}, s.state.EBPFEvents...)
+	writeJSON(w, http.StatusOK, apiResponse{
+		Status:  "success",
+		Message: fmt.Sprintf("Live patch runtime refreshed for %s.", firstNonEmpty(payload.Target, "kernel")),
+		Data: map[string]interface{}{
+			"target": firstNonEmpty(payload.Target, "kernel"),
+			"output": output,
+		},
+	})
 }
 
 func (s *service) handleMalwareJobs(w http.ResponseWriter, r *http.Request) {
@@ -275,17 +407,11 @@ func (s *service) handleMalwareJobs(w http.ResponseWriter, r *http.Request) {
 
 func (s *service) handleMalwareStatus(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	for i := range s.state.MalwareJobs {
 		if s.state.MalwareJobs[i].ID != id {
 			continue
-		}
-		if s.state.MalwareJobs[i].Progress < 100 {
-			s.state.MalwareJobs[i].Progress = minInt(100, s.state.MalwareJobs[i].Progress+35)
-			if s.state.MalwareJobs[i].Progress >= 100 {
-				s.state.MalwareJobs[i].Status = "completed"
-			}
 		}
 		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.state.MalwareJobs[i]})
 		return
@@ -302,16 +428,10 @@ func (s *service) handleMalwareStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid malware scan payload.")
 		return
 	}
-	job := MalwareJob{
-		ID:            generateSecret(8),
-		Status:        "running",
-		Progress:      25,
-		InfectedFiles: 1,
-		TargetPath:    firstNonEmpty(payload.Path, "/home"),
-		Findings: []MalwareFinding{
-			{ID: "finding-1", FilePath: firstNonEmpty(payload.Path, "/home") + "/suspicious.php", Signature: "webshell.php", Engine: firstNonEmpty(payload.Engine, "auto"), Quarantined: false},
-		},
-		Logs: []string{"Scan initiated.", "Signature database loaded.", "Potential webshell detected."},
+	job, err := runRuntimeMalwareScan(payload.Path, payload.Engine)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -339,13 +459,18 @@ func (s *service) handleMalwareQuarantine(w http.ResponseWriter, r *http.Request
 			if finding.ID != payload.FindingID {
 				continue
 			}
+			quarantinePath, err := quarantineRuntimeFile(finding.FilePath)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
 			finding.Quarantined = true
 			record := QuarantineRecord{
 				ID:             generateSecret(8),
 				JobID:          payload.JobID,
 				FindingID:      payload.FindingID,
 				OriginalPath:   finding.FilePath,
-				QuarantinePath: "/var/quarantine/" + virtualBaseName(finding.FilePath),
+				QuarantinePath: quarantinePath,
 			}
 			s.state.Quarantine = append([]QuarantineRecord{record}, s.state.Quarantine...)
 			writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Finding quarantined.", Data: record})
@@ -361,6 +486,15 @@ func (s *service) handleMalwareQuarantineList(w http.ResponseWriter) {
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.state.Quarantine})
 }
 
+func appendIfMissing(items []string, value string) []string {
+	for _, item := range items {
+		if item == value {
+			return items
+		}
+	}
+	return append(items, value)
+}
+
 func (s *service) handleMalwareQuarantineRestore(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		QuarantineID string `json:"quarantine_id"`
@@ -373,6 +507,10 @@ func (s *service) handleMalwareQuarantineRestore(w http.ResponseWriter, r *http.
 	defer s.mu.Unlock()
 	for i := range s.state.Quarantine {
 		if s.state.Quarantine[i].ID == payload.QuarantineID {
+			if err := restoreRuntimeQuarantine(s.state.Quarantine[i]); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
 			s.state.Quarantine[i].RestoredAt = time.Now().UTC().Format(time.RFC3339)
 			writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Quarantine record restored.", Data: s.state.Quarantine[i]})
 			return
@@ -654,11 +792,15 @@ func (s *service) handleMigrationUpload(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "Migration archive is required.")
 		return
 	}
-	_ = file.Close()
-	archivePath := "/var/lib/aurapanel/migrations/uploads/" + header.Filename
+	defer file.Close()
+	archivePath, err := saveMigrationUpload(header.Filename, file)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.modules.UploadedArchives[archivePath] = header.Filename
+	s.modules.UploadedArchives[archivePath] = filepath.Base(archivePath)
 	writeJSON(w, http.StatusOK, apiResponse{
 		Status: "success",
 		Data: map[string]interface{}{
@@ -680,20 +822,10 @@ func (s *service) handleMigrationAnalyze(w http.ResponseWriter, r *http.Request)
 	if payload.SourceType != nil {
 		sourceType = strings.TrimSpace(*payload.SourceType)
 	}
-	analysis := MigrationAnalysis{
-		SourceType: firstNonEmpty(sourceType, "cpanel"),
-		Stats: MigrationStats{
-			FileCount:     12843,
-			DatabaseCount: 2,
-			EmailCount:    6,
-		},
-		MySQLDumps:      []string{"mysql/example_app.sql", "mysql/analytics.sql"},
-		EmailAccounts:   []string{"info@example.com", "support@example.com", "billing@example.com"},
-		VhostCandidates: []string{"example.com", "blog.example.com"},
-		Warnings: []string{
-			"One cron job references a legacy /usr/local/bin/php path.",
-			"Remote MySQL grants should be recreated on the destination panel.",
-		},
+	analysis, err := analyzeMigrationArchive(payload.ArchivePath, sourceType)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -711,44 +843,28 @@ func (s *service) handleMigrationImportStart(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "Invalid migration start payload.")
 		return
 	}
-	job := MigrationJob{
-		ID:       "mig-" + generateSecret(6),
-		Status:   "running",
-		Progress: 15,
-		Logs: []string{
-			"Archive registered in migration queue.",
-			"Filesystem inventory mapped to virtual website layout.",
-			"Database conversion plan generated.",
-		},
-		Summary: MigrationSummary{
-			ConvertedDBFiles: []string{"example_app.sql", "analytics.sql"},
-			EmailPlanFile:    "email-plan.json",
-			VhostPlanFile:    "vhost-plan.json",
-			SystemApply:      false,
-		},
+	sourceType := ""
+	if payload.SourceType != nil {
+		sourceType = strings.TrimSpace(*payload.SourceType)
+	}
+	job, err := importMigrationArchive(payload.ArchivePath, sourceType, payload.TargetOwner)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.modules.MigrationJobs = append([]MigrationJob{job}, s.modules.MigrationJobs...)
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: job, Message: "Migration import queued."})
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: job, Message: "Migration import completed."})
 }
 
 func (s *service) handleMigrationImportStatus(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	for i := range s.modules.MigrationJobs {
 		if s.modules.MigrationJobs[i].ID != id {
 			continue
-		}
-		s.modules.MigrationJobs[i].PollCount++
-		if s.modules.MigrationJobs[i].Progress < 100 {
-			s.modules.MigrationJobs[i].Progress = minInt(100, s.modules.MigrationJobs[i].Progress+25)
-			s.modules.MigrationJobs[i].Logs = append(s.modules.MigrationJobs[i].Logs, fmt.Sprintf("Step %d completed.", s.modules.MigrationJobs[i].PollCount))
-			if s.modules.MigrationJobs[i].Progress >= 100 {
-				s.modules.MigrationJobs[i].Status = "completed"
-				s.modules.MigrationJobs[i].Logs = append(s.modules.MigrationJobs[i].Logs, "Migration finished in dry-run mode.")
-			}
 		}
 		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.MigrationJobs[i]})
 		return

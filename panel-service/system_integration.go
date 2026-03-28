@@ -63,6 +63,21 @@ func addFirewallRuntimeRule(rule FirewallRule) error {
 	}
 }
 
+func openFirewallPort(port int) error {
+	snapshot := collectSecuritySnapshot()
+	switch snapshot.FirewallManager {
+	case "ufw":
+		return exec.Command("ufw", "allow", fmt.Sprintf("%d/tcp", port)).Run()
+	case "firewalld":
+		if err := exec.Command("firewall-cmd", "--permanent", "--add-port", fmt.Sprintf("%d/tcp", port)).Run(); err != nil {
+			return err
+		}
+		return exec.Command("firewall-cmd", "--reload").Run()
+	default:
+		return fmt.Errorf("no supported active firewall manager detected")
+	}
+}
+
 func deleteFirewallRuntimeRule(ipAddress string) error {
 	snapshot := collectSecuritySnapshot()
 	switch snapshot.FirewallManager {

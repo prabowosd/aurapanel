@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"golang.org/x/net/websocket"
 )
@@ -14,7 +13,7 @@ func (s *service) handleTerminalWSRoute(w http.ResponseWriter, r *http.Request) 
 		defer conn.Close()
 		cwd := "/home"
 		buffer := strings.Builder{}
-		_ = websocket.Message.Send(conn, "AuraPanel pseudo-terminal ready\r\nType `help` for commands.\r\n")
+		_ = websocket.Message.Send(conn, "AuraPanel terminal ready\r\nType `help` for commands.\r\n")
 		sendTerminalPrompt(conn, cwd)
 
 		for {
@@ -70,46 +69,12 @@ func (s *service) executeTerminalCommand(command, cwd string) (string, string) {
 	parts := strings.Fields(command)
 	switch parts[0] {
 	case "help":
-		return "Supported commands: help, pwd, ls, cd, whoami, date, clear, echo", cwd
+		return "Supported commands: any shell command inside managed roots, plus cd and clear", cwd
 	case "pwd":
 		return cwd, cwd
-	case "whoami":
-		return "admin", cwd
-	case "date":
-		return time.Now().UTC().Format(time.RFC1123), cwd
-	case "echo":
-		return strings.TrimSpace(strings.TrimPrefix(command, "echo")), cwd
 	case "clear":
 		return "\x1b[2J\x1b[H", cwd
-	case "ls":
-		s.mu.RLock()
-		defer s.mu.RUnlock()
-		items := s.listVirtualEntriesLocked(cwd)
-		names := make([]string, 0, len(items))
-		for _, item := range items {
-			name := item.Name
-			if item.IsDir {
-				name += "/"
-			}
-			names = append(names, name)
-		}
-		return strings.Join(names, "  "), cwd
-	case "cd":
-		if len(parts) < 2 {
-			return "usage: cd <path>", cwd
-		}
-		target := normalizeVirtualPath(parts[1])
-		if !strings.HasPrefix(target, "/") {
-			target = normalizeVirtualPath(cwd + "/" + target)
-		}
-		s.mu.RLock()
-		defer s.mu.RUnlock()
-		item, ok := s.getVirtualFileLocked(target)
-		if !ok || !item.IsDir {
-			return "directory not found", cwd
-		}
-		return "", target
 	default:
-		return fmt.Sprintf("command `%s` executed in simulation mode", command), cwd
+		return runInteractiveShell(command, cwd)
 	}
 }

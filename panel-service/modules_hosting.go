@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -17,9 +19,11 @@ func (s *service) firstInstalledPHPVersionLocked() string {
 }
 
 func (s *service) handlePHPVersions(w http.ResponseWriter) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.PHPVersions})
+	versions := discoverPHPVersions()
+	s.mu.Lock()
+	s.modules.PHPVersions = versions
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: versions})
 }
 
 func (s *service) handlePHPInstall(w http.ResponseWriter, r *http.Request) {
@@ -37,18 +41,13 @@ func (s *service) handlePHPInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	found := false
-	for i := range s.modules.PHPVersions {
-		if s.modules.PHPVersions[i].Version == version {
-			s.modules.PHPVersions[i].Installed = true
-			found = true
-		}
+	if err := installPHPVersion(version); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
-	if !found {
-		s.modules.PHPVersions = append(s.modules.PHPVersions, PHPVersionInfo{Version: version, Installed: true})
-	}
-	if _, ok := s.modules.PHPIni[version]; !ok {
-		s.modules.PHPIni[version] = defaultPHPIni(version)
+	s.modules.PHPVersions = discoverPHPVersions()
+	if _, err := os.Stat(detectPHPIniPath(version)); err != nil {
+		_ = writeManagedFile(detectPHPIniPath(version), defaultPHPIni(version))
 	}
 	s.appendActivityLocked("system", "php_install", fmt.Sprintf("PHP %s installed.", version), "")
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("PHP %s installed.", version)})
@@ -70,8 +69,12 @@ func (s *service) handlePHPRemove(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := removePHPVersion(version); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	replacement := ""
-	for _, item := range s.modules.PHPVersions {
+	for _, item := range discoverPHPVersions() {
 		if item.Version != version && item.Installed {
 			replacement = item.Version
 			break
@@ -80,11 +83,7 @@ func (s *service) handlePHPRemove(w http.ResponseWriter, r *http.Request) {
 	if replacement == "" {
 		replacement = "8.3"
 	}
-	for i := range s.modules.PHPVersions {
-		if s.modules.PHPVersions[i].Version == version {
-			s.modules.PHPVersions[i].Installed = false
-		}
-	}
+	s.modules.PHPVersions = discoverPHPVersions()
 	for i := range s.state.Websites {
 		if s.state.Websites[i].PHPVersion == version || s.state.Websites[i].PHP == version {
 			s.state.Websites[i].PHPVersion = replacement
@@ -112,6 +111,10 @@ func (s *service) handlePHPRestart(w http.ResponseWriter, r *http.Request) {
 	if version == "" {
 		version = s.firstInstalledPHPVersionLocked()
 	}
+	if err := restartPHPRuntime(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("PHP %s restarted.", version)})
 }
 
@@ -123,11 +126,9 @@ func (s *service) handlePHPIniGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid php.ini payload.")
 		return
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	version := strings.TrimSpace(payload.Version)
-	content := s.modules.PHPIni[version]
-	if content == "" {
+	content, err := readManagedFile(detectPHPIniPath(version))
+	if err != nil {
 		content = defaultPHPIni(version)
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: content})
@@ -147,10 +148,13 @@ func (s *service) handlePHPIniSave(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "PHP version is required.")
 		return
 	}
+	if err := writeManagedFile(detectPHPIniPath(version), payload.Content); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.modules.PHPIni[version] = payload.Content
 	s.appendActivityLocked("system", "php_ini_save", fmt.Sprintf("php.ini updated for %s.", version), "")
+	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("php.ini saved for PHP %s.", version)})
 }
 
@@ -180,11 +184,19 @@ func (s *service) handleWebsiteCustomSSLSet(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
+	if err := storeCustomCertificate(domain, payload.CertPEM, payload.KeyPEM); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.CustomSSL[domain] = WebsiteCustomSSL{CertPEM: payload.CertPEM, KeyPEM: payload.KeyPEM}
 	if payload.CertPEM != "" && payload.KeyPEM != "" {
-		s.recordIssuedCertificateLocked(domain, "custom-upload", strings.HasPrefix(domain, "*."))
+		s.modules.SSLCertificates[domain] = inspectCertificate(domain)
+	}
+	if err := s.syncOLSVhostsLocked(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	s.appendActivityLocked("system", "ssl_custom", fmt.Sprintf("Custom SSL stored for %s.", domain), "")
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("Custom SSL saved for %s.", domain)})
@@ -206,6 +218,10 @@ func (s *service) handleWebsiteOpenBasedirSet(w http.ResponseWriter, r *http.Req
 	cfg := s.state.AdvancedConfig[domain]
 	cfg.OpenBasedir = payload.Enabled
 	s.state.AdvancedConfig[domain] = cfg
+	if err := s.syncOLSVhostsLocked(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Open Basedir updated.", Data: cfg})
 }
 
@@ -225,6 +241,10 @@ func (s *service) handleWebsiteRewriteSet(w http.ResponseWriter, r *http.Request
 	cfg := s.state.AdvancedConfig[domain]
 	cfg.RewriteRules = payload.Rules
 	s.state.AdvancedConfig[domain] = cfg
+	if err := s.syncOLSVhostsLocked(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Rewrite rules updated.", Data: cfg})
 }
 
@@ -244,6 +264,10 @@ func (s *service) handleWebsiteVhostConfigSet(w http.ResponseWriter, r *http.Req
 	cfg := s.state.AdvancedConfig[domain]
 	cfg.VhostConfig = payload.Content
 	s.state.AdvancedConfig[domain] = cfg
+	if err := s.syncOLSVhostsLocked(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "VHost config updated.", Data: cfg})
 }
 
@@ -337,6 +361,10 @@ func (s *service) handleSubdomainConvert(w http.ResponseWriter, r *http.Request)
 	s.ensureDefaultSiteArtifactsLocked(fqdn)
 	s.recountSitesLocked()
 	s.appendActivityLocked("system", "subdomain_convert", fmt.Sprintf("%s converted into full website.", fqdn), "")
+	if err := s.syncOLSVhostsLocked(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Subdomain converted into website."})
 }
 
@@ -364,6 +392,10 @@ func (s *service) handleAliasCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.state.Aliases = append(s.state.Aliases, DomainAlias{Domain: domain, Alias: alias})
+	if err := s.syncOLSVhostsLocked(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Alias added."})
 }
 
@@ -386,6 +418,10 @@ func (s *service) handleAliasDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Alias not found.")
 		return
 	}
+	if err := s.syncOLSVhostsLocked(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Alias deleted."})
 }
 
@@ -396,40 +432,14 @@ func (s *service) handleWebsiteTraffic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hours := clampInt(queryInt(r, "hours", 24), 1, 168)
-	series := make([]map[string]interface{}, 0, hours)
-	totalHits := 0
-	totalVisitors := 0
-	totalBandwidth := int64(0)
-	for i := hours - 1; i >= 0; i-- {
-		hits := 120 + ((hours - i) * 13)
-		visitors := 20 + ((hours - i) * 3)
-		bandwidth := int64(hits * 4096)
-		totalHits += hits
-		totalVisitors += visitors
-		totalBandwidth += bandwidth
-		series = append(series, map[string]interface{}{
-			"bucket":          time.Now().UTC().Add(-time.Duration(i) * time.Hour).Format("02 Jan 15:04"),
-			"hits":            hits,
-			"visitors":        visitors,
-			"bandwidth_bytes": bandwidth,
-		})
+	data, err := collectWebsiteTraffic(domain, hours)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	writeJSON(w, http.StatusOK, apiResponse{
 		Status: "success",
-		Data: map[string]interface{}{
-			"totals": map[string]interface{}{
-				"hits":            totalHits,
-				"visitors":        totalVisitors,
-				"bandwidth_bytes": totalBandwidth,
-			},
-			"series": series,
-			"top_paths": []map[string]interface{}{
-				{"path": "/", "hits": totalHits / 3, "bandwidth_bytes": totalBandwidth / 3},
-				{"path": "/wp-login.php", "hits": totalHits / 5, "bandwidth_bytes": totalBandwidth / 6},
-				{"path": "/assets/app.js", "hits": totalHits / 6, "bandwidth_bytes": totalBandwidth / 4},
-			},
-			"source_log": fmt.Sprintf("/home/%s/logs/access.log", domain),
-		},
+		Data:   data,
 	})
 }
 
@@ -940,8 +950,38 @@ func (s *service) handleMailWebmailConsume(w http.ResponseWriter, r *http.Reques
 		_, _ = w.Write([]byte("<html><body><h1>Webmail token expired</h1></body></html>"))
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(fmt.Sprintf("<html><body style=\"font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:32px\"><h1>Roundcube SSO</h1><p>Mailbox: <strong>%s</strong></p><p>Simulation mode active. Token consumed by Go panel-service.</p></body></html>", item.Address)))
+	baseURL := strings.TrimSpace(os.Getenv("AURAPANEL_WEBMAIL_BASE_URL"))
+	if baseURL == "" {
+		baseURL = "/webmail/"
+	}
+	if strings.Contains(baseURL, "?") {
+		baseURL += "&"
+	} else {
+		baseURL += "?"
+	}
+	http.Redirect(w, r, fmt.Sprintf("%s_task=login&_action=login&_user=%s&_autologin_token=%s", baseURL, url.QueryEscape(item.Address), url.QueryEscape(token)), http.StatusFound)
+}
+
+func (s *service) handleMailWebmailVerify(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	s.mu.Lock()
+	item, ok := s.modules.WebmailTokens[token]
+	if ok {
+		delete(s.modules.WebmailTokens, token)
+	}
+	s.mu.Unlock()
+	if !ok || item.ExpiresAt.Before(time.Now().UTC()) {
+		writeError(w, http.StatusUnauthorized, "Token invalid or expired")
+		return
+	}
+	masterPass := strings.TrimSpace(os.Getenv("AURAPANEL_MAIL_MASTER_PASS"))
+	if masterPass == "" {
+		masterPass = readEnvFileValue("/etc/aurapanel/aurapanel.env", "AURAPANEL_MAIL_MASTER_PASS")
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"address":     item.Address,
+		"master_pass": masterPass,
+	})
 }
 
 func (s *service) transferAccountsLocked(kind string) *[]TransferAccount {
@@ -953,9 +993,15 @@ func (s *service) transferAccountsLocked(kind string) *[]TransferAccount {
 
 func (s *service) handleTransferList(w http.ResponseWriter, r *http.Request, kind string) {
 	domain := normalizeDomain(r.URL.Query().Get("domain"))
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	source := *s.transferAccountsLocked(kind)
+	source, err := runtimeTransferAccounts(kind)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	source = mergeTransferMetadata(source, *s.transferAccountsLocked(kind))
+	*s.transferAccountsLocked(kind) = source
 	items := make([]TransferAccount, 0, len(source))
 	for _, item := range source {
 		if domain == "" || item.Domain == domain {
@@ -980,16 +1026,21 @@ func (s *service) handleTransferCreate(w http.ResponseWriter, r *http.Request, k
 		writeError(w, http.StatusBadRequest, "Username, password and home directory are required.")
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	items := s.transferAccountsLocked(kind)
-	*items = append(*items, TransferAccount{
+	account := TransferAccount{
 		Username:  sanitizeName(payload.Username),
 		Domain:    normalizeDomain(payload.Domain),
 		HomeDir:   normalizeVirtualPath(payload.HomeDir),
 		CreatedAt: time.Now().UTC().Unix(),
-	})
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: strings.ToUpper(kind) + " account created."})
+	}
+	if err := createRuntimeTransferAccount(kind, account.Username, payload.Password, account.HomeDir); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := s.transferAccountsLocked(kind)
+	*items = append(removeTransferAccountByUsername(*items, account.Username), account)
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: strings.ToUpper(kind) + " account created.", Data: account})
 }
 
 func (s *service) handleTransferPassword(w http.ResponseWriter, r *http.Request, kind string) {
@@ -1005,6 +1056,20 @@ func (s *service) handleTransferPassword(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusBadRequest, "Username and new password are required.")
 		return
 	}
+	key := sanitizeName(payload.Username)
+	if err := updateRuntimeTransferPassword(kind, key, payload.NewPassword); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := s.transferAccountsLocked(kind)
+	for i := range *items {
+		if (*items)[i].Username == key {
+			writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: strings.ToUpper(kind) + " password updated."})
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: strings.ToUpper(kind) + " password updated."})
 }
 
@@ -1017,30 +1082,27 @@ func (s *service) handleTransferDelete(w http.ResponseWriter, r *http.Request, k
 		return
 	}
 	key := sanitizeName(payload.Username)
+	if err := deleteRuntimeTransferAccount(kind, key); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	items := s.transferAccountsLocked(kind)
-	filtered := (*items)[:0]
-	deleted := false
-	for _, item := range *items {
-		if item.Username == key {
-			deleted = true
-			continue
-		}
-		filtered = append(filtered, item)
-	}
-	*items = filtered
-	if !deleted {
-		writeError(w, http.StatusNotFound, "Transfer account not found.")
-		return
-	}
+	*items = removeTransferAccountByUsername(*items, key)
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: strings.ToUpper(kind) + " account deleted."})
 }
 
 func (s *service) handleCronJobsList(w http.ResponseWriter) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.CronJobs})
+	jobs, err := runtimeCronJobs()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.mu.Lock()
+	s.modules.CronJobs = jobs
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: jobs})
 }
 
 func (s *service) handleCronJobCreate(w http.ResponseWriter, r *http.Request) {
@@ -1053,39 +1115,48 @@ func (s *service) handleCronJobCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Cron command is required.")
 		return
 	}
+	payload.User = firstNonEmpty(strings.TrimSpace(payload.User), "root")
+	payload.ID = sanitizeName(firstNonEmpty(payload.ID, generateSecret(6)))
+	if err := createRuntimeCronJob(payload); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	payload.ID = generateSecret(6)
-	s.modules.CronJobs = append(s.modules.CronJobs, payload)
+	s.modules.CronJobs = append(removeCronJobByID(s.modules.CronJobs, payload.ID), payload)
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Cron job created.", Data: payload})
 }
 
 func (s *service) handleCronJobDelete(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	items := s.modules.CronJobs
-	filtered := items[:0]
-	deleted := false
-	for _, item := range items {
-		if item.ID == id {
-			deleted = true
-			continue
-		}
-		filtered = append(filtered, item)
-	}
-	s.modules.CronJobs = filtered
-	if !deleted {
-		writeError(w, http.StatusNotFound, "Cron job not found.")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "Cron job id is required.")
 		return
 	}
+	if err := deleteRuntimeCronJob(id); err != nil {
+		if os.IsNotExist(err) {
+			writeError(w, http.StatusNotFound, "Cron job not found.")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.modules.CronJobs = removeCronJobByID(s.modules.CronJobs, id)
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Cron job deleted."})
 }
 
 func (s *service) handleOLSTuningGet(w http.ResponseWriter) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.OLSConfig})
+	cfg, err := runtimeOLSTuningConfig()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.mu.Lock()
+	s.modules.OLSConfig = cfg
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: cfg})
 }
 
 func (s *service) handleOLSTuningSet(w http.ResponseWriter, r *http.Request, apply bool) {
@@ -1094,32 +1165,39 @@ func (s *service) handleOLSTuningSet(w http.ResponseWriter, r *http.Request, app
 		writeError(w, http.StatusBadRequest, "Invalid OLS tuning payload.")
 		return
 	}
+	if err := applyOLSTuningConfig(payload); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.modules.OLSConfig = payload
-	message := "OpenLiteSpeed tuning saved."
+	message := "OpenLiteSpeed tuning saved and applied."
 	if apply {
-		message = "OpenLiteSpeed tuning saved and apply scheduled."
+		message = "OpenLiteSpeed tuning applied."
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: message, Data: s.modules.OLSConfig})
 }
 
 func (s *service) handleFilesList(w http.ResponseWriter, r *http.Request) {
-	path := normalizeVirtualPath(r.URL.Query().Get("path"))
-	if path == "/" || path == "" {
+	path := strings.TrimSpace(r.URL.Query().Get("path"))
+	if path == "" {
 		var payload struct {
 			Path string `json:"path"`
 		}
 		if r.Method == http.MethodPost && decodeJSON(r, &payload) == nil {
-			path = normalizeVirtualPath(payload.Path)
+			path = strings.TrimSpace(payload.Path)
 		}
 	}
-	if path == "" || path == "/" {
+	if path == "" {
 		path = "/home"
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.listVirtualEntriesLocked(path)})
+	items, err := listManagedEntries(path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: items})
 }
 
 func (s *service) handleFileRead(w http.ResponseWriter, r *http.Request) {
@@ -1130,14 +1208,12 @@ func (s *service) handleFileRead(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid file read payload.")
 		return
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	item, ok := s.getVirtualFileLocked(payload.Path)
-	if !ok || item.IsDir {
-		writeError(w, http.StatusNotFound, "File not found.")
+	content, err := readManagedFile(payload.Path)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: item.Content})
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: content})
 }
 
 func (s *service) handleFileWrite(w http.ResponseWriter, r *http.Request) {
@@ -1149,9 +1225,10 @@ func (s *service) handleFileWrite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid file write payload.")
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.upsertVirtualFileLocked(payload.Path, payload.Content, "0644")
+	if err := writeManagedFile(payload.Path, payload.Content); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "File written."})
 }
 
@@ -1164,9 +1241,10 @@ func (s *service) handleFileRename(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid rename payload.")
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.moveVirtualPathLocked(payload.OldPath, payload.NewPath)
+	if err := renameManagedPath(payload.OldPath, payload.NewPath); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Path renamed."})
 }
 
@@ -1178,11 +1256,10 @@ func (s *service) handleFileTrash(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid trash payload.")
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	source := normalizeVirtualPath(payload.Path)
-	dest := normalizeVirtualPath("/home/backups/trash-" + strings.ReplaceAll(strings.Trim(source, "/"), "/", "-"))
-	s.moveVirtualPathLocked(source, dest)
+	if err := trashManagedPath(payload.Path); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Item moved to trash."})
 }
 
@@ -1194,9 +1271,10 @@ func (s *service) handleFileDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid delete payload.")
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.deleteVirtualPathLocked(payload.Path)
+	if err := deleteManagedPath(payload.Path); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Item deleted."})
 }
 
@@ -1210,10 +1288,10 @@ func (s *service) handleFileCompress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid compress payload.")
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	content := "Compressed archive generated from:\n" + strings.Join(payload.Sources, "\n")
-	s.upsertVirtualFileLocked(payload.DestPath, content, "0644")
+	if err := compressManagedFiles(payload.DestPath, payload.Sources, payload.Format); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Archive created."})
 }
 
@@ -1226,13 +1304,10 @@ func (s *service) handleFileExtract(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid extract payload.")
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.ensureVirtualDirLocked(payload.DestDir)
-	base := strings.TrimSuffix(virtualBaseName(payload.ArchivePath), ".zip")
-	base = strings.TrimSuffix(base, ".tar.gz")
-	s.ensureVirtualDirLocked(normalizeVirtualPath(payload.DestDir + "/" + base))
-	s.upsertVirtualFileLocked(normalizeVirtualPath(payload.DestDir+"/"+base+"/README.txt"), "Extracted archive content placeholder.\n", "0644")
+	if err := extractManagedArchive(payload.ArchivePath, payload.DestDir); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Archive extracted."})
 }
 
@@ -1244,9 +1319,10 @@ func (s *service) handleFileCreateDir(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid create directory payload.")
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.ensureVirtualDirLocked(payload.Path)
+	if err := createManagedDir(payload.Path); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Directory created."})
 }
 
@@ -1365,15 +1441,10 @@ func (s *service) handleBackupCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
-	now := time.Now().UTC()
-	snapshot := BackupSnapshot{
-		ID:         generateSecret(8),
-		ShortID:    generateSecret(4),
-		Time:       now.Format(time.RFC3339),
-		Hostname:   "aurapanel-dev",
-		Tags:       []string{"website", domain},
-		Domain:     domain,
-		BackupPath: payload.BackupPath,
+	snapshot, err := createRuntimeSiteBackup(domain, payload.BackupPath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1408,13 +1479,38 @@ func (s *service) handleBackupRestore(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid restore payload.")
 		return
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("Restore scheduled for %s from snapshot %s.", payload.Domain, payload.SnapshotID)})
+	s.mu.RLock()
+	var snapshot BackupSnapshot
+	found := false
+	for _, item := range s.modules.BackupSnapshots {
+		if item.ID == payload.SnapshotID || item.ShortID == payload.SnapshotID {
+			snapshot = item
+			found = true
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if !found {
+		writeError(w, http.StatusNotFound, "Backup snapshot not found.")
+		return
+	}
+	if err := restoreRuntimeSiteBackup(snapshot, payload.Domain); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("Restore completed for %s from snapshot %s.", firstNonEmpty(payload.Domain, snapshot.Domain), payload.SnapshotID)})
 }
 
 func (s *service) handleDBBackupsList(w http.ResponseWriter) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.DBBackups})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	records, err := listRuntimeDBBackups(s.modules.DBBackups)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.modules.DBBackups = records
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: records})
 }
 
 func (s *service) handleDBBackupCreate(w http.ResponseWriter, r *http.Request) {
@@ -1427,16 +1523,14 @@ func (s *service) handleDBBackupCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	engine := normalizeEngine(payload.Engine)
-	filename := fmt.Sprintf("%s-%s.sql.gz", sanitizeDBName(payload.DBName), time.Now().UTC().Format("20060102-150405"))
-	record := DBBackupRecord{
-		ID:        generateSecret(8),
-		Filename:  filename,
-		Engine:    map[bool]string{true: "mariadb", false: "postgres"}[engine == "mariadb"],
-		Size:      "12 MB",
-		CreatedAt: time.Now().UTC().UnixMilli(),
+	record, err := createRuntimeDBBackup(engine, payload.DBName)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	record.Engine = engine
 	s.modules.DBBackups = append([]DBBackupRecord{record}, s.modules.DBBackups...)
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Database backup created.", Data: record})
 }
@@ -1447,7 +1541,12 @@ func (s *service) handleDBBackupDownload(w http.ResponseWriter, r *http.Request)
 	defer s.mu.RUnlock()
 	for _, item := range s.modules.DBBackups {
 		if item.ID == id || item.Filename == id {
-			writeBlob(w, item.Filename, "application/gzip", []byte("-- simulated database backup --\n"))
+			content, err := os.ReadFile(resolveDBBackupPath(item))
+			if err != nil {
+				writeError(w, http.StatusNotFound, "Database backup file not found.")
+				return
+			}
+			writeBlob(w, item.Filename, "application/gzip", content)
 			return
 		}
 	}
@@ -1462,7 +1561,26 @@ func (s *service) handleDBBackupRestore(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "Invalid DB restore payload.")
 		return
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("Database restore queued for %s.", payload.BackupID)})
+	s.mu.RLock()
+	var record DBBackupRecord
+	found := false
+	for _, item := range s.modules.DBBackups {
+		if item.ID == payload.BackupID || item.Filename == payload.BackupID {
+			record = item
+			found = true
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if !found {
+		writeError(w, http.StatusNotFound, "Database backup not found.")
+		return
+	}
+	if err := restoreRuntimeDBBackup(record); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("Database restore completed for %s.", record.DBName)})
 }
 
 func (s *service) handleDBBackupDelete(w http.ResponseWriter, r *http.Request) {
@@ -1476,20 +1594,29 @@ func (s *service) handleDBBackupDelete(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	items := s.modules.DBBackups
+	var target *DBBackupRecord
+	for i := range items {
+		if items[i].ID == payload.BackupID || items[i].Filename == payload.BackupID {
+			target = &items[i]
+			break
+		}
+	}
+	if target == nil {
+		writeError(w, http.StatusNotFound, "Database backup not found.")
+		return
+	}
+	if err := deleteRuntimeDBBackup(*target); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	filtered := items[:0]
-	deleted := false
 	for _, item := range items {
-		if item.ID == payload.BackupID || item.Filename == payload.BackupID {
-			deleted = true
+		if item.ID == target.ID || item.Filename == target.Filename {
 			continue
 		}
 		filtered = append(filtered, item)
 	}
 	s.modules.DBBackups = filtered
-	if !deleted {
-		writeError(w, http.StatusNotFound, "Database backup not found.")
-		return
-	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Database backup deleted."})
 }
 
@@ -1513,13 +1640,11 @@ func (s *service) handleSSLDetails(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid SSL details payload.")
 		return
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	domain := normalizeDomain(payload.Domain)
-	detail := s.modules.SSLCertificates[domain]
-	if detail.Domain == "" {
-		detail = SSLCertificateDetail{Domain: domain, Status: "missing", Issuer: "-", ExpiryDate: "-", DaysRemaining: 0}
-	}
+	detail := inspectCertificate(domain)
+	s.mu.Lock()
+	s.modules.SSLCertificates[domain] = detail
+	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: detail})
 }
 
@@ -1532,11 +1657,26 @@ func (s *service) handleSSLHostnameIssue(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
+	if err := issueLetsEncryptCertificate([]string{domain}, "/usr/local/lsws/Example/html", false); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	
+	// Bind to OpenLiteSpeed
+	certPath, keyPath := findCertificatePair(domain)
+	if certPath != "" && keyPath != "" {
+		certData, _ := os.ReadFile(certPath)
+		keyData, _ := os.ReadFile(keyPath)
+		_ = os.WriteFile("/usr/local/lsws/admin/conf/webadmin.crt", certData, 0o644)
+		_ = os.WriteFile("/usr/local/lsws/admin/conf/webadmin.key", keyData, 0o600)
+		_ = reloadOpenLiteSpeed()
+	}
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.modules.SSLBindings.HostnameSSLDomain = domain
 	s.modules.SSLBindings.UpdatedAt = time.Now().UTC().Unix()
-	s.recordIssuedCertificateLocked(domain, "Let's Encrypt", false)
+	s.modules.SSLCertificates[domain] = inspectCertificate(domain)
+	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("Hostname SSL issued for %s.", domain)})
 }
 
@@ -1549,11 +1689,45 @@ func (s *service) handleSSLMailIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
+	if err := issueLetsEncryptCertificate([]string{domain}, "/usr/local/lsws/Example/html", false); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	
+	// Bind to Postfix and Dovecot
+	certPath, keyPath := findCertificatePair(domain)
+	if certPath != "" && keyPath != "" {
+		// Postfix
+		_ = exec.Command("postconf", "-e", fmt.Sprintf("smtpd_tls_cert_file=%s", certPath)).Run()
+		_ = exec.Command("postconf", "-e", fmt.Sprintf("smtpd_tls_key_file=%s", keyPath)).Run()
+		
+		// Dovecot
+		dovecotConf := "/etc/dovecot/conf.d/10-ssl.conf"
+		if fileExists(dovecotConf) {
+			content, err := os.ReadFile(dovecotConf)
+			if err == nil {
+				lines := strings.Split(string(content), "\n")
+				for i, line := range lines {
+					if strings.HasPrefix(strings.TrimSpace(line), "ssl_cert ") || strings.HasPrefix(strings.TrimSpace(line), "ssl_cert=") {
+						lines[i] = fmt.Sprintf("ssl_cert = <%s", certPath)
+					}
+					if strings.HasPrefix(strings.TrimSpace(line), "ssl_key ") || strings.HasPrefix(strings.TrimSpace(line), "ssl_key=") {
+						lines[i] = fmt.Sprintf("ssl_key = <%s", keyPath)
+					}
+				}
+				_ = os.WriteFile(dovecotConf, []byte(strings.Join(lines, "\n")), 0o644)
+			}
+		}
+		
+		_ = exec.Command("systemctl", "restart", "postfix").Run()
+		_ = exec.Command("systemctl", "restart", "dovecot").Run()
+	}
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.modules.SSLBindings.MailSSLDomain = domain
 	s.modules.SSLBindings.UpdatedAt = time.Now().UTC().Unix()
-	s.recordIssuedCertificateLocked(domain, "Let's Encrypt", false)
+	s.modules.SSLCertificates[domain] = inspectCertificate(domain)
+	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("Mail SSL issued for %s.", domain)})
 }
 
@@ -1566,8 +1740,12 @@ func (s *service) handleSSLWildcardIssue(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
+	if err := issueLetsEncryptCertificate([]string{domain, "*." + domain}, "/usr/local/lsws/Example/html", true); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.recordIssuedCertificateLocked("*."+domain, "Let's Encrypt", true)
+	s.modules.SSLCertificates["*."+domain] = inspectCertificate(domain)
+	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("Wildcard SSL issued for *.%s.", domain)})
 }

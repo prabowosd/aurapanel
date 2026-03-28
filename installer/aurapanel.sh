@@ -38,6 +38,8 @@ MINIO_BIN_URL="${AURAPANEL_MINIO_BIN_URL:-https://dl.min.io/server/minio/release
 MINIO_MC_URL="${AURAPANEL_MINIO_MC_URL:-https://dl.min.io/client/mc/release/linux-amd64/mc}"
 ROUNDCUBE_VERSION="${AURAPANEL_ROUNDCUBE_VERSION:-1.6.11}"
 ROUNDCUBE_ARCHIVE_URL="${AURAPANEL_ROUNDCUBE_ARCHIVE_URL:-https://github.com/roundcube/roundcubemail/releases/download/${ROUNDCUBE_VERSION}/roundcubemail-${ROUNDCUBE_VERSION}-complete.tar.gz}"
+OWASP_CRS_VERSION="${AURAPANEL_OWASP_CRS_VERSION:-v4.2.0}"
+OWASP_CRS_ARCHIVE_URL="${AURAPANEL_OWASP_CRS_ARCHIVE_URL:-https://github.com/coreruleset/coreruleset/archive/refs/tags/${OWASP_CRS_VERSION}.zip}"
 PANEL_PORT_DEFAULT="8090"
 ONE_TIME_PASSWORD_NOTE="NOTE: Passwords are generated only once. Please save them now or change them immediately."
 
@@ -528,7 +530,43 @@ EOF
 \$config['smtp_port'] = 25;
 \$config['product_name'] = 'AuraPanel Webmail';
 \$config['des_key'] = '$(openssl rand -hex 16 | tr -d '\n')';
-\$config['plugins'] = ['archive', 'zipdownload', 'markasjunk'];
+\$config['plugins'] = ['archive', 'zipdownload', 'markasjunk', 'aurapanel_sso'];
+EOF
+
+  mkdir -p "${webmail_dir}/plugins/aurapanel_sso"
+  cat <<'EOF' > "${webmail_dir}/plugins/aurapanel_sso/aurapanel_sso.php"
+<?php
+class aurapanel_sso extends rcube_plugin {
+    public $task = 'login';
+    function init() {
+        $this->add_hook('authenticate', array($this, 'authenticate'));
+    }
+    function authenticate($args) {
+        if (!empty($_GET['_autologin_token'])) {
+            $token = $_GET['_autologin_token'];
+            $address = $_GET['_user'];
+            
+            $url = "http://127.0.0.1:8081/api/v1/mail/webmail/sso/verify?token=" . urlencode($token);
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+            $response = curl_exec($ch);
+            $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($http_code === 200) {
+                $data = json_decode($response, true);
+                if (!empty($data['master_pass']) && strtolower($data['address']) === strtolower($address)) {
+                    $args['user'] = $address . '*aurapanel-master';
+                    $args['pass'] = $data['master_pass'];
+                    $args['cookiecheck'] = false;
+                    $args['valid'] = true;
+                }
+            }
+        }
+        return $args;
+    }
+}
 EOF
 
   if id -gn nobody >/dev/null 2>&1; then
@@ -563,10 +601,17 @@ configure_mail_stack_vmail() {
   chown -R "${vmail_uid}:${vmail_gid}" "${vmail_base}" >/dev/null 2>&1 || true
   chmod 750 "${vmail_base}" >/dev/null 2>&1 || true
 
-  touch /etc/dovecot/users /etc/postfix/vmailbox /etc/postfix/vmailbox_domains /etc/postfix/virtual /etc/postfix/virtual_regexp
-  chmod 640 /etc/dovecot/users /etc/postfix/vmailbox /etc/postfix/vmailbox_domains /etc/postfix/virtual /etc/postfix/virtual_regexp >/dev/null 2>&1 || true
+  touch /etc/dovecot/users /etc/dovecot/master-users /etc/postfix/vmailbox /etc/postfix/vmailbox_domains /etc/postfix/virtual /etc/postfix/virtual_regexp
+  chmod 640 /etc/dovecot/users /etc/dovecot/master-users /etc/postfix/vmailbox /etc/postfix/vmailbox_domains /etc/postfix/virtual /etc/postfix/virtual_regexp >/dev/null 2>&1 || true
   if getent group dovecot >/dev/null 2>&1; then
-    chgrp dovecot /etc/dovecot/users >/dev/null 2>&1 || true
+    chgrp dovecot /etc/dovecot/users /etc/dovecot/master-users >/dev/null 2>&1 || true
+  fi
+
+  if [ ! -s /etc/dovecot/master-users ]; then
+    local dovecot_master_pass
+    dovecot_master_pass="$(generate_safe_password 24)"
+    echo "aurapanel-master:{PLAIN}${dovecot_master_pass}" > /etc/dovecot/master-users
+    upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_MASTER_PASS" "${dovecot_master_pass}"
   fi
 
   if command -v postmap >/dev/null 2>&1; then
@@ -576,6 +621,15 @@ configure_mail_stack_vmail() {
   fi
 
   cat <<EOF >/etc/dovecot/conf.d/90-aurapanel-vmail.conf
+auth_master_user_separator = *
+
+passdb {
+  driver = passwd-file
+  args = /etc/dovecot/master-users
+  master = yes
+  pass = yes
+}
+
 passdb {
   driver = passwd-file
   args = scheme=SHA512-CRYPT username_format=%u /etc/dovecot/users
@@ -767,6 +821,136 @@ EOF
   else
     warn "Could not detect lsphp83 extension_dir for PDO driver verification."
   fi
+}
+
+ensure_ols_modsecurity() {
+  if [ -f /usr/local/lsws/modules/mod_security.so ]; then
+    ok "OpenLiteSpeed ModSecurity module already present."
+    return
+  fi
+
+  log "Installing OpenLiteSpeed ModSecurity module..."
+  install_packages ols-modsecurity || fail "ols-modsecurity installation failed."
+
+  if [ ! -f /usr/local/lsws/modules/mod_security.so ]; then
+    fail "mod_security.so is missing after ols-modsecurity install."
+  fi
+
+  ok "OpenLiteSpeed ModSecurity module installed."
+}
+
+configure_ols_modsecurity_crs() {
+  local owasp_root="/usr/local/lsws/conf/owasp"
+  local owasp_dir="${owasp_root}/owasp-modsecurity-crs"
+  local archive_path="/tmp/aurapanel-owasp-crs.zip"
+
+  log "Configuring OWASP CRS for OpenLiteSpeed..."
+  mkdir -p "${owasp_root}" /tmp/modsecurity /usr/local/lsws/logs
+
+  if [ ! -d "${owasp_dir}" ]; then
+    rm -f "${archive_path}"
+    download_file "${OWASP_CRS_ARCHIVE_URL}" "${archive_path}" || fail "OWASP CRS archive download failed."
+    unzip -qq -o "${archive_path}" -d "${owasp_root}" || fail "OWASP CRS archive extract failed."
+    rm -rf "${owasp_dir}"
+    mv "${owasp_root}"/coreruleset-* "${owasp_dir}" || fail "OWASP CRS directory rename failed."
+  fi
+
+  if [ -f "${owasp_dir}/crs-setup.conf.example" ] && [ ! -f "${owasp_dir}/crs-setup.conf" ]; then
+    cp "${owasp_dir}/crs-setup.conf.example" "${owasp_dir}/crs-setup.conf"
+  fi
+  if [ -f "${owasp_dir}/rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf.example" ] && [ ! -f "${owasp_dir}/rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf" ]; then
+    cp "${owasp_dir}/rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf.example" "${owasp_dir}/rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf"
+  fi
+  if [ -f "${owasp_dir}/rules/RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf.example" ] && [ ! -f "${owasp_dir}/rules/RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf" ]; then
+    cp "${owasp_dir}/rules/RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf.example" "${owasp_dir}/rules/RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf"
+  fi
+
+  cat <<'EOF' > "${owasp_root}/modsecurity.conf"
+SecRuleEngine On
+SecRequestBodyAccess On
+SecResponseBodyAccess Off
+SecAuditEngine RelevantOnly
+SecAuditLog /usr/local/lsws/logs/modsec_audit.log
+SecDebugLog /usr/local/lsws/logs/modsec_debug.log
+SecDebugLogLevel 0
+SecTmpDir /tmp
+SecDataDir /tmp/modsecurity
+EOF
+
+  cat <<'EOF' > "${owasp_root}/modsec_includes.conf"
+include modsecurity.conf
+include owasp-modsecurity-crs/crs-setup.conf
+include owasp-modsecurity-crs/rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf
+include owasp-modsecurity-crs/rules/REQUEST-901-INITIALIZATION.conf
+include owasp-modsecurity-crs/rules/REQUEST-905-COMMON-EXCEPTIONS.conf
+include owasp-modsecurity-crs/rules/REQUEST-911-METHOD-ENFORCEMENT.conf
+include owasp-modsecurity-crs/rules/REQUEST-913-SCANNER-DETECTION.conf
+include owasp-modsecurity-crs/rules/REQUEST-920-PROTOCOL-ENFORCEMENT.conf
+include owasp-modsecurity-crs/rules/REQUEST-921-PROTOCOL-ATTACK.conf
+include owasp-modsecurity-crs/rules/REQUEST-922-MULTIPART-ATTACK.conf
+include owasp-modsecurity-crs/rules/REQUEST-930-APPLICATION-ATTACK-LFI.conf
+include owasp-modsecurity-crs/rules/REQUEST-931-APPLICATION-ATTACK-RFI.conf
+include owasp-modsecurity-crs/rules/REQUEST-932-APPLICATION-ATTACK-RCE.conf
+include owasp-modsecurity-crs/rules/REQUEST-933-APPLICATION-ATTACK-PHP.conf
+include owasp-modsecurity-crs/rules/REQUEST-934-APPLICATION-ATTACK-GENERIC.conf
+include owasp-modsecurity-crs/rules/REQUEST-941-APPLICATION-ATTACK-XSS.conf
+include owasp-modsecurity-crs/rules/REQUEST-942-APPLICATION-ATTACK-SQLI.conf
+include owasp-modsecurity-crs/rules/REQUEST-943-APPLICATION-ATTACK-SESSION-FIXATION.conf
+include owasp-modsecurity-crs/rules/REQUEST-944-APPLICATION-ATTACK-JAVA.conf
+include owasp-modsecurity-crs/rules/REQUEST-949-BLOCKING-EVALUATION.conf
+include owasp-modsecurity-crs/rules/RESPONSE-950-DATA-LEAKAGES.conf
+include owasp-modsecurity-crs/rules/RESPONSE-951-DATA-LEAKAGES-SQL.conf
+include owasp-modsecurity-crs/rules/RESPONSE-952-DATA-LEAKAGES-JAVA.conf
+include owasp-modsecurity-crs/rules/RESPONSE-953-DATA-LEAKAGES-PHP.conf
+include owasp-modsecurity-crs/rules/RESPONSE-954-DATA-LEAKAGES-IIS.conf
+include owasp-modsecurity-crs/rules/RESPONSE-955-WEB-SHELLS.conf
+include owasp-modsecurity-crs/rules/RESPONSE-959-BLOCKING-EVALUATION.conf
+include owasp-modsecurity-crs/rules/RESPONSE-980-CORRELATION.conf
+include owasp-modsecurity-crs/rules/RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf
+EOF
+
+  chmod 644 "${owasp_root}/modsecurity.conf" "${owasp_root}/modsec_includes.conf"
+  chmod -R 755 "${owasp_dir}" >/dev/null 2>&1 || true
+}
+
+enable_ols_modsecurity() {
+  local ols_conf="/usr/local/lsws/conf/httpd_config.conf"
+  local tmp_conf
+
+  if [ ! -f "${ols_conf}" ]; then
+    warn "OpenLiteSpeed config not found: ${ols_conf}"
+    return 0
+  fi
+
+  tmp_conf="$(mktemp /tmp/aurapanel-modsec-httpd.XXXXXX)"
+  awk '
+    $0=="# AURAPANEL MODSEC BEGIN" {skip=1; next}
+    $0=="# AURAPANEL MODSEC END" {skip=0; next}
+    !skip {print}
+  ' "${ols_conf}" > "${tmp_conf}"
+
+  cat <<'EOF' >> "${tmp_conf}"
+
+# AURAPANEL MODSEC BEGIN
+module mod_security {
+    modsecurity  on
+    modsecurity_rules `
+    SecRuleEngine On
+    `
+    modsecurity_rules_file         /usr/local/lsws/conf/owasp/modsec_includes.conf
+    ls_enabled              1
+}
+# AURAPANEL MODSEC END
+EOF
+
+  install -m 640 "${tmp_conf}" "${ols_conf}"
+  rm -f "${tmp_conf}"
+
+  if ! /usr/local/lsws/bin/lswsctrl restart >/dev/null 2>&1; then
+    fail "OpenLiteSpeed restart failed after ModSecurity enable."
+  fi
+
+  ok "OpenLiteSpeed ModSecurity + OWASP CRS enabled."
 }
 
 ensure_ioncube_loader() {
@@ -1284,6 +1468,12 @@ smoke_check() {
   if command -v ufw >/dev/null 2>&1; then
     ufw status 2>/dev/null | grep -qi "Status: active" || warn "ufw is installed but not active."
   fi
+  if [ ! -f /usr/local/lsws/modules/mod_security.so ]; then
+    warn "OpenLiteSpeed ModSecurity module is missing."
+  fi
+  if ! grep -q "module mod_security" /usr/local/lsws/conf/httpd_config.conf 2>/dev/null; then
+    warn "OpenLiteSpeed ModSecurity block is missing from httpd_config.conf."
+  fi
 
   curl -fsS http://127.0.0.1:8081/api/v1/health >/dev/null || fail "Panel service health check failed"
   curl -fsS "http://127.0.0.1:${panel_port}/api/health" >/dev/null || fail "Gateway health check failed"
@@ -1327,6 +1517,14 @@ smoke_check() {
     fi
   fi
 
+  local waf_status
+  waf_status="$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1/?q=%22%3E%3Cscript%3Ealert(123)%3C/script%3E' || true)"
+  if [ "${waf_status}" = "403" ]; then
+    ok "ModSecurity OWASP smoke test returned HTTP 403."
+  else
+    warn "ModSecurity OWASP smoke test did not return 403 (HTTP ${waf_status:-unknown})."
+  fi
+
   ok "Smoke checks passed."
 }
 
@@ -1357,6 +1555,9 @@ main() {
   ensure_ols_public_listeners
   ensure_openlitespeed_admin_php
   ensure_lsphp_database_drivers
+  ensure_ols_modsecurity
+  configure_ols_modsecurity_crs
+  enable_ols_modsecurity
   ensure_ioncube_loader
   ensure_certbot
   configure_ols_admin_credentials

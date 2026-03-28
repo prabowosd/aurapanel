@@ -111,7 +111,7 @@ func collectSecuritySnapshot() securitySnapshot {
 		WireGuardActive:        serviceActive("wg-quick@wg0", "wg-quick"),
 		LivePatchingActive:     serviceActive("canonical-livepatch", "kpatch", "kgraft"),
 		EBPFMonitoring:         serviceActive("cilium", "falco", "tetragon"),
-		MLWAFActive:            false,
+		MLWAFActive:            detectModSecurityActive(),
 		OneClickHardening:      false,
 		SSHKeyManager:          sshKeyManagerAvailable(),
 		ImmutableOS:            false,
