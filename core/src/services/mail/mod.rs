@@ -415,7 +415,14 @@ if ($loginRaw === false || ($loginCode < 200 || $loginCode >= 400)) {
 $cookies = @file($cookieFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
 $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
 foreach ($cookies as $line) {
-    if ($line === '' || $line[0] === '#') {
+    if ($line === '') {
+        continue;
+    }
+    $httpOnly = false;
+    if (str_starts_with($line, '#HttpOnly_')) {
+        $line = substr($line, 10);
+        $httpOnly = true;
+    } elseif ($line[0] === '#') {
         continue;
     }
     $parts = explode("\t", $line);
