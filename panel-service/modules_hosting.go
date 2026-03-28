@@ -267,6 +267,7 @@ func (s *service) handleMariaDBTuningSet(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *service) handleWebsiteAdvancedConfigGet(w http.ResponseWriter, r *http.Request) {
+	domain := normalizeDomain(r.URL.Query().Get("domain"))
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	s.ensureDefaultSiteArtifactsLocked(domain)
