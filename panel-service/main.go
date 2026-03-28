@@ -509,6 +509,8 @@ func (s *service) handleCompat(w http.ResponseWriter, r *http.Request) {
 		s.handlePanelPortSet(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/security/status":
 		s.handleSecurityStatus(w)
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/cloudflare/status":
+		s.handleCloudflareStatus(w)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/security/ebpf/events":
 		s.handleEBPFEvents(w)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/security/ebpf/collect":
