@@ -1,185 +1,459 @@
 <template>
-  <div class="space-y-5">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-bold text-white">{{ t('website_manage.title') }}</h1>
-        <p class="mt-1 text-sm text-gray-400">{{ domain }}</p>
-      </div>
-      <div class="flex gap-2">
-        <button class="btn-secondary" @click="goBack">{{ t('website_manage.back') }}</button>
-        <button class="btn-secondary" @click="refreshAll">{{ t('website_manage.refresh') }}</button>
-      </div>
-    </div>
-
-    <div v-if="error" class="aura-card border-red-500/30 bg-red-500/5 text-red-400">{{ error }}</div>
-
-    <div class="aura-card space-y-4">
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="text-sm text-gray-400">{{ t('website_manage.status') }}:</span>
-        <span :class="isSuspended ? 'text-yellow-400' : 'text-brand-400'">
-          {{ isSuspended ? t('website_manage.suspended') : t('website_manage.active') }}
-        </span>
-        <span class="text-gray-500">|</span>
-        <span class="text-sm text-gray-400">{{ t('website_manage.ssl') }}:</span>
-        <span :class="site.ssl ? 'text-brand-400' : 'text-yellow-400'">
-          {{ site.ssl ? t('website_manage.ssl_active') : t('website_manage.ssl_missing') }}
-        </span>
-      </div>
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <input v-model="form.owner" class="aura-input" :placeholder="t('website_manage.owner')" />
-        <select v-model="form.php_version" class="aura-input">
-          <option v-for="version in phpVersions" :key="version" :value="version">PHP {{ version }}</option>
-        </select>
-        <input v-model="form.package" class="aura-input" :placeholder="t('website_manage.package')" />
-        <input v-model="form.email" class="aura-input" :placeholder="t('website_manage.admin_email')" />
-      </div>
-      <div class="flex flex-wrap gap-2">
-        <button class="btn-primary" @click="saveWebsite">{{ t('website_manage.save') }}</button>
-        <button class="btn-secondary" @click="toggleSuspend">
-          {{ isSuspended ? t('website_manage.unsuspend') : t('website_manage.suspend') }}
-        </button>
-        <button class="btn-secondary" @click="issueSsl">{{ t('website_manage.issue_ssl') }}</button>
-      </div>
-    </div>
-
-    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <div class="aura-card space-y-3">
-        <h3 class="font-semibold text-white">{{ t('website_manage.alias_title') }}</h3>
-        <div class="flex gap-2">
-          <input v-model="aliasInput" class="aura-input flex-1" :placeholder="t('website_manage.alias_placeholder')" />
-          <button class="btn-primary" @click="addAlias">{{ t('website_manage.add_alias') }}</button>
-        </div>
-        <div class="max-h-40 space-y-2 overflow-auto">
-          <div v-for="alias in aliases" :key="alias.alias" class="flex items-center justify-between rounded-lg border border-panel-border px-3 py-2 text-sm">
-            <span class="text-gray-200">{{ alias.alias }}</span>
-            <button class="btn-danger px-2 py-1" @click="deleteAlias(alias.alias)">{{ t('common.delete') }}</button>
-          </div>
-        </div>
+  <div class="space-y-6">
+    <section class="relative overflow-hidden rounded-[32px] border border-panel-border/70 bg-[linear-gradient(135deg,rgba(15,23,42,0.98),rgba(30,41,59,0.94))] p-6 shadow-[0_30px_80px_-45px_rgba(2,6,23,0.95)] sm:p-8">
+      <div class="absolute inset-0">
+        <div class="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-cyan-500/12 blur-3xl"></div>
+        <div class="absolute -bottom-20 left-12 h-56 w-56 rounded-full bg-brand-500/14 blur-3xl"></div>
+        <div class="absolute inset-0 bg-[linear-gradient(120deg,rgba(16,185,129,0.14),transparent_38%,rgba(6,182,212,0.14))]"></div>
       </div>
 
-      <div class="aura-card space-y-3">
-        <h3 class="font-semibold text-white">{{ t('website_manage.open_basedir') }}</h3>
-        <label class="inline-flex items-center gap-2 text-sm text-gray-300">
-          <input v-model="advanced.open_basedir" type="checkbox" class="h-4 w-4" />
-          {{ t('website_manage.enabled') }}
-        </label>
-        <button class="btn-primary" @click="saveOpenBasedir">{{ t('website_manage.save') }}</button>
-      </div>
-
-      <div class="aura-card space-y-3 lg:col-span-2">
-        <h3 class="font-semibold text-white">{{ t('website_manage.rewrite') }}</h3>
-        <textarea v-model="advanced.rewrite_rules" rows="7" class="aura-input w-full font-mono text-xs"></textarea>
-        <button class="btn-primary" @click="saveRewrite">{{ t('website_manage.save') }}</button>
-      </div>
-
-      <div class="aura-card space-y-3 lg:col-span-2">
-        <h3 class="font-semibold text-white">{{ t('website_manage.vhost_config') }}</h3>
-        <textarea v-model="advanced.vhost_config" rows="10" class="aura-input w-full font-mono text-xs"></textarea>
-        <button class="btn-primary" @click="saveVhost">{{ t('website_manage.save') }}</button>
-      </div>
-
-      <div class="aura-card space-y-3 lg:col-span-2">
-        <h3 class="font-semibold text-white">{{ t('website_manage.custom_ssl') }}</h3>
-        <textarea v-model="customSsl.cert_pem" rows="6" class="aura-input w-full font-mono text-xs" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
-        <textarea v-model="customSsl.key_pem" rows="6" class="aura-input w-full font-mono text-xs" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
-        <button class="btn-primary" @click="saveCustomSsl">{{ t('website_manage.save') }}</button>
-      </div>
-    </div>
-
-    <div class="aura-card space-y-4">
-      <div class="flex flex-wrap items-center gap-2">
-        <button
-          class="btn-secondary"
-          :class="insightTab === 'traffic' ? 'border-brand-500 text-brand-300' : ''"
-          @click="insightTab = 'traffic'"
-        >
-          Trafik ve Istatistikler
-        </button>
-        <button
-          class="btn-secondary"
-          :class="insightTab === 'logs' ? 'border-brand-500 text-brand-300' : ''"
-          @click="insightTab = 'logs'"
-        >
-          Loglar
-        </button>
-        <button class="btn-secondary ml-auto" @click="refreshInsights">{{ t('website_manage.refresh') }}</button>
-      </div>
-
-      <div v-if="insightTab === 'traffic'" class="space-y-4">
-        <div v-if="insightError" class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
-          {{ insightError }}
-        </div>
-        <div class="flex flex-wrap items-center gap-3">
-          <label class="text-xs text-gray-400">Aralik</label>
-          <select v-model.number="trafficHours" class="aura-input w-40" @change="loadTraffic">
-            <option :value="6">Son 6 saat</option>
-            <option :value="24">Son 24 saat</option>
-            <option :value="72">Son 3 gun</option>
-            <option :value="168">Son 7 gun</option>
-          </select>
-          <span class="text-xs text-gray-500" v-if="traffic?.source_log">Kaynak: {{ traffic.source_log }}</span>
-        </div>
-
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
-            <p class="text-xs text-gray-400">Toplam Hit</p>
-            <p class="mt-1 text-lg font-semibold text-white">{{ traffic.totals?.hits || 0 }}</p>
-          </div>
-          <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
-            <p class="text-xs text-gray-400">Tekil Ziyaretci</p>
-            <p class="mt-1 text-lg font-semibold text-white">{{ traffic.totals?.visitors || 0 }}</p>
-          </div>
-          <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
-            <p class="text-xs text-gray-400">Bant Genisligi</p>
-            <p class="mt-1 text-lg font-semibold text-white">{{ formatBytes(traffic.totals?.bandwidth_bytes || 0) }}</p>
-          </div>
-        </div>
-
-        <div class="rounded-lg border border-panel-border p-3">
-          <p class="text-sm text-white font-semibold mb-2">Saatlik Trafik</p>
-          <div v-if="trafficLoading" class="text-xs text-gray-400">Yukleniyor...</div>
-          <div v-else-if="!traffic.series?.length" class="text-xs text-gray-500">Secili aralikta trafik kaydi yok.</div>
-          <div v-else class="space-y-2">
-            <div v-for="item in traffic.series" :key="item.bucket" class="space-y-1">
-              <div class="flex justify-between text-[11px] text-gray-400">
-                <span>{{ item.bucket }}</span>
-                <span>{{ item.hits }} hit</span>
+      <div class="relative space-y-6">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="space-y-2">
+            <span class="inline-flex items-center gap-2 rounded-full border border-brand-500/25 bg-brand-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-brand-200">
+              {{ t('website_manage.hero_badge') }}
+            </span>
+            <div>
+              <div class="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.2em] text-gray-500">
+                <span>{{ t('website_manage.title') }}</span>
+                <ChevronRight class="h-3.5 w-3.5" />
+                <span class="text-brand-300">{{ domain }}</span>
               </div>
-              <div class="h-2 rounded bg-panel-dark overflow-hidden">
-                <div
-                  class="h-full rounded bg-gradient-to-r from-cyan-500 to-brand-500"
-                  :style="{ width: `${Math.max(4, Math.round((item.hits / Math.max(1, maxTrafficHit)) * 100))}%` }"
-                ></div>
+              <h1 class="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">{{ domain }}</h1>
+              <p class="mt-3 max-w-3xl text-sm leading-6 text-gray-300 sm:text-base">
+                {{ t('website_manage.subtitle') }}
+              </p>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <button class="btn-secondary" @click="goBack">
+              <ArrowLeft class="h-4 w-4" />
+              {{ t('website_manage.back') }}
+            </button>
+            <button class="btn-secondary" @click="refreshAll">
+              <RefreshCw class="h-4 w-4" />
+              {{ t('website_manage.refresh') }}
+            </button>
+          </div>
+        </div>
+
+        <div class="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)]">
+          <div class="space-y-5">
+            <p class="max-w-2xl text-sm text-gray-400">{{ t('website_manage.hero_body') }}</p>
+
+            <div class="flex flex-wrap gap-2">
+              <span
+                class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium"
+                :class="isSuspended ? 'border-amber-400/25 bg-amber-400/10 text-amber-200' : 'border-brand-500/25 bg-brand-500/10 text-brand-100'"
+              >
+                <span class="h-2 w-2 rounded-full" :class="isSuspended ? 'bg-amber-300' : 'bg-brand-300'"></span>
+                {{ t('website_manage.status') }}: {{ isSuspended ? t('website_manage.suspended') : t('website_manage.active') }}
+              </span>
+              <span
+                class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium"
+                :class="site.ssl ? 'border-cyan-400/25 bg-cyan-400/10 text-cyan-100' : 'border-amber-400/25 bg-amber-400/10 text-amber-200'"
+              >
+                <ShieldCheck class="h-4 w-4" />
+                {{ t('website_manage.ssl') }}: {{ site.ssl ? t('website_manage.ssl_active') : t('website_manage.ssl_missing') }}
+              </span>
+              <span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm font-medium text-gray-200">
+                <Server class="h-4 w-4 text-brand-300" />
+                PHP {{ form.php_version }}
+              </span>
+              <span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm font-medium text-gray-200">
+                <Link2 class="h-4 w-4 text-cyan-300" />
+                {{ aliases.length }} {{ t('website_manage.summary.aliases') }}
+              </span>
+            </div>
+
+            <div class="space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <p class="text-xs font-semibold uppercase tracking-[0.22em] text-gray-500">{{ t('website_manage.quick_actions') }}</p>
+                <p class="text-xs text-gray-500">{{ t('website_manage.jump_to') }}</p>
+              </div>
+
+              <div class="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+                <button
+                  v-for="action in quickActions"
+                  :key="action.key"
+                  class="group flex h-full flex-col items-start gap-3 rounded-2xl border px-4 py-4 text-left transition-all duration-300 hover:-translate-y-0.5"
+                  :class="quickActionClass(action.key)"
+                  @click="action.handler"
+                >
+                  <div class="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] text-white shadow-inner shadow-white/5">
+                    <component :is="action.icon" class="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p class="font-semibold text-white">{{ action.label }}</p>
+                    <p class="mt-1 text-sm text-gray-300">{{ action.description }}</p>
+                  </div>
+                </button>
+              </div>
+
+              <div class="flex flex-wrap gap-2">
+                <a
+                  v-for="section in sectionLinks"
+                  :key="section.id"
+                  :href="`#${section.id}`"
+                  class="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-sm font-medium text-gray-300 transition hover:border-brand-500/40 hover:text-white"
+                >
+                  <component :is="section.icon" class="h-4 w-4 text-brand-300" />
+                  {{ section.label }}
+                </a>
               </div>
             </div>
           </div>
-        </div>
 
-        <div class="rounded-lg border border-panel-border p-3">
-          <p class="text-sm text-white font-semibold mb-2">Top URL</p>
-          <div v-if="!traffic.top_paths?.length" class="text-xs text-gray-500">Veri yok.</div>
-          <div v-else class="max-h-56 overflow-auto divide-y divide-panel-border">
-            <div v-for="row in traffic.top_paths" :key="row.path" class="py-2 text-xs">
-              <p class="font-mono text-gray-200 break-all">{{ row.path }}</p>
-              <p class="text-gray-500 mt-1">{{ row.hits }} hit • {{ formatBytes(row.bandwidth_bytes) }}</p>
+          <div class="rounded-[28px] border border-white/10 bg-slate-950/45 p-5 backdrop-blur-sm">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.22em] text-gray-500">{{ t('website_manage.live_snapshot') }}</p>
+                <p class="mt-2 text-lg font-semibold text-white">{{ form.owner || 'aura' }}</p>
+              </div>
+              <div class="rounded-2xl border border-brand-500/20 bg-brand-500/10 px-3 py-2 text-right">
+                <p class="text-[11px] uppercase tracking-[0.18em] text-brand-200">{{ t('website_manage.package') }}</p>
+                <p class="mt-1 text-sm font-semibold text-white">{{ form.package || 'default' }}</p>
+              </div>
+            </div>
+
+            <div class="mt-5 grid grid-cols-2 gap-3">
+              <div
+                v-for="card in summaryCards"
+                :key="card.label"
+                class="rounded-2xl border border-white/10 bg-white/[0.04] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">{{ card.label }}</p>
+                  <component :is="card.icon" class="h-4 w-4" :class="card.iconClass" />
+                </div>
+                <p class="mt-3 text-base font-semibold text-white">{{ card.value }}</p>
+              </div>
+            </div>
+
+            <div class="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">{{ t('website_manage.admin_email') }}</p>
+              <p class="mt-2 break-all text-sm font-semibold text-white">{{ adminEmail }}</p>
             </div>
           </div>
         </div>
       </div>
+    </section>
 
-      <div v-else class="space-y-3">
-        <div v-if="insightError" class="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
-          {{ insightError }}
-        </div>
-        <div class="flex gap-2">
-          <button class="btn-secondary" :class="logKind === 'access' ? 'border-brand-500 text-brand-300' : ''" @click="changeLogKind('access')">
-            {{ t('website_manage.logs_access') }}
-          </button>
-          <button class="btn-secondary" :class="logKind === 'error' ? 'border-brand-500 text-brand-300' : ''" @click="changeLogKind('error')">
-            {{ t('website_manage.logs_error') }}
-          </button>
-        </div>
-        <pre class="max-h-[360px] overflow-auto whitespace-pre-wrap rounded-lg border border-panel-border bg-panel-dark p-3 text-xs text-gray-200">{{ logs.join('\n') || t('website_manage.no_logs') }}</pre>
+    <div v-if="error" class="rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-sm text-red-200 shadow-[0_20px_50px_-35px_rgba(239,68,68,0.6)]">
+      {{ error }}
+    </div>
+
+    <div class="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)]">
+      <div class="space-y-6">
+        <section id="profile" class="scroll-mt-24 rounded-[28px] border border-panel-border/70 bg-[linear-gradient(180deg,rgba(30,41,59,0.98),rgba(15,23,42,0.92))] p-6 shadow-[0_28px_80px_-50px_rgba(2,6,23,0.9)]">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div class="flex items-start gap-4">
+              <div class="flex h-12 w-12 items-center justify-center rounded-2xl border border-brand-500/20 bg-brand-500/10 text-brand-200">
+                <Settings2 class="h-5 w-5" />
+              </div>
+              <div>
+                <h2 class="text-xl font-semibold text-white">{{ t('website_manage.sections.profile_title') }}</h2>
+                <p class="mt-1 text-sm text-gray-400">{{ t('website_manage.sections.profile_body') }}</p>
+              </div>
+            </div>
+            <button class="btn-primary" @click="saveWebsite">
+              <Save class="h-4 w-4" />
+              {{ t('website_manage.save') }}
+            </button>
+          </div>
+
+          <div class="mt-6 grid gap-4 md:grid-cols-2">
+            <label class="block">
+              <span class="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">{{ t('website_manage.owner') }}</span>
+              <input v-model="form.owner" class="aura-input" :placeholder="t('website_manage.owner')" />
+            </label>
+
+            <label class="block">
+              <span class="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">PHP Runtime</span>
+              <select v-model="form.php_version" class="aura-input">
+                <option v-for="version in phpVersions" :key="version" :value="version">PHP {{ version }}</option>
+              </select>
+            </label>
+
+            <label class="block">
+              <span class="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">{{ t('website_manage.package') }}</span>
+              <input v-model="form.package" class="aura-input" :placeholder="t('website_manage.package')" />
+            </label>
+
+            <label class="block">
+              <span class="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">{{ t('website_manage.admin_email') }}</span>
+              <input v-model="form.email" class="aura-input" :placeholder="t('website_manage.admin_email')" />
+            </label>
+          </div>
+        </section>
+
+        <section id="server" class="scroll-mt-24 rounded-[28px] border border-panel-border/70 bg-[linear-gradient(180deg,rgba(30,41,59,0.98),rgba(15,23,42,0.92))] p-6 shadow-[0_28px_80px_-50px_rgba(2,6,23,0.9)]">
+          <div class="flex items-start gap-4">
+            <div class="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-500/20 bg-cyan-500/10 text-cyan-100">
+              <Server class="h-5 w-5" />
+            </div>
+            <div>
+              <h2 class="text-xl font-semibold text-white">{{ t('website_manage.sections.server_title') }}</h2>
+              <p class="mt-1 text-sm text-gray-400">{{ t('website_manage.sections.server_body') }}</p>
+            </div>
+          </div>
+
+          <div class="mt-6 grid gap-4 xl:grid-cols-2">
+            <div class="rounded-2xl border border-panel-border/70 bg-panel-dark/70 p-4">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <h3 class="text-base font-semibold text-white">{{ t('website_manage.rewrite') }}</h3>
+                <button class="btn-primary" @click="saveRewrite">
+                  <Save class="h-4 w-4" />
+                  {{ t('website_manage.save') }}
+                </button>
+              </div>
+              <textarea v-model="advanced.rewrite_rules" rows="10" class="aura-input mt-4 w-full font-mono text-xs"></textarea>
+            </div>
+
+            <div class="rounded-2xl border border-panel-border/70 bg-panel-dark/70 p-4">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <h3 class="text-base font-semibold text-white">{{ t('website_manage.vhost_config') }}</h3>
+                <button class="btn-primary" @click="saveVhost">
+                  <Save class="h-4 w-4" />
+                  {{ t('website_manage.save') }}
+                </button>
+              </div>
+              <textarea v-model="advanced.vhost_config" rows="10" class="aura-input mt-4 w-full font-mono text-xs"></textarea>
+            </div>
+          </div>
+        </section>
+
+        <section id="observability" class="scroll-mt-24 rounded-[28px] border border-panel-border/70 bg-[linear-gradient(180deg,rgba(30,41,59,0.98),rgba(15,23,42,0.92))] p-6 shadow-[0_28px_80px_-50px_rgba(2,6,23,0.9)]">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div class="flex items-start gap-4">
+              <div class="flex h-12 w-12 items-center justify-center rounded-2xl border border-brand-500/20 bg-brand-500/10 text-brand-200">
+                <Activity class="h-5 w-5" />
+              </div>
+              <div>
+                <h2 class="text-xl font-semibold text-white">{{ t('website_manage.sections.observability_title') }}</h2>
+                <p class="mt-1 text-sm text-gray-400">{{ t('website_manage.sections.observability_body') }}</p>
+              </div>
+            </div>
+            <button class="btn-secondary" @click="refreshInsights">
+              <RefreshCw class="h-4 w-4" />
+              {{ t('website_manage.refresh') }}
+            </button>
+          </div>
+
+          <div class="mt-6 space-y-5">
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="tab in insightTabs"
+                :key="tab.key"
+                class="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition"
+                :class="insightTab === tab.key ? 'border-brand-500/40 bg-brand-500/10 text-brand-100' : 'border-panel-border bg-panel-dark/80 text-gray-300 hover:border-brand-500/30 hover:text-white'"
+                @click="insightTab = tab.key"
+              >
+                <component :is="tab.icon" class="h-4 w-4" />
+                {{ tab.label }}
+              </button>
+            </div>
+
+            <div v-if="insightError" class="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+              {{ insightError }}
+            </div>
+
+            <div v-if="insightTab === 'traffic'" class="space-y-5">
+              <div class="flex flex-wrap items-center gap-3">
+                <label class="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">{{ t('website_manage.insights.range') }}</label>
+                <select v-model.number="trafficHours" class="aura-input w-48" @change="loadTraffic">
+                  <option v-for="option in trafficRanges" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+                <span v-if="traffic?.source_log" class="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-gray-400">
+                  {{ t('website_manage.insights.source') }}: {{ traffic.source_log }}
+                </span>
+              </div>
+
+              <div class="grid gap-3 md:grid-cols-3">
+                <div class="rounded-2xl border border-panel-border/70 bg-panel-dark/70 p-4">
+                  <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">{{ t('website_manage.insights.total_hits') }}</p>
+                  <p class="mt-3 text-2xl font-semibold text-white">{{ traffic.totals?.hits || 0 }}</p>
+                </div>
+                <div class="rounded-2xl border border-panel-border/70 bg-panel-dark/70 p-4">
+                  <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">{{ t('website_manage.insights.unique_visitors') }}</p>
+                  <p class="mt-3 text-2xl font-semibold text-white">{{ traffic.totals?.visitors || 0 }}</p>
+                </div>
+                <div class="rounded-2xl border border-panel-border/70 bg-panel-dark/70 p-4">
+                  <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">{{ t('website_manage.insights.bandwidth') }}</p>
+                  <p class="mt-3 text-2xl font-semibold text-white">{{ formatBytes(traffic.totals?.bandwidth_bytes || 0) }}</p>
+                </div>
+              </div>
+
+              <div class="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+                <div class="rounded-2xl border border-panel-border/70 bg-panel-dark/70 p-4">
+                  <p class="text-base font-semibold text-white">{{ t('website_manage.insights.hourly_traffic') }}</p>
+                  <div v-if="trafficLoading" class="mt-4 text-sm text-gray-400">{{ t('website_manage.insights.loading') }}</div>
+                  <div v-else-if="!traffic.series?.length" class="mt-4 text-sm text-gray-500">{{ t('website_manage.insights.no_traffic') }}</div>
+                  <div v-else class="mt-4 space-y-3">
+                    <div v-for="item in traffic.series" :key="item.bucket" class="space-y-1.5">
+                      <div class="flex justify-between gap-3 text-xs text-gray-400">
+                        <span>{{ item.bucket }}</span>
+                        <span>{{ item.hits }} hit</span>
+                      </div>
+                      <div class="h-2 overflow-hidden rounded-full bg-slate-950/70">
+                        <div
+                          class="h-full rounded-full bg-gradient-to-r from-cyan-500 to-brand-500"
+                          :style="{ width: `${Math.max(4, Math.round((item.hits / Math.max(1, maxTrafficHit)) * 100))}%` }"
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="rounded-2xl border border-panel-border/70 bg-panel-dark/70 p-4">
+                  <p class="text-base font-semibold text-white">{{ t('website_manage.insights.top_urls') }}</p>
+                  <div v-if="!traffic.top_paths?.length" class="mt-4 text-sm text-gray-500">{{ t('website_manage.insights.no_data') }}</div>
+                  <div v-else class="mt-4 max-h-[360px] space-y-3 overflow-auto pr-1">
+                    <div v-for="row in traffic.top_paths" :key="row.path" class="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                      <p class="break-all font-mono text-xs text-gray-200">{{ row.path }}</p>
+                      <p class="mt-2 text-xs text-gray-500">{{ row.hits }} hit | {{ formatBytes(row.bandwidth_bytes) }}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="space-y-4">
+              <div class="flex flex-wrap gap-2">
+                <button
+                  class="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition"
+                  :class="logKind === 'access' ? 'border-brand-500/40 bg-brand-500/10 text-brand-100' : 'border-panel-border bg-panel-dark/80 text-gray-300 hover:border-brand-500/30 hover:text-white'"
+                  @click="changeLogKind('access')"
+                >
+                  <Globe class="h-4 w-4" />
+                  {{ t('website_manage.logs_access') }}
+                </button>
+                <button
+                  class="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition"
+                  :class="logKind === 'error' ? 'border-brand-500/40 bg-brand-500/10 text-brand-100' : 'border-panel-border bg-panel-dark/80 text-gray-300 hover:border-brand-500/30 hover:text-white'"
+                  @click="changeLogKind('error')"
+                >
+                  <ScrollText class="h-4 w-4" />
+                  {{ t('website_manage.logs_error') }}
+                </button>
+              </div>
+
+              <pre class="max-h-[420px] overflow-auto whitespace-pre-wrap rounded-2xl border border-panel-border/70 bg-panel-dark/80 p-4 text-xs text-gray-200">{{ logs.join('\n') || t('website_manage.no_logs') }}</pre>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="space-y-6">
+        <section id="domain" class="scroll-mt-24 rounded-[28px] border border-panel-border/70 bg-[linear-gradient(180deg,rgba(30,41,59,0.98),rgba(15,23,42,0.92))] p-6 shadow-[0_28px_80px_-50px_rgba(2,6,23,0.9)]">
+          <div class="flex items-start gap-4">
+            <div class="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-500/20 bg-cyan-500/10 text-cyan-100">
+              <Globe class="h-5 w-5" />
+            </div>
+            <div>
+              <h2 class="text-xl font-semibold text-white">{{ t('website_manage.sections.domain_title') }}</h2>
+              <p class="mt-1 text-sm text-gray-400">{{ t('website_manage.sections.domain_body') }}</p>
+            </div>
+          </div>
+
+          <div class="mt-6 rounded-2xl border border-panel-border/70 bg-panel-dark/70 p-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <h3 class="text-base font-semibold text-white">{{ t('website_manage.alias_title') }}</h3>
+              <span class="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-gray-400">{{ aliases.length }} {{ t('website_manage.summary.aliases') }}</span>
+            </div>
+
+            <div class="mt-4 flex flex-col gap-3 sm:flex-row">
+              <input v-model="aliasInput" class="aura-input flex-1" :placeholder="t('website_manage.alias_placeholder')" />
+              <button class="btn-primary shrink-0" @click="addAlias">
+                <Link2 class="h-4 w-4" />
+                {{ t('website_manage.add_alias') }}
+              </button>
+            </div>
+
+            <div class="mt-4 max-h-[300px] space-y-3 overflow-auto pr-1">
+              <div
+                v-for="alias in aliases"
+                :key="alias.alias"
+                class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
+              >
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-semibold text-white">{{ alias.alias }}</p>
+                  <p class="mt-1 text-xs text-gray-500">{{ domain }}</p>
+                </div>
+                <button class="btn-danger px-3 py-2" @click="deleteAlias(alias.alias)">
+                  {{ t('common.delete') }}
+                </button>
+              </div>
+
+              <div v-if="aliases.length === 0" class="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-5 text-sm text-gray-500">
+                {{ t('website_manage.insights.no_data') }}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="security" class="scroll-mt-24 rounded-[28px] border border-panel-border/70 bg-[linear-gradient(180deg,rgba(30,41,59,0.98),rgba(15,23,42,0.92))] p-6 shadow-[0_28px_80px_-50px_rgba(2,6,23,0.9)]">
+          <div class="flex items-start gap-4">
+            <div class="flex h-12 w-12 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-100">
+              <Lock class="h-5 w-5" />
+            </div>
+            <div>
+              <h2 class="text-xl font-semibold text-white">{{ t('website_manage.sections.security_title') }}</h2>
+              <p class="mt-1 text-sm text-gray-400">{{ t('website_manage.sections.security_body') }}</p>
+            </div>
+          </div>
+
+          <div class="mt-6 space-y-4">
+            <div class="rounded-2xl border border-panel-border/70 bg-panel-dark/70 p-4">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 class="text-base font-semibold text-white">{{ t('website_manage.open_basedir') }}</h3>
+                  <p class="mt-1 text-sm text-gray-400">{{ t('website_manage.enabled') }} filesystem izolasyonu</p>
+                </div>
+                <span
+                  class="rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em]"
+                  :class="advanced.open_basedir ? 'border-brand-500/30 bg-brand-500/10 text-brand-100' : 'border-white/10 bg-white/[0.04] text-gray-400'"
+                >
+                  {{ advanced.open_basedir ? t('website_manage.enabled') : 'Off' }}
+                </span>
+              </div>
+
+              <label class="mt-4 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-gray-200">
+                <input v-model="advanced.open_basedir" type="checkbox" class="h-4 w-4 rounded border-panel-border bg-panel-dark text-brand-500 focus:ring-brand-500/50" />
+                {{ t('website_manage.enabled') }}
+              </label>
+
+              <button class="btn-primary mt-4" @click="saveOpenBasedir">
+                <Save class="h-4 w-4" />
+                {{ t('website_manage.save') }}
+              </button>
+            </div>
+
+            <div class="rounded-2xl border border-panel-border/70 bg-panel-dark/70 p-4">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 class="text-base font-semibold text-white">{{ t('website_manage.custom_ssl') }}</h3>
+                  <p class="mt-1 text-sm text-gray-400">PEM formatinda sertifika ve private key girin.</p>
+                </div>
+                <button class="btn-primary" @click="saveCustomSsl">
+                  <ShieldCheck class="h-4 w-4" />
+                  {{ t('website_manage.save') }}
+                </button>
+              </div>
+
+              <label class="mt-4 block">
+                <span class="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">Certificate</span>
+                <textarea v-model="customSsl.cert_pem" rows="6" class="aura-input w-full font-mono text-xs" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
+              </label>
+
+              <label class="mt-4 block">
+                <span class="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">Private Key</span>
+                <textarea v-model="customSsl.key_pem" rows="6" class="aura-input w-full font-mono text-xs" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+              </label>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   </div>
@@ -189,6 +463,24 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import {
+  Activity,
+  ArrowLeft,
+  Box,
+  ChevronRight,
+  Globe,
+  Link2,
+  Lock,
+  PauseCircle,
+  PlayCircle,
+  RefreshCw,
+  Save,
+  ScrollText,
+  Server,
+  Settings2,
+  ShieldCheck,
+  User,
+} from 'lucide-vue-next'
 import api from '../services/api'
 
 const { t } = useI18n({ useScope: 'global' })
@@ -217,13 +509,93 @@ const traffic = ref({
   top_paths: [],
   source_log: '',
 })
+
+const adminEmail = computed(() => form.value.email || `webmaster@${domain.value}`)
+const isSuspended = computed(() => String(site.value?.status || 'active').toLowerCase() === 'suspended')
 const maxTrafficHit = computed(() => Math.max(1, ...(traffic.value.series || []).map(item => Number(item.hits || 0))))
+
 const insightRequestConfig = {
   timeout: 30000,
   headers: { 'X-Aura-Silent-Error': '1' },
 }
 
-const isSuspended = computed(() => String(site.value?.status || 'active').toLowerCase() === 'suspended')
+const summaryCards = computed(() => [
+  { label: t('website_manage.summary.owner'), value: form.value.owner || 'aura', icon: User, iconClass: 'text-cyan-300' },
+  { label: t('website_manage.summary.package'), value: form.value.package || 'default', icon: Box, iconClass: 'text-amber-300' },
+  { label: t('website_manage.summary.php'), value: `PHP ${form.value.php_version || '8.3'}`, icon: Server, iconClass: 'text-brand-300' },
+  { label: t('website_manage.summary.aliases'), value: String(aliases.value.length), icon: Link2, iconClass: 'text-cyan-300' },
+])
+
+const quickActions = computed(() => [
+  {
+    key: 'save',
+    label: t('website_manage.save'),
+    description: t('website_manage.quick_action_save'),
+    icon: Save,
+    handler: saveWebsite,
+  },
+  {
+    key: 'ssl',
+    label: t('website_manage.issue_ssl'),
+    description: t('website_manage.quick_action_ssl'),
+    icon: ShieldCheck,
+    handler: issueSsl,
+  },
+  {
+    key: isSuspended.value ? 'resume' : 'suspend',
+    label: isSuspended.value ? t('website_manage.unsuspend') : t('website_manage.suspend'),
+    description: isSuspended.value ? t('website_manage.quick_action_unsuspend') : t('website_manage.quick_action_suspend'),
+    icon: isSuspended.value ? PlayCircle : PauseCircle,
+    handler: toggleSuspend,
+  },
+  {
+    key: 'refresh',
+    label: t('website_manage.refresh'),
+    description: t('website_manage.quick_action_refresh'),
+    icon: RefreshCw,
+    handler: refreshAll,
+  },
+])
+
+const sectionLinks = computed(() => [
+  { id: 'profile', label: t('website_manage.categories.profile'), icon: Settings2 },
+  { id: 'domain', label: t('website_manage.categories.domain'), icon: Globe },
+  { id: 'security', label: t('website_manage.categories.security'), icon: Lock },
+  { id: 'server', label: t('website_manage.categories.server'), icon: Server },
+  { id: 'observability', label: t('website_manage.categories.observability'), icon: Activity },
+])
+
+const insightTabs = computed(() => [
+  { key: 'traffic', label: t('website_manage.insights.traffic'), icon: Activity },
+  { key: 'logs', label: t('website_manage.insights.logs'), icon: ScrollText },
+])
+
+const trafficRanges = computed(() => [
+  { value: 6, label: t('website_manage.insights.last_6_hours') },
+  { value: 24, label: t('website_manage.insights.last_24_hours') },
+  { value: 72, label: t('website_manage.insights.last_3_days') },
+  { value: 168, label: t('website_manage.insights.last_7_days') },
+])
+
+function quickActionClass(key) {
+  if (key === 'save') {
+    return 'border-brand-400/30 bg-[linear-gradient(135deg,rgba(16,185,129,0.24),rgba(6,182,212,0.12))] shadow-[0_22px_40px_-30px_rgba(16,185,129,0.75)] hover:border-brand-300/60'
+  }
+
+  if (key === 'ssl') {
+    return 'border-cyan-400/25 bg-[linear-gradient(135deg,rgba(8,145,178,0.22),rgba(15,23,42,0.55))] hover:border-cyan-300/55'
+  }
+
+  if (key === 'suspend') {
+    return 'border-amber-400/25 bg-[linear-gradient(135deg,rgba(245,158,11,0.22),rgba(15,23,42,0.55))] hover:border-amber-300/55'
+  }
+
+  if (key === 'resume') {
+    return 'border-brand-400/25 bg-[linear-gradient(135deg,rgba(16,185,129,0.2),rgba(15,23,42,0.55))] hover:border-brand-300/55'
+  }
+
+  return 'border-white/10 bg-slate-950/40 hover:border-brand-500/40 hover:bg-slate-950/65'
+}
 
 function msg(err, fallbackKey) {
   return err?.response?.data?.message || err?.message || t(fallbackKey)
