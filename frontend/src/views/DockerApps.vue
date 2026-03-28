@@ -30,11 +30,17 @@
         <div>
           <div class="mb-3 flex items-start justify-between">
             <span class="text-3xl">{{ template.icon || '📦' }}</span>
-            <span class="rounded bg-purple-500/15 px-2 py-0.5 text-xs font-medium text-purple-400">{{ template.category || t('docker_apps_screen.templates.default_icon') }}</span>
+            <div class="flex flex-wrap justify-end gap-2">
+              <span class="rounded bg-purple-500/15 px-2 py-0.5 text-xs font-medium text-purple-400">{{ template.category || t('docker_apps_screen.templates.default_icon') }}</span>
+              <span v-if="template.provisioning" class="rounded bg-sky-500/15 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-sky-300">{{ template.provisioning }}</span>
+            </div>
           </div>
           <h3 class="mb-1 text-lg font-semibold text-white">{{ template.name }}</h3>
           <p class="mb-4 line-clamp-2 text-sm leading-relaxed text-gray-400" :title="template.description">{{ template.description }}</p>
           <div class="mb-4 font-mono text-xs text-gray-500">{{ template.image }}</div>
+          <div v-if="template.default_ports?.length" class="mb-4 text-xs text-gray-500">
+            Default ports: {{ template.default_ports.join(', ') }}
+          </div>
         </div>
         <button class="mt-2 w-full rounded-lg bg-purple-600/20 py-2 text-sm font-medium text-purple-400 transition-all duration-200 hover:bg-purple-600 hover:text-white" @click="openInstallModal(template)">
           {{ t('docker_apps_screen.templates.install') }}

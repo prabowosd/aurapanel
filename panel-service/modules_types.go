@@ -26,6 +26,8 @@ type moduleState struct {
 	SFTPUsers          []TransferAccount
 	CronJobs           []CronJob
 	OLSConfig          OLSTuningConfig
+	OLSTuningPending   bool
+	RedisIsolations    map[string]RedisIsolation
 	MinIOBuckets       []string
 	MinIOCredentials   map[string]MinIOCredential
 	FederatedMode      FederatedMode
@@ -81,20 +83,38 @@ type DockerImage struct {
 }
 
 type DockerAppTemplate struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Image       string `json:"image"`
-	Icon        string `json:"icon"`
-	Category    string `json:"category"`
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	Image          string   `json:"image"`
+	Icon           string   `json:"icon"`
+	Category       string   `json:"category"`
+	Runtime        string   `json:"runtime,omitempty"`
+	Provisioning   string   `json:"provisioning,omitempty"`
+	DefaultPorts   []string `json:"default_ports,omitempty"`
+	DefaultVolumes []string `json:"default_volumes,omitempty"`
 }
 
 type DockerInstalledApp struct {
-	Name    string `json:"name"`
-	Image   string `json:"image"`
-	Status  string `json:"status"`
-	Ports   string `json:"ports"`
-	Package string `json:"package"`
+	Name         string `json:"name"`
+	Image        string `json:"image"`
+	Status       string `json:"status"`
+	Ports        string `json:"ports"`
+	Package      string `json:"package"`
+	Runtime      string `json:"runtime,omitempty"`
+	Provisioning string `json:"provisioning,omitempty"`
+}
+
+type RedisIsolation struct {
+	Domain       string `json:"domain"`
+	Unit         string `json:"unit"`
+	Port         int    `json:"port"`
+	MaxMemoryMB  int    `json:"max_memory_mb"`
+	ConfigPath   string `json:"config_path"`
+	DataDir      string `json:"data_dir"`
+	BindAddress  string `json:"bind_address"`
+	Runtime      string `json:"runtime"`
+	Provisioning string `json:"provisioning"`
 }
 
 type DockerPackage struct {
@@ -438,6 +458,7 @@ func seedModuleState() moduleState {
 		MailCatchAll:       map[string]MailCatchAll{},
 		MailDKIM:           map[string]DKIMRecord{},
 		DNSRecords:         map[string][]DNSRecord{},
+		RedisIsolations:    map[string]RedisIsolation{},
 		MinIOCredentials:   map[string]MinIOCredential{},
 		WordPressPlugins:   map[string][]WordPressPlugin{},
 		WordPressThemes:    map[string][]WordPressTheme{},
@@ -465,6 +486,9 @@ func (s *service) bootstrapModules() {
 	}
 	if s.modules.DNSRecords == nil {
 		s.modules.DNSRecords = map[string][]DNSRecord{}
+	}
+	if s.modules.RedisIsolations == nil {
+		s.modules.RedisIsolations = map[string]RedisIsolation{}
 	}
 	if s.modules.MinIOCredentials == nil {
 		s.modules.MinIOCredentials = map[string]MinIOCredential{}
@@ -520,9 +544,42 @@ func (s *service) bootstrapModules() {
 	}
 	if len(s.modules.DockerTemplates) == 0 {
 		s.modules.DockerTemplates = []DockerAppTemplate{
-			{ID: "redis", Name: "Redis", Description: "Low-latency cache for panel sites.", Image: "redis:7-alpine", Icon: "R", Category: "cache"},
-			{ID: "meilisearch", Name: "Meilisearch", Description: "Fast search node for application workloads.", Image: "getmeili/meilisearch:v1.13", Icon: "M", Category: "search"},
-			{ID: "n8n", Name: "n8n", Description: "Workflow automation service for integrations.", Image: "n8nio/n8n:latest", Icon: "N", Category: "automation"},
+			{
+				ID:             "redis",
+				Name:           "Redis (Docker)",
+				Description:    "Containerized Redis template for application stacks. Use Ops Center for host-level isolated Redis.",
+				Image:          "redis:7-alpine",
+				Icon:           "R",
+				Category:       "cache",
+				Runtime:        "docker",
+				Provisioning:   "container",
+				DefaultPorts:   []string{"6379"},
+				DefaultVolumes: []string{"__APP_NAME__-data:/data"},
+			},
+			{
+				ID:             "meilisearch",
+				Name:           "Meilisearch",
+				Description:    "Fast search node for application workloads.",
+				Image:          "getmeili/meilisearch:v1.13",
+				Icon:           "M",
+				Category:       "search",
+				Runtime:        "docker",
+				Provisioning:   "container",
+				DefaultPorts:   []string{"7700:7700"},
+				DefaultVolumes: []string{"__APP_NAME__-data:/meili_data"},
+			},
+			{
+				ID:             "n8n",
+				Name:           "n8n",
+				Description:    "Workflow automation service for integrations.",
+				Image:          "n8nio/n8n:latest",
+				Icon:           "N",
+				Category:       "automation",
+				Runtime:        "docker",
+				Provisioning:   "container",
+				DefaultPorts:   []string{"5678:5678"},
+				DefaultVolumes: []string{"__APP_NAME__-data:/home/node/.n8n"},
+			},
 		}
 	}
 	if len(s.modules.DockerPackages) == 0 {

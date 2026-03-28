@@ -89,6 +89,9 @@
 
       <div class="rounded-xl border border-panel-border bg-panel-card p-5">
         <h2 class="mb-3 text-lg font-semibold text-white">Redis Isolation</h2>
+        <p class="mb-3 text-sm text-gray-400">
+          Host Redis isolation provisions a dedicated systemd service per domain. Docker Redis remains a separate container runtime choice.
+        </p>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <input v-model="redis.domain" type="text" class="aura-input md:col-span-2" placeholder="Domain (example.com)" />
           <input v-model.number="redis.max_memory_mb" type="number" min="64" max="65536" class="aura-input" placeholder="Max memory (MB)" />
@@ -96,6 +99,29 @@
         <button class="mt-4 rounded bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:from-blue-700 hover:to-indigo-700" @click="createRedis">
           Create Isolated Redis
         </button>
+        <div class="mt-5 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-white">Host Redis Instances</h3>
+            <button class="rounded bg-panel-hover px-3 py-1.5 text-xs text-gray-300 transition hover:bg-gray-600" @click="loadRedisIsolations">
+              Refresh
+            </button>
+          </div>
+          <div v-if="redisIsolations.length === 0" class="rounded-lg bg-panel-darker px-3 py-3 text-sm text-gray-500">
+            No host Redis isolations created yet.
+          </div>
+          <div v-for="item in redisIsolations" :key="item.domain" class="rounded-lg border border-panel-border/60 bg-panel-darker px-4 py-3">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <p class="font-medium text-white">{{ item.domain }}</p>
+                <p class="text-xs text-gray-400">{{ item.runtime }}/{{ item.provisioning }} · {{ item.bind_address }}:{{ item.port }}</p>
+              </div>
+              <div class="text-right text-xs text-gray-400">
+                <p>{{ item.unit }}</p>
+                <p>{{ item.max_memory_mb }} MB</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   </div>
@@ -111,6 +137,7 @@ const sreQuery = ref('')
 const sreAnswer = reactive({ answer: '', confidence: '', matched_sources: [] })
 const optimizations = ref([])
 const notif = reactive({ message: '', type: 'success' })
+const redisIsolations = ref([])
 
 const gitops = reactive({
   domain: '',
@@ -201,14 +228,25 @@ const createRedis = async () => {
       domain: redis.domain,
       max_memory_mb: Number(redis.max_memory_mb || 512),
     })
-    notify(data.message || 'Redis instance created.')
+    notify(data.message || 'Host Redis instance created.')
+    await loadRedisIsolations()
   } catch (err) {
     notify(err.response?.data?.message || err.message || 'Redis setup failed.', 'error')
+  }
+}
+
+const loadRedisIsolations = async () => {
+  try {
+    const { data } = await api.get('/perf/redis')
+    redisIsolations.value = data.data || []
+  } catch (err) {
+    notify(err.response?.data?.message || err.message || 'Failed to load Redis isolations.', 'error')
   }
 }
 
 onMounted(async () => {
   await loadHealth()
   await loadPrediction()
+  await loadRedisIsolations()
 })
 </script>

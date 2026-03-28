@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -137,6 +140,14 @@ type WebsiteAdvancedConfig struct {
 	OpenBasedir  bool   `json:"open_basedir"`
 	RewriteRules string `json:"rewrite_rules"`
 	VhostConfig  string `json:"vhost_config"`
+}
+
+func defaultWebsiteAdvancedConfig() WebsiteAdvancedConfig {
+	return WebsiteAdvancedConfig{
+		OpenBasedir:  true,
+		RewriteRules: "RewriteEngine On",
+		VhostConfig:  "",
+	}
 }
 
 type WebsiteCustomSSL struct {
@@ -359,26 +370,81 @@ type statusCapturingResponseWriter struct {
 	status int
 }
 
+func (w *statusCapturingResponseWriter) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(data)
+}
+
 func (w *statusCapturingResponseWriter) WriteHeader(status int) {
 	w.status = status
 	w.ResponseWriter.WriteHeader(status)
 }
 
+func (w *statusCapturingResponseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *statusCapturingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("response writer does not support hijacking")
+	}
+	return hijacker.Hijack()
+}
+
+func (w *statusCapturingResponseWriter) Push(target string, opts *http.PushOptions) error {
+	pusher, ok := w.ResponseWriter.(http.Pusher)
+	if !ok {
+		return http.ErrNotSupported
+	}
+	return pusher.Push(target, opts)
+}
+
+func (w *statusCapturingResponseWriter) ReadFrom(r io.Reader) (int64, error) {
+	if readerFrom, ok := w.ResponseWriter.(io.ReaderFrom); ok {
+		return readerFrom.ReadFrom(r)
+	}
+	return io.Copy(w.ResponseWriter, r)
+}
+
+func (w *statusCapturingResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+func isWebsocketUpgradeRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if strings.HasSuffix(r.URL.Path, "/terminal/ws") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade") &&
+		strings.EqualFold(strings.TrimSpace(r.Header.Get("Upgrade")), "websocket")
+}
+
 func persistenceMiddleware(next http.Handler, svc *service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isWebsocketUpgradeRequest(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		rec := &statusCapturingResponseWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
-		
-		// Sadece GET ve OPTIONS isteklerini kaydetmiyoruz. 
+
+		// Sadece GET ve OPTIONS isteklerini kaydetmiyoruz.
 		// Diger her turlu mutation (POST) sonucunda state diske yazilir (Hata donse bile)
 		// Cunku bazi durumlarda islem yarida kalsa da DB (state) guncellenmis olabilir.
 		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
 			return
 		}
-		
+
 		// Eger 500 Internal Server error vb bir cok kritik hata varsa state bozmamak icin yazmayabiliriz,
 		// ama guvenlik amaciyla genel olarak mutation sonrasi state'i senkronize etmekte fayda var.
-		// Sadece validation hatalarinda (400) eger hicbir sey degismediyse diye pas geciyorduk, 
+		// Sadece validation hatalarinda (400) eger hicbir sey degismediyse diye pas geciyorduk,
 		// ancak biz simdilik her halukarda save yapalim ki state ile in-memory kopmasin.
 		if err := svc.saveRuntimeState(); err != nil {
 			log.Printf("runtime state save failed after %s %s: %v", r.Method, r.URL.Path, err)
@@ -611,7 +677,7 @@ func (s *service) handleVhostList(w http.ResponseWriter, r *http.Request) {
 		if php != "" && site.PHPVersion != php && site.PHP != php {
 			continue
 		}
-		
+
 		// Ensure SSL status accurately reflects reality
 		if cert, ok := s.modules.SSLCertificates[site.Domain]; ok {
 			site.SSL = cert.Status == "issued"
@@ -619,7 +685,7 @@ func (s *service) handleVhostList(w http.ResponseWriter, r *http.Request) {
 			certPath, _ := findCertificatePair(site.Domain)
 			site.SSL = certPath != ""
 		}
-		
+
 		filtered = append(filtered, site)
 	}
 
@@ -690,6 +756,11 @@ func (s *service) handleVhostCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "Website already exists.")
 		return
 	}
+	snapshot, err := s.captureRuntimeSnapshotLocked()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to prepare website provisioning rollback state.")
+		return
+	}
 
 	owner := firstNonEmpty(strings.TrimSpace(payload.Owner), strings.TrimSpace(payload.User), "aura")
 	email := firstNonEmpty(strings.TrimSpace(payload.Email), fmt.Sprintf("webmaster@%s", domain))
@@ -713,15 +784,14 @@ func (s *service) handleVhostCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.state.Websites = append(s.state.Websites, site)
-	s.ensureUserLocked(owner, fmt.Sprintf("%s@example.com", owner), "user", "default", "")
+	s.ensureUserLocked(owner, fmt.Sprintf("%s@example.com", owner), "user", site.Package, "")
 	s.recountSitesLocked()
 	if err := s.provisionWebsiteArtifactsLocked(site); err != nil {
-		// Even if artifacts fail, we might want to keep the site in DB, but rollback is safer
-		s.state.Websites = s.state.Websites[:len(s.state.Websites)-1]
+		s.restoreRuntimeSnapshotLocked(snapshot)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	
+
 	s.saveRuntimeStateLocked()
 
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Website created.", Data: site})
@@ -1637,14 +1707,14 @@ func (s *service) handleSSLIssue(w http.ResponseWriter, r *http.Request) {
 	if normalizeDomain(domain) != "" {
 		domains = append(domains, "www."+domain)
 	}
-	
+
 	// Ensure docroot exists before issuing SSL
 	docroot := domainDocroot(domain)
 	if err := os.MkdirAll(docroot, 0o755); err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to create docroot for SSL validation.")
 		return
 	}
-	
+
 	// Ensure user exists and owns the directory
 	s.mu.Lock()
 	siteOwner := "aura"
@@ -1652,9 +1722,9 @@ func (s *service) handleSSLIssue(w http.ResponseWriter, r *http.Request) {
 		siteOwner = firstNonEmpty(site.Owner, site.User, "aura")
 	}
 	s.mu.Unlock()
-	
+
 	_ = exec.Command("chown", "-R", siteOwner+":"+siteOwner, filepath.Dir(docroot)).Run()
-	
+
 	// Pre-sync OpenLiteSpeed configs so it can serve the acme-challenge before issuing the SSL
 	s.mu.Lock()
 	_ = s.syncOLSVhostsLocked()
@@ -1802,11 +1872,7 @@ func (s *service) ensureDefaultSiteArtifactsLocked(domain string) {
 		return
 	}
 	if _, ok := s.state.AdvancedConfig[key]; !ok {
-		s.state.AdvancedConfig[key] = WebsiteAdvancedConfig{
-			OpenBasedir:  true,
-			RewriteRules: "RewriteEngine On",
-			VhostConfig:  "",
-		}
+		s.state.AdvancedConfig[key] = defaultWebsiteAdvancedConfig()
 	}
 }
 
@@ -1933,7 +1999,7 @@ func (s *service) removeDNSArtifactsLocked(domain string) {
 func (s *service) removeMailArtifactsLocked(domain string) {
 	delete(s.modules.MailCatchAll, domain)
 	delete(s.modules.MailDKIM, domain)
-	
+
 	// Remove mailboxes associated with this domain
 	filteredMailboxes := s.modules.Mailboxes[:0]
 	for _, mb := range s.modules.Mailboxes {
@@ -1944,7 +2010,7 @@ func (s *service) removeMailArtifactsLocked(domain string) {
 		}
 	}
 	s.modules.Mailboxes = filteredMailboxes
-	
+
 	// Remove forwarders
 	filteredForwards := s.modules.MailForwards[:0]
 	for _, fw := range s.modules.MailForwards {
@@ -1955,7 +2021,7 @@ func (s *service) removeMailArtifactsLocked(domain string) {
 		}
 	}
 	s.modules.MailForwards = filteredForwards
-	
+
 	// Remove routing
 	filteredRouting := s.modules.MailRouting[:0]
 	for _, rt := range s.modules.MailRouting {
@@ -1975,17 +2041,17 @@ func (s *service) removeSiteArtifactsLocked(domain string) error {
 	s.state.Aliases = removeAliasesByDomain(s.state.Aliases, domain)
 	s.state.Subdomains = removeSubdomainsByParent(s.state.Subdomains, domain)
 	s.state.DBLinks = removeDBLinksByDomain(s.state.DBLinks, domain)
-	
+
 	// Remove DNS Zones and Records
 	s.removeDNSArtifactsLocked(domain)
-	
+
 	// Remove Mail Configurations and Directories
 	s.removeMailArtifactsLocked(domain)
-	
+
 	// Remove physical document root directory
 	docroot := domainDocroot(domain)
 	_ = exec.Command("rm", "-rf", docroot).Run()
-	
+
 	// Ensure we remove the user's home directory if it's completely empty and user only had one site
 	homeDir := fmt.Sprintf("/home/%s", domain)
 	if docroot != homeDir {

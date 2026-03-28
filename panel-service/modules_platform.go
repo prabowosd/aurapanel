@@ -195,7 +195,7 @@ func (s *service) handleDockerAppInstall(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusNotFound, "Template not found.")
 		return
 	}
-	
+
 	var memLimit, cpuLimit string
 	for _, pkg := range s.modules.DockerPackages {
 		if pkg.ID == payload.PackageID {
@@ -209,21 +209,38 @@ func (s *service) handleDockerAppInstall(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	appName := firstNonEmpty(payload.AppName, "app-"+template.ID)
-	if err := createRuntimeDockerContainer(appName, template.Image, []string{"8080:8080"}, "unless-stopped", memLimit, cpuLimit, payload.CustomEnv, nil); err != nil {
+	appName := sanitizeName(firstNonEmpty(payload.AppName, "app-"+template.ID))
+	if appName == "" {
+		appName = "app-" + template.ID
+	}
+	ports := dockerTemplatePorts(template)
+	volumes := dockerTemplateVolumes(template, appName)
+	if err := createRuntimeDockerContainer(appName, template.Image, ports, "unless-stopped", memLimit, cpuLimit, payload.CustomEnv, volumes); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	app := DockerInstalledApp{
-		Name:    appName,
-		Image:   template.Image,
-		Status:  "running",
-		Ports:   "8080:8080",
-		Package: firstNonEmpty(payload.PackageID, "unlimited"),
+		Name:         appName,
+		Image:        template.Image,
+		Status:       "running",
+		Ports:        strings.Join(ports, ", "),
+		Package:      firstNonEmpty(payload.PackageID, "unlimited"),
+		Runtime:      firstNonEmpty(template.Runtime, "docker"),
+		Provisioning: firstNonEmpty(template.Provisioning, "container"),
 	}
 	s.modules.DockerInstalled = append([]DockerInstalledApp{app}, filterDockerInstalledApps(s.modules.DockerInstalled, app.Name)...)
 	if containers, err := runtimeDockerContainers(); err == nil {
 		s.modules.DockerContainers = containers
+		for _, container := range containers {
+			if container.Name == app.Name {
+				app.Status = container.Status
+				if strings.TrimSpace(container.Ports) != "" {
+					app.Ports = container.Ports
+				}
+				break
+			}
+		}
+		s.modules.DockerInstalled = append([]DockerInstalledApp{app}, filterDockerInstalledApps(s.modules.DockerInstalled, app.Name)...)
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Docker app installed.", Data: app})
 }
@@ -472,6 +489,38 @@ func filterDockerInstalledApps(items []DockerInstalledApp, appName string) []Doc
 	return filtered
 }
 
+func dockerTemplatePorts(template DockerAppTemplate) []string {
+	if len(template.DefaultPorts) == 0 {
+		return []string{"8080:8080"}
+	}
+	ports := make([]string, 0, len(template.DefaultPorts))
+	for _, port := range template.DefaultPorts {
+		port = strings.TrimSpace(port)
+		if port != "" {
+			ports = append(ports, port)
+		}
+	}
+	if len(ports) == 0 {
+		return []string{"8080:8080"}
+	}
+	return ports
+}
+
+func dockerTemplateVolumes(template DockerAppTemplate, appName string) []string {
+	if len(template.DefaultVolumes) == 0 {
+		return nil
+	}
+	appName = sanitizeName(appName)
+	volumes := make([]string, 0, len(template.DefaultVolumes))
+	for _, volume := range template.DefaultVolumes {
+		volume = strings.TrimSpace(strings.ReplaceAll(volume, "__APP_NAME__", appName))
+		if volume != "" {
+			volumes = append(volumes, volume)
+		}
+	}
+	return volumes
+}
+
 func (s *service) findWordPressSiteIndexLocked(domain string) int {
 	for i := range s.modules.WordPressSites {
 		if s.modules.WordPressSites[i].Domain == domain {
@@ -609,22 +658,22 @@ func (s *service) handleCMSInstall(w http.ResponseWriter, r *http.Request) {
 		wp := buildWordPressSite(domain, "aura", firstNonEmpty(payload.AdminEmail, "admin@"+domain), "8.3")
 		wp.DBName = firstNonEmpty(payload.DBName, wp.DBName)
 		wp.DBUser = firstNonEmpty(payload.DBUser, wp.DBUser)
-		
+
 		docroot := domainDocroot(domain)
-		
+
 		// Run wp-cli download & install asynchronously so we don't block the API call for too long
 		go func() {
 			os.MkdirAll(docroot, 0755)
 			exec.Command("wp", "core", "download", "--path="+docroot, "--allow-root").Run()
-			
+
 			dbPass := "temp_db_pass_here" // In a real scenario, this should be the randomly generated or provided DB password
 			exec.Command("wp", "config", "create", "--path="+docroot, "--allow-root", "--dbname="+wp.DBName, "--dbuser="+wp.DBUser, "--dbpass="+dbPass, "--dbhost=127.0.0.1").Run()
-			
+
 			adminPass := "admin123" // In a real scenario, this should be generated or user-provided
 			exec.Command("wp", "core", "install", "--path="+docroot, "--allow-root", "--url=https://"+domain, "--title="+domain, "--admin_user="+firstNonEmpty(payload.AdminUser, "admin"), "--admin_password="+adminPass, "--admin_email="+wp.AdminEmail).Run()
-			
+
 			exec.Command("chown", "-R", "aura:aura", docroot).Run()
-			
+
 			s.mu.Lock()
 			s.refreshWordPressSiteStatsLocked(domain)
 			s.mu.Unlock()
@@ -660,7 +709,7 @@ func (s *service) handleWordPressSites(w http.ResponseWriter) {
 func (s *service) handleWordPressScan(w http.ResponseWriter) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Real scan across all websites
 	s.modules.WordPressSites = []WordPressSite{}
 	for _, site := range s.state.Websites {
@@ -671,7 +720,7 @@ func (s *service) handleWordPressScan(w http.ResponseWriter) {
 			s.refreshWordPressSiteStatsLocked(site.Domain)
 		}
 	}
-	
+
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "WordPress scan completed.", Data: s.modules.WordPressSites})
 }
 

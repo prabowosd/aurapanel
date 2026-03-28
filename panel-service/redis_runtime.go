@@ -33,10 +33,10 @@ func redisInstanceUnitPath(domain string) string {
 	return filepath.Join("/etc/systemd/system", redisInstanceName(domain)+".service")
 }
 
-func createRuntimeRedisIsolation(domain string, maxMemoryMB int) (map[string]interface{}, error) {
+func createRuntimeRedisIsolation(domain string, maxMemoryMB int) (RedisIsolation, error) {
 	domain = normalizeDomain(domain)
 	if domain == "" {
-		return nil, fmt.Errorf("domain is required")
+		return RedisIsolation{}, fmt.Errorf("domain is required")
 	}
 	if maxMemoryMB <= 0 {
 		maxMemoryMB = 128
@@ -44,7 +44,7 @@ func createRuntimeRedisIsolation(domain string, maxMemoryMB int) (map[string]int
 	configPath := redisInstanceConfigPath(domain)
 	dataDir := redisInstanceDataDir(domain)
 	if err := os.MkdirAll(dataDir, 0o750); err != nil {
-		return nil, err
+		return RedisIsolation{}, err
 	}
 	port := redisInstancePort(domain)
 	config := strings.Join([]string{
@@ -61,7 +61,7 @@ func createRuntimeRedisIsolation(domain string, maxMemoryMB int) (map[string]int
 		"",
 	}, "\n")
 	if err := os.WriteFile(configPath, []byte(config), 0o640); err != nil {
-		return nil, err
+		return RedisIsolation{}, err
 	}
 	unitContent := strings.Join([]string{
 		"[Unit]",
@@ -81,23 +81,27 @@ func createRuntimeRedisIsolation(domain string, maxMemoryMB int) (map[string]int
 		"",
 	}, "\n")
 	if err := os.WriteFile(redisInstanceUnitPath(domain), []byte(unitContent), 0o644); err != nil {
-		return nil, err
+		return RedisIsolation{}, err
 	}
 	if _, err := commandOutputTrimmed("chown", "-R", "redis:redis", dataDir); err != nil {
 		_ = err
 	}
 	if _, err := commandOutputTrimmed("systemctl", "daemon-reload"); err != nil {
-		return nil, err
+		return RedisIsolation{}, err
 	}
 	unit := redisInstanceName(domain)
 	if _, err := commandOutputTrimmed("systemctl", "enable", "--now", unit); err != nil {
-		return nil, err
+		return RedisIsolation{}, err
 	}
-	return map[string]interface{}{
-		"domain":        domain,
-		"unit":          unit,
-		"port":          port,
-		"max_memory_mb": maxMemoryMB,
-		"config_path":   configPath,
+	return RedisIsolation{
+		Domain:       domain,
+		Unit:         unit,
+		Port:         port,
+		MaxMemoryMB:  maxMemoryMB,
+		ConfigPath:   configPath,
+		DataDir:      dataDir,
+		BindAddress:  "127.0.0.1",
+		Runtime:      "host",
+		Provisioning: "systemd",
 	}, nil
 }

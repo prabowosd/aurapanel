@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +14,11 @@ const defaultRuntimeStatePath = "/var/lib/aurapanel/panel-service-state.json"
 type persistedRuntimeState struct {
 	State   appState    `json:"state"`
 	Modules moduleState `json:"modules"`
+}
+
+type runtimeSnapshot struct {
+	State   appState
+	Modules moduleState
 }
 
 func runtimeStatePath() string {
@@ -62,4 +69,36 @@ func (s *service) saveRuntimeStateLocked() error {
 		return err
 	}
 	return os.Rename(tempPath, path)
+}
+
+func (s *service) captureRuntimeSnapshotLocked() (runtimeSnapshot, error) {
+	state, err := cloneValue(s.state)
+	if err != nil {
+		return runtimeSnapshot{}, fmt.Errorf("clone state: %w", err)
+	}
+	modules, err := cloneValue(s.modules)
+	if err != nil {
+		return runtimeSnapshot{}, fmt.Errorf("clone modules: %w", err)
+	}
+	return runtimeSnapshot{State: state, Modules: modules}, nil
+}
+
+func (s *service) restoreRuntimeSnapshotLocked(snapshot runtimeSnapshot) {
+	s.state = snapshot.State
+	s.modules = snapshot.Modules
+}
+
+func cloneValue[T any](input T) (T, error) {
+	var zero T
+
+	var buffer bytes.Buffer
+	if err := gob.NewEncoder(&buffer).Encode(input); err != nil {
+		return zero, err
+	}
+
+	var output T
+	if err := gob.NewDecoder(&buffer).Decode(&output); err != nil {
+		return zero, err
+	}
+	return output, nil
 }

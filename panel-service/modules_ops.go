@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -187,11 +188,32 @@ func (s *service) handleRedisIsolation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.mu.Lock()
+	if s.modules.RedisIsolations == nil {
+		s.modules.RedisIsolations = map[string]RedisIsolation{}
+	}
+	s.modules.RedisIsolations[result.Domain] = result
+	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, apiResponse{
 		Status:  "success",
-		Message: fmt.Sprintf("Isolated Redis created for %s.", normalizeDomain(payload.Domain)),
+		Message: fmt.Sprintf("Host Redis isolation created for %s.", result.Domain),
 		Data:    result,
 	})
+}
+
+func (s *service) handleRedisIsolationList(w http.ResponseWriter) {
+	s.mu.RLock()
+	items := make([]RedisIsolation, 0, len(s.modules.RedisIsolations))
+	for _, item := range s.modules.RedisIsolations {
+		items = append(items, item)
+	}
+	s.mu.RUnlock()
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Domain < items[j].Domain
+	})
+
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: items})
 }
 
 func (s *service) handleResellerQuotasGet(w http.ResponseWriter) {
@@ -207,7 +229,7 @@ func (s *service) handleResellerQuotaSet(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	payload.UpdatedAt = time.Now().UTC().Unix()
-	
+
 	// Apply actual system quota if xfs_quota or setquota is available
 	go func(username string, diskGB int) {
 		// Example implementation for ext4/ext3 using setquota

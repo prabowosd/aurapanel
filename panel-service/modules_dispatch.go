@@ -471,6 +471,9 @@ func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) b
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/gitops/deploy":
 		s.handleGitOpsDeploy(w, r)
 		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/perf/redis":
+		s.handleRedisIsolationList(w)
+		return true
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/perf/redis":
 		s.handleRedisIsolation(w, r)
 		return true

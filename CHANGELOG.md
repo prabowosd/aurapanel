@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-03-28
+
+### Changed
+- Terminal websocket upgrades now bypass persistence wrapping and keep `http.Hijacker` support intact through the panel-service request chain.
+- Website provisioning now snapshots and restores runtime state on failure, preventing orphaned owners and stale site counters.
+- Website advanced-config reads no longer mutate state under a read lock.
+- OpenLiteSpeed tuning now stages changes on save and only reloads the runtime on explicit apply.
+- Redis topology is now separated between host-level systemd isolations and Docker templates, with host Redis inventory exposed in Ops Center and Docker templates carrying explicit runtime metadata and default ports/volumes.
+
 ## 2026-03-26
 
 ### Added
