@@ -25,3 +25,6 @@ Thumbs.db
 _project_brain/
 .claude/
 api-gateway/tmp_gateway
+plans/
+docs/
+ENDPOINT_AUDIT.md
