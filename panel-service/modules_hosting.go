@@ -160,8 +160,113 @@ func (s *service) handlePHPIniSave(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("php.ini saved for PHP %s.", version)})
 }
 
+func (s *service) handleMariaDBTuningGet(w http.ResponseWriter) {
+	configPath := "/etc/mysql/mariadb.conf.d/50-server.cnf"
+	if !fileExists(configPath) {
+		configPath = "/etc/mysql/my.cnf"
+	}
+	
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to read MariaDB config")
+		return
+	}
+	
+	lines := strings.Split(string(content), "\n")
+	settings := map[string]string{
+		"max_connections": "151",
+		"innodb_buffer_pool_size": "128M",
+		"key_buffer_size": "16M",
+		"max_allowed_packet": "16M",
+	}
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		if _, exists := settings[key]; exists {
+			settings[key] = val
+		}
+	}
+	
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: settings})
+}
+
+func (s *service) handleMariaDBTuningSet(w http.ResponseWriter, r *http.Request) {
+	var payload map[string]string
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid payload")
+		return
+	}
+	
+	configPath := "/etc/mysql/mariadb.conf.d/50-server.cnf"
+	if !fileExists(configPath) {
+		configPath = "/etc/mysql/my.cnf"
+	}
+	
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to read config")
+		return
+	}
+	
+	lines := strings.Split(string(content), "\n")
+	updatedLines := make([]string, 0, len(lines))
+	keysHandled := make(map[string]bool)
+	inMysqldSection := false
+	
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[mysqld]") {
+			inMysqldSection = true
+			updatedLines = append(updatedLines, line)
+			continue
+		}
+		if strings.HasPrefix(trimmed, "[") && inMysqldSection {
+			for k, v := range payload {
+				if !keysHandled[k] {
+					updatedLines = append(updatedLines, fmt.Sprintf("%s = %s", k, v))
+					keysHandled[k] = true
+				}
+			}
+			inMysqldSection = false
+		}
+		
+		if inMysqldSection && !strings.HasPrefix(trimmed, "#") && strings.Contains(trimmed, "=") {
+			parts := strings.SplitN(trimmed, "=", 2)
+			key := strings.TrimSpace(parts[0])
+			if val, exists := payload[key]; exists {
+				updatedLines = append(updatedLines, fmt.Sprintf("%s = %s", key, val))
+				keysHandled[key] = true
+				continue
+			}
+		}
+		updatedLines = append(updatedLines, line)
+	}
+	
+	if inMysqldSection {
+		for k, v := range payload {
+			if !keysHandled[k] {
+				updatedLines = append(updatedLines, fmt.Sprintf("%s = %s", k, v))
+			}
+		}
+	}
+	
+	err = os.WriteFile(configPath, []byte(strings.Join(updatedLines, "\n")), 0644)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to write config")
+		return
+	}
+	
+	_ = exec.Command("systemctl", "restart", "mariadb").Run()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "MariaDB settings updated and service restarted"})
+}
+
 func (s *service) handleWebsiteAdvancedConfigGet(w http.ResponseWriter, r *http.Request) {
-	domain := normalizeDomain(r.URL.Query().Get("domain"))
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	s.ensureDefaultSiteArtifactsLocked(domain)
