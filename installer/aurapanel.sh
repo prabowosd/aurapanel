@@ -135,6 +135,15 @@ upsert_env() {
   fi
 }
 
+delete_env() {
+  local file="$1"
+  local key="$2"
+
+  if [ -f "${file}" ]; then
+    sed -i "/^${key}=/d" "${file}"
+  fi
+}
+
 read_env_value() {
   local file="$1"
   local key="$2"
@@ -314,6 +323,8 @@ configure_roundcube() {
   fi
 
   local webmail_dir="/usr/local/lsws/Example/html/webmail"
+  local webmail_owner="nobody"
+  local webmail_group="nobody"
   local tmpdir archive extracted
   tmpdir="$(mktemp -d /tmp/aurapanel-roundcube.XXXXXX)"
   archive="${tmpdir}/roundcube.tar.gz"
@@ -355,22 +366,27 @@ EOF
     warn "MariaDB is not active, Roundcube DB bootstrap skipped."
   fi
 
-  mkdir -p "${webmail_dir}/config"
+  mkdir -p "${webmail_dir}/config" "${webmail_dir}/logs" "${webmail_dir}/temp"
   cat <<EOF > "${webmail_dir}/config/config.inc.php"
 <?php
 \$config['db_dsnw'] = 'mysql://${rc_db_user}:${rc_db_pass}@localhost/${rc_db_name}';
-\$config['default_host'] = 'ssl://127.0.0.1';
-\$config['default_port'] = 993;
-\$config['smtp_server'] = 'tls://127.0.0.1';
-\$config['smtp_port'] = 587;
+\$config['default_host'] = '127.0.0.1';
+\$config['default_port'] = 143;
+\$config['smtp_server'] = '127.0.0.1';
+\$config['smtp_port'] = 25;
 \$config['product_name'] = 'AuraPanel Webmail';
 \$config['des_key'] = '$(openssl rand -hex 16 | tr -d '\n')';
 \$config['plugins'] = ['archive', 'zipdownload', 'markasjunk'];
 EOF
 
-  chown -R nobody:nobody "${webmail_dir}" >/dev/null 2>&1 || true
-  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_WEBMAIL_BASE_URL" "http://127.0.0.1/webmail"
+  if id -gn nobody >/dev/null 2>&1; then
+    webmail_group="$(id -gn nobody)"
+  fi
+
+  chown -R "${webmail_owner}:${webmail_group}" "${webmail_dir}" >/dev/null 2>&1 || true
+  chmod 750 "${webmail_dir}/logs" "${webmail_dir}/temp" >/dev/null 2>&1 || true
   upsert_env "${CORE_ENV_FILE}" "AURAPANEL_MAIL_BACKEND" "vmail"
+  delete_env "${CORE_ENV_FILE}" "AURAPANEL_WEBMAIL_BASE_URL"
 
   rm -rf "${tmpdir}"
   ok "Roundcube setup completed at ${webmail_dir}"
@@ -397,6 +413,9 @@ configure_mail_stack_vmail() {
 
   touch /etc/dovecot/users /etc/postfix/vmailbox /etc/postfix/virtual /etc/postfix/virtual_regexp
   chmod 640 /etc/dovecot/users /etc/postfix/vmailbox /etc/postfix/virtual /etc/postfix/virtual_regexp >/dev/null 2>&1 || true
+  if getent group dovecot >/dev/null 2>&1; then
+    chgrp dovecot /etc/dovecot/users >/dev/null 2>&1 || true
+  fi
 
   if command -v postmap >/dev/null 2>&1; then
     postmap /etc/postfix/vmailbox >/dev/null 2>&1 || true
@@ -495,7 +514,7 @@ ensure_openlitespeed() {
   fi
 
   # Ensure lsphp toolchain is present even when OpenLiteSpeed was preinstalled.
-  install_optional_packages lsphp83 lsphp83-common lsphp83-mysql lsphp83-curl lsphp83-xml lsphp83-zip lsphp83-opcache
+  install_optional_packages lsphp83 lsphp83-common lsphp83-mysql lsphp83-curl lsphp83-xml lsphp83-zip lsphp83-opcache lsphp83-intl
 
   systemctl enable lshttpd >/dev/null 2>&1 || true
   systemctl restart lshttpd >/dev/null 2>&1 || true
@@ -569,8 +588,17 @@ ensure_openlitespeed_admin_php() {
 }
 
 ensure_lsphp_database_drivers() {
-  log "Ensuring lsphp83 database drivers (mysql, pgsql, sqlite3)..."
-  install_optional_packages lsphp83-mysql lsphp83-pgsql lsphp83-sqlite3
+  log "Ensuring lsphp83 database drivers (mysql, pgsql, sqlite3) and intl..."
+  install_optional_packages lsphp83-mysql lsphp83-pgsql lsphp83-sqlite3 lsphp83-intl
+
+  local intl_ini="/usr/local/lsws/lsphp83/etc/php/8.3/mods-available/intl.ini"
+  mkdir -p "$(dirname "${intl_ini}")"
+  if [ ! -f "${intl_ini}" ]; then
+    cat <<'EOF' > "${intl_ini}"
+extension=intl.so
+EOF
+  fi
+  chmod 644 "${intl_ini}" >/dev/null 2>&1 || true
 
   local ext_dir
   ext_dir="$(/usr/local/lsws/lsphp83/bin/lsphp -i 2>/dev/null | awk -F'=> ' '/^extension_dir =>/{print $2; exit}' | awk '{print $1}')"
@@ -585,6 +613,12 @@ ensure_lsphp_database_drivers() {
       warn "Some lsphp83 PDO drivers are missing: ${missing[*]}"
     else
       ok "lsphp83 PDO drivers are present (mysql, pgsql, sqlite)."
+    fi
+
+    if [ ! -f "${ext_dir}/intl.so" ]; then
+      warn "lsphp83 intl.so is missing from extension_dir (${ext_dir})."
+    else
+      ok "lsphp83 intl extension binary detected."
     fi
   else
     warn "Could not detect lsphp83 extension_dir for PDO driver verification."
@@ -845,7 +879,6 @@ AURAPANEL_BACKUP_MINIO_ACCESS_KEY=${minio_access}
 AURAPANEL_BACKUP_MINIO_SECRET_KEY=${minio_secret}
 AURAPANEL_BACKUP_RESTIC_PASSWORD=${restic_pass}
 AURAPANEL_MAIL_BACKEND=vmail
-AURAPANEL_WEBMAIL_BASE_URL=http://127.0.0.1/webmail
 AURAPANEL_MAIL_VMAIL_UID=5000
 AURAPANEL_MAIL_VMAIL_GID=5000
 AURAPANEL_MAIL_VMAIL_BASE=/var/mail/vhosts
@@ -873,7 +906,7 @@ EOF
   upsert_env "${CORE_ENV_FILE}" "AURAPANEL_BACKUP_MINIO_ENDPOINT" "http://127.0.0.1:9000"
   upsert_env "${CORE_ENV_FILE}" "AURAPANEL_BACKUP_MINIO_BUCKET" "aurapanel-backups"
   upsert_env "${CORE_ENV_FILE}" "AURAPANEL_MAIL_BACKEND" "vmail"
-  upsert_env "${CORE_ENV_FILE}" "AURAPANEL_WEBMAIL_BASE_URL" "http://127.0.0.1/webmail"
+  delete_env "${CORE_ENV_FILE}" "AURAPANEL_WEBMAIL_BASE_URL"
   upsert_env "${CORE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_UID" "5000"
   upsert_env "${CORE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_GID" "5000"
   upsert_env "${CORE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_BASE" "/var/mail/vhosts"
