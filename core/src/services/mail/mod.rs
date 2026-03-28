@@ -412,6 +412,23 @@ if ($loginRaw === false || ($loginCode < 200 || $loginCode >= 400)) {
     aura_sso_fail(401, 'Roundcube login failed.');
 }
 
+$mailUrl = $base . '/?_task=mail';
+$ch = curl_init($mailUrl);
+curl_setopt_array($ch, [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_COOKIEJAR => $cookieFile,
+    CURLOPT_COOKIEFILE => $cookieFile,
+    CURLOPT_HTTPHEADER => $requestHeaders,
+    CURLOPT_TIMEOUT => 10,
+]);
+$mailRaw = curl_exec($ch);
+$mailCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+curl_close($ch);
+if ($mailRaw === false || ($mailCode < 200 || $mailCode >= 400)) {
+    @unlink($cookieFile);
+    aura_sso_fail(401, 'Roundcube session bootstrap failed.');
+}
+
 $cookies = @file($cookieFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
 $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
 foreach ($cookies as $line) {
