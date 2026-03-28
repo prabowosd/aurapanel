@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
+#[cfg(unix)]
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -468,6 +470,57 @@ exit;
 "#;
 
         fs::write(&bridge_file, script).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn ensure_webmail_mount_for_domain(domain: &str) -> Result<(), String> {
+        if cfg!(windows) {
+            return Ok(());
+        }
+
+        let domain = Self::normalize_domain(domain);
+        if domain.is_empty() {
+            return Ok(());
+        }
+
+        let home_root = Path::new("/home");
+        let target_src = Path::new("/usr/local/lsws/Example/html/webmail");
+        if !target_src.exists() {
+            return Ok(());
+        }
+
+        let users = match fs::read_dir(home_root) {
+            Ok(items) => items,
+            Err(_) => return Ok(()),
+        };
+
+        for user_entry in users.flatten() {
+            let docroot = user_entry
+                .path()
+                .join("public_html")
+                .join(domain.as_str());
+            if !docroot.is_dir() {
+                continue;
+            }
+
+            let mount = docroot.join("webmail");
+            if mount.exists() {
+                return Ok(());
+            }
+
+            #[cfg(unix)]
+            {
+                symlink(target_src, &mount).map_err(|e| {
+                    format!(
+                        "Webmail mount olusturulamadi ({}): {}",
+                        mount.display(),
+                        e
+                    )
+                })?;
+            }
+            return Ok(());
+        }
+
         Ok(())
     }
 
@@ -1293,6 +1346,11 @@ exit;
         if address.is_empty() || !address.contains('@') {
             return Err("valid address is required.".to_string());
         }
+        let domain = address
+            .split('@')
+            .nth(1)
+            .map(Self::normalize_domain)
+            .unwrap_or_default();
 
         let ttl = req.ttl_seconds.unwrap_or(300).clamp(60, 1800);
         let now = Self::now_ts();
@@ -1318,9 +1376,10 @@ exit;
         });
         Self::save_state(&state)?;
         Self::ensure_roundcube_sso_bridge()?;
+        Self::ensure_webmail_mount_for_domain(&domain)?;
 
         let base = std::env::var("AURAPANEL_WEBMAIL_BASE_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1/webmail".to_string())
+            .unwrap_or_else(|_| format!("http://{}/webmail", domain))
             .trim()
             .trim_end_matches('/')
             .to_string();
