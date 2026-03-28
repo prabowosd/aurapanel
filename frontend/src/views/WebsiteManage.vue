@@ -290,17 +290,28 @@
                   <p class="text-base font-semibold text-white">{{ t('website_manage.insights.hourly_traffic') }}</p>
                   <div v-if="trafficLoading" class="mt-4 text-sm text-gray-400">{{ t('website_manage.insights.loading') }}</div>
                   <div v-else-if="!traffic.series?.length" class="mt-4 text-sm text-gray-500">{{ t('website_manage.insights.no_traffic') }}</div>
-                  <div v-else class="mt-4 space-y-3">
-                    <div v-for="item in traffic.series" :key="item.bucket" class="space-y-1.5">
-                      <div class="flex justify-between gap-3 text-xs text-gray-400">
-                        <span>{{ item.bucket }}</span>
-                        <span>{{ item.hits }} hit</span>
-                      </div>
-                      <div class="h-2 overflow-hidden rounded-full bg-slate-950/70">
-                        <div
-                          class="h-full rounded-full bg-gradient-to-r from-cyan-500 to-brand-500"
-                          :style="{ width: `${Math.max(4, Math.round((item.hits / Math.max(1, maxTrafficHit)) * 100))}%` }"
-                        ></div>
+                  <div v-else class="mt-4 space-y-4">
+                    <div class="flex items-center justify-between gap-3 text-xs text-gray-500">
+                      <p>{{ t('website_manage.insights.latest_12_hours') }}</p>
+                      <p>{{ recentTrafficSeries.length }}/{{ traffic.series.length }}</p>
+                    </div>
+                    <div class="grid h-[260px] grid-cols-12 items-end gap-2 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                      <div
+                        v-for="item in recentTrafficSeries"
+                        :key="item.bucket"
+                        class="flex h-full min-w-0 flex-col justify-end gap-2"
+                        :title="`${item.bucket} - ${item.hits} hit`"
+                      >
+                        <div class="relative flex-1 overflow-hidden rounded-xl bg-slate-950/80">
+                          <div
+                            class="absolute bottom-0 left-0 right-0 rounded-xl bg-gradient-to-t from-brand-500 to-cyan-400"
+                            :style="{ height: `${Math.max(12, Math.round((item.hits / Math.max(1, recentMaxTrafficHit)) * 100))}%` }"
+                          ></div>
+                        </div>
+                        <div class="space-y-1 text-center">
+                          <p class="truncate text-[10px] uppercase tracking-[0.12em] text-gray-500">{{ trafficBucketLabel(item.bucket) }}</p>
+                          <p class="text-[10px] font-semibold text-gray-200">{{ item.hits }}</p>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -512,7 +523,8 @@ const traffic = ref({
 
 const adminEmail = computed(() => form.value.email || `webmaster@${domain.value}`)
 const isSuspended = computed(() => String(site.value?.status || 'active').toLowerCase() === 'suspended')
-const maxTrafficHit = computed(() => Math.max(1, ...(traffic.value.series || []).map(item => Number(item.hits || 0))))
+const recentTrafficSeries = computed(() => (traffic.value.series || []).slice(-12))
+const recentMaxTrafficHit = computed(() => Math.max(1, ...recentTrafficSeries.value.map(item => Number(item.hits || 0))))
 
 const insightRequestConfig = {
   timeout: 30000,
@@ -595,6 +607,11 @@ function quickActionClass(key) {
   }
 
   return 'border-white/10 bg-slate-950/40 hover:border-brand-500/40 hover:bg-slate-950/65'
+}
+
+function trafficBucketLabel(bucket) {
+  const parts = String(bucket || '').trim().split(/\s+/)
+  return parts[parts.length - 1] || bucket
 }
 
 function msg(err, fallbackKey) {
