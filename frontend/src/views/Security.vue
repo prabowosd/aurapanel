@@ -84,9 +84,24 @@
       </div>
     </div>
 
-    <div v-if="activeTab === 'waf'" class="aura-card space-y-4">
-      <h2 class="text-lg font-bold text-white">{{ t('security_center.waf.title') }}</h2>
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+    <div v-if="activeTab === 'waf'" class="space-y-4">
+      <div class="aura-card">
+        <h2 class="text-lg font-bold text-white mb-4">ModSecurity & ML-WAF Yönetimi</h2>
+        <div class="flex items-center justify-between p-4 rounded-xl border border-panel-border bg-panel-dark">
+          <div>
+            <h3 class="font-semibold text-white">Global WAF Durumu</h3>
+            <p class="text-sm text-gray-400">Sunucu genelinde tüm web siteleri için ModSecurity kural motorunu açar veya kapatır.</p>
+          </div>
+          <div class="flex gap-2">
+            <button class="btn-primary" disabled>WAF Açık</button>
+            <button class="btn-secondary">Kapat</button>
+          </div>
+        </div>
+      </div>
+      
+      <div class="aura-card space-y-4">
+        <h2 class="text-lg font-bold text-white">{{ t('security_center.waf.title') }}</h2>
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <input v-model="wafInput.path" class="aura-input" :placeholder="t('security_center.waf.path')" />
         <input v-model="wafInput.query" class="aura-input" :placeholder="t('security_center.waf.query')" />
         <input v-model="wafInput.user_agent" class="aura-input" :placeholder="t('security_center.waf.user_agent')" />
@@ -98,6 +113,41 @@
         <p><strong>{{ t('security_center.waf.allowed') }}:</strong> {{ wafResult.allowed }}</p>
         <p><strong>{{ t('security_center.waf.score') }}:</strong> {{ wafResult.score }}</p>
         <p><strong>{{ t('security_center.waf.reason') }}:</strong> {{ wafResult.reason }}</p>
+      </div>
+      </div>
+    </div>
+
+    <div v-if="activeTab === 'fail2ban'" class="space-y-4">
+      <div class="aura-card">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-lg font-bold text-white">Fail2Ban Yöneticisi</h2>
+            <p class="text-sm text-gray-400">Sunucunuza yapılan bruteforce ve yetkisiz erişim denemelerini tespit edip engeller.</p>
+          </div>
+          <button class="btn-secondary" @click="loadFail2ban" :disabled="fail2banLoading">
+            {{ fail2banLoading ? 'Yenileniyor...' : 'Yenile' }}
+          </button>
+        </div>
+
+        <div class="rounded-xl border border-panel-border bg-panel-dark p-4">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-3 h-3 rounded-full" :class="fail2banStatus.status === 'active' ? 'bg-green-500' : 'bg-red-500'"></div>
+            <span class="font-semibold text-white">Servis Durumu: {{ fail2banStatus.status === 'active' ? 'Çalışıyor' : 'Pasif/Kapalı' }}</span>
+          </div>
+          
+          <div class="mt-4">
+            <h3 class="text-sm font-semibold text-gray-300 mb-2">Fail2Ban Logları / Durum Çıktısı</h3>
+            <pre class="bg-black/50 p-4 rounded-lg text-xs font-mono text-gray-300 overflow-x-auto whitespace-pre-wrap">{{ fail2banStatus.raw || 'Veri yok' }}</pre>
+          </div>
+          
+          <div class="mt-6 border-t border-panel-border pt-4">
+            <h3 class="text-sm font-semibold text-gray-300 mb-3">IP Engeli Kaldır (Unban)</h3>
+            <div class="flex gap-3 max-w-md">
+              <input type="text" id="unbanIpInput" placeholder="Örn: 192.168.1.1" class="aura-input flex-1" />
+              <button class="btn-primary" @click="() => { const el = document.getElementById('unbanIpInput'); if(el.value) unbanIp(el.value); }">Unban IP</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -278,6 +328,7 @@ const authStore = useAuthStore()
 const tabs = [
   { id: 'overview', label: t('security_center.tabs.overview') },
   { id: 'firewall', label: t('security_center.tabs.firewall') },
+  { id: 'fail2ban', label: 'Fail2Ban' },
   { id: 'waf', label: t('security_center.tabs.waf') },
   { id: '2fa', label: t('security_center.tabs.twofa') },
   { id: 'ssh', label: t('security_center.tabs.ssh') },
@@ -287,6 +338,31 @@ const tabs = [
 ]
 
 const activeTab = ref(route.query.tab || 'overview')
+const fail2banStatus = ref({ status: 'loading', raw: '' })
+const fail2banLoading = ref(false)
+
+async function loadFail2ban() {
+  fail2banLoading.value = true
+  try {
+    const res = await api.get('/security/fail2ban/list')
+    fail2banStatus.value = res.data.data || { status: 'inactive', raw: '' }
+  } catch (err) {
+    console.error(err)
+  } finally {
+    fail2banLoading.value = false
+  }
+}
+
+async function unbanIp(ip) {
+  if (!confirm(`${ip} adresinin engelini kaldırmak istediğinize emin misiniz?`)) return
+  try {
+    await api.post(`/security/fail2ban/unban?ip=${ip}`)
+    await loadFail2ban()
+  } catch (err) {
+    alert('Hata: ' + (err.response?.data?.message || err.message))
+  }
+}
+
 const status = ref({})
 const firewallRules = ref([])
 const sshKeys = ref([])
@@ -335,6 +411,7 @@ const statusCards = computed(() => [
 function setTab(tab) {
   activeTab.value = tab
   router.replace({ query: { ...route.query, tab } })
+  if (tab === 'fail2ban') loadFail2ban()
 }
 
 watch(

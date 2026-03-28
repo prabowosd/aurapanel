@@ -336,6 +336,15 @@ func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) b
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/db/backup/delete":
 		s.handleDBBackupDelete(w, r)
 		return true
+	case r.URL.Path == "/api/v1/db/mariadb/remote-access":
+		s.handleMariaDBRemoteAccess(w, r)
+		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/db/mariadb/tuning":
+		s.handleMariaDBTuningGet(w)
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/db/mariadb/tuning":
+		s.handleMariaDBTuningSet(w, r)
+		return true
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/activity/log":
 		s.handleActivityLog(w)
 		return true

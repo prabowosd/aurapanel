@@ -33,10 +33,57 @@
         >
           {{ t('database_manager.engines.postgresql') }}
         </button>
+        <button
+          @click="engine = 'tuning'"
+          :class="['pb-3 text-sm font-medium transition', engine === 'tuning' ? 'text-emerald-400 border-b-2 border-emerald-400' : 'text-gray-400 hover:text-white']"
+        >
+          <span class="flex items-center gap-2"><Settings2 class="w-4 h-4" /> Tuning & Config</span>
+        </button>
       </nav>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <!-- Tuning Tab Content -->
+    <div v-if="engine === 'tuning'" class="space-y-6">
+      <div class="aura-card">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-lg font-bold text-white">MariaDB İnce Ayar (Tuning)</h2>
+            <p class="text-sm text-gray-400">Veritabanı sunucunuzun RAM ve CPU limitlerine göre performansını optimize edin.</p>
+          </div>
+          <button class="btn-secondary" @click="loadTuning">Yenile</button>
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">Max Connections (Maks. Bağlantı)</label>
+            <input v-model="tuningForm.max_connections" type="text" class="aura-input w-full" placeholder="Örn: 151" />
+            <p class="text-xs text-gray-500 mt-1">Eşzamanlı maksimum veritabanı bağlantı sayısı.</p>
+          </div>
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">InnoDB Buffer Pool Size</label>
+            <input v-model="tuningForm.innodb_buffer_pool_size" type="text" class="aura-input w-full" placeholder="Örn: 128M" />
+            <p class="text-xs text-gray-500 mt-1">Veri ve indekslerin önbelleğe alındığı RAM miktarı. (Sunucu RAM'inin %50-70'i önerilir)</p>
+          </div>
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">Key Buffer Size</label>
+            <input v-model="tuningForm.key_buffer_size" type="text" class="aura-input w-full" placeholder="Örn: 16M" />
+          </div>
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">Max Allowed Packet</label>
+            <input v-model="tuningForm.max_allowed_packet" type="text" class="aura-input w-full" placeholder="Örn: 16M" />
+            <p class="text-xs text-gray-500 mt-1">Tek bir sorgunun/paketin alabileceği maksimum boyut.</p>
+          </div>
+        </div>
+        
+        <div class="mt-6 flex justify-end">
+          <button class="btn-primary" @click="saveTuning" :disabled="tuningSaving">
+            {{ tuningSaving ? 'Kaydediliyor & Restart...' : 'Ayarları Kaydet ve MariaDB\'yi Yeniden Başlat' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="engine !== 'tuning'" class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div class="bg-panel-card border border-panel-border rounded-xl p-5">
         <p class="text-sm text-gray-400">{{ t('database_manager.stats.databases') }}</p>
         <p class="text-2xl font-bold text-white mt-1">{{ currentDatabases.length }}</p>
@@ -51,7 +98,7 @@
       </div>
     </div>
 
-    <div class="bg-panel-card border border-panel-border rounded-xl overflow-hidden">
+    <div v-if="engine !== 'tuning'" class="bg-panel-card border border-panel-border rounded-xl overflow-hidden">
       <div class="p-4 border-b border-panel-border flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">{{ t('database_manager.sections.databases', { engine: currentEngineLabel }) }}</h2>
         <button @click="loadData" class="px-3 py-1.5 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition">{{ t('database_manager.actions.refresh') }}</button>
@@ -90,7 +137,7 @@
       </div>
     </div>
 
-    <div class="bg-panel-card border border-panel-border rounded-xl overflow-hidden">
+    <div v-if="engine !== 'tuning'" class="bg-panel-card border border-panel-border rounded-xl overflow-hidden">
       <div class="p-4 border-b border-panel-border">
         <h2 class="text-lg font-semibold text-white">{{ t('database_manager.sections.users') }}</h2>
       </div>
@@ -126,7 +173,7 @@
       </div>
     </div>
 
-    <div class="bg-panel-card border border-panel-border rounded-xl overflow-hidden">
+    <div v-if="engine !== 'tuning'" class="bg-panel-card border border-panel-border rounded-xl overflow-hidden">
       <div class="p-4 border-b border-panel-border flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">{{ t('database_manager.sections.remote_access') }}</h2>
         <button @click="loadRemoteAccess" class="px-3 py-1.5 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition">{{ t('database_manager.actions.refresh') }}</button>
@@ -276,7 +323,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Database, Plus } from 'lucide-vue-next'
+import { Database, Plus, Settings2 } from 'lucide-vue-next'
 import api from '../services/api'
 
 const router = useRouter()
@@ -285,6 +332,37 @@ const { t } = useI18n({ useScope: 'global' })
 const engine = ref('mariadb')
 const showCreateModal = ref(false)
 const notification = ref(null)
+
+const tuningForm = ref({
+  max_connections: '',
+  innodb_buffer_pool_size: '',
+  key_buffer_size: '',
+  max_allowed_packet: ''
+})
+const tuningSaving = ref(false)
+
+async function loadTuning() {
+  try {
+    const res = await api.get('/db/mariadb/tuning')
+    if (res.data?.data) {
+      tuningForm.value = { ...tuningForm.value, ...res.data.data }
+    }
+  } catch (err) {
+    console.error('Tuning load error', err)
+  }
+}
+
+async function saveTuning() {
+  tuningSaving.value = true
+  try {
+    await api.post('/db/mariadb/tuning', tuningForm.value)
+    showNotif('MariaDB Tuning ayarları kaydedildi ve servis yeniden başlatıldı.', 'success')
+  } catch (err) {
+    showNotif('Tuning kaydedilemedi: ' + err.message, 'error')
+  } finally {
+    tuningSaving.value = false
+  }
+}
 
 const mariadbDatabases = ref([])
 const postgresDatabases = ref([])
@@ -604,7 +682,11 @@ const goAttachToWebsite = (db) => {
 }
 
 watch(engine, (value) => {
-  createForm.value.engine = value
+  if (value === 'tuning') {
+    loadTuning()
+  } else {
+    createForm.value.engine = value
+  }
 })
 
 watch(showCreateModal, (open) => {
