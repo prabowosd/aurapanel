@@ -74,43 +74,6 @@
                 <span>{{ t('menu.dns') }}</span>
               </router-link>
 
-              <button @click="sslMenuOpen = !sslMenuOpen" class="sidebar-sub-link w-full justify-between" :class="{ 'sidebar-sub-link-active': isSslRoute }">
-                <div class="flex items-center">
-                  <Lock class="w-4 h-4 mr-2" />
-                  <span>SSL</span>
-                </div>
-                <ChevronDown class="w-3.5 h-3.5 transition-transform duration-200" :class="{ 'rotate-180': sslMenuOpen }" />
-              </button>
-
-              <transition name="accordion">
-                <div v-show="sslMenuOpen" class="ml-3 mt-1 space-y-0.5 border-l border-panel-border/40 pl-3">
-                  <router-link
-                    v-if="can('/ssl')"
-                    :to="{ path: '/ssl', query: { tab: 'manage' } }"
-                    class="sidebar-sub-link"
-                    :class="{ 'sidebar-sub-link-active': isSslTabActive('manage') }"
-                  >
-                    <span>{{ t('layout.links.ssl_manage') }}</span>
-                  </router-link>
-                  <router-link
-                    v-if="can('/ssl')"
-                    :to="{ path: '/ssl', query: { tab: 'hostname' } }"
-                    class="sidebar-sub-link"
-                    :class="{ 'sidebar-sub-link-active': isSslTabActive('hostname') }"
-                  >
-                    <span>{{ t('layout.links.ssl_hostname') }}</span>
-                  </router-link>
-                  <router-link
-                    v-if="can('/ssl')"
-                    :to="{ path: '/ssl', query: { tab: 'mail' } }"
-                    class="sidebar-sub-link"
-                    :class="{ 'sidebar-sub-link-active': isSslTabActive('mail') }"
-                  >
-                    <span>{{ t('layout.links.ssl_mail') }}</span>
-                  </router-link>
-                </div>
-              </transition>
-
               <router-link v-if="can('/cloudflare')" to="/cloudflare" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('routes.CloudFlare') }}</span>
               </router-link>
@@ -206,6 +169,43 @@
 
           <transition name="accordion">
             <div v-show="securityLogsMenuOpen" class="ml-4 mt-1 space-y-0.5 border-l border-panel-border/50 pl-3">
+              <button @click="sslMenuOpen = !sslMenuOpen" class="sidebar-sub-link w-full justify-between" :class="{ 'sidebar-sub-link-active': isSslRoute }">
+                <div class="flex items-center">
+                  <Lock class="w-4 h-4 mr-2" />
+                  <span>SSL</span>
+                </div>
+                <ChevronDown class="w-3.5 h-3.5 transition-transform duration-200" :class="{ 'rotate-180': sslMenuOpen }" />
+              </button>
+
+              <transition name="accordion">
+                <div v-show="sslMenuOpen" class="ml-3 mt-1 space-y-0.5 border-l border-panel-border/40 pl-3">
+                  <router-link
+                    v-if="can('/ssl')"
+                    :to="{ path: '/ssl', query: { tab: 'manage' } }"
+                    class="sidebar-sub-link"
+                    :class="{ 'sidebar-sub-link-active': isSslTabActive('manage') }"
+                  >
+                    <span>{{ t('layout.links.ssl_manage') }}</span>
+                  </router-link>
+                  <router-link
+                    v-if="can('/ssl')"
+                    :to="{ path: '/ssl', query: { tab: 'hostname' } }"
+                    class="sidebar-sub-link"
+                    :class="{ 'sidebar-sub-link-active': isSslTabActive('hostname') }"
+                  >
+                    <span>{{ t('layout.links.ssl_hostname') }}</span>
+                  </router-link>
+                  <router-link
+                    v-if="can('/ssl')"
+                    :to="{ path: '/ssl', query: { tab: 'mail' } }"
+                    class="sidebar-sub-link"
+                    :class="{ 'sidebar-sub-link-active': isSslTabActive('mail') }"
+                  >
+                    <span>{{ t('layout.links.ssl_mail') }}</span>
+                  </router-link>
+                </div>
+              </transition>
+
               <button @click="securityMenuOpen = !securityMenuOpen" class="sidebar-sub-link w-full justify-between" :class="{ 'sidebar-sub-link-active': isSecurityRoute }">
                 <div class="flex items-center">
                   <Shield class="w-4 h-4 mr-2" />
@@ -607,13 +607,13 @@ const canHostingGroup = computed(() =>
   ['/websites', '/migration', '/packages', '/users', '/reseller'].some((path) => can(path)),
 )
 const canWebAppsGroup = computed(() =>
-  ['/dns', '/ssl', '/cloudflare', '/wordpress', '/app-runtime', '/php', '/filemanager', '/terminal'].some((path) => can(path)),
+  ['/dns', '/cloudflare', '/wordpress', '/app-runtime', '/php', '/filemanager', '/terminal'].some((path) => can(path)),
 )
 const canDataAccessGroup = computed(() =>
   ['/databases', '/emails', '/minio', '/ftp', '/sftp', '/backups', '/db-backup'].some((path) => can(path)),
 )
 const canSecurityGroup = computed(() =>
-  ['/security', '/activity-log', '/log-viewer'].some((path) => can(path)),
+  ['/ssl', '/security', '/activity-log', '/log-viewer'].some((path) => can(path)),
 )
 const canDevopsGroup = computed(() =>
   ['/docker/images', '/docker/containers', '/docker/create', '/docker/apps', '/cron-jobs', '/federated', '/ops-center'].some((path) => can(path)),
@@ -667,13 +667,13 @@ const isBackupsRoute = computed(() => route.path === '/backups' || route.path ==
 const isLogsRoute = computed(() => route.path === '/activity-log' || route.path === '/log-viewer')
 const isHostingRoute = computed(() => ['/websites', '/migration', '/packages', '/users', '/reseller'].some(prefix => route.path.startsWith(prefix)))
 const isWebAppsRoute = computed(() =>
-  ['/dns', '/ssl', '/cloudflare', '/wordpress', '/app-runtime', '/php', '/filemanager', '/terminal'].some(prefix => route.path.startsWith(prefix))
+  ['/dns', '/cloudflare', '/wordpress', '/app-runtime', '/php', '/filemanager', '/terminal'].some(prefix => route.path.startsWith(prefix))
 )
 const isDataAccessRoute = computed(() =>
   ['/databases', '/emails', '/ftp', '/sftp', '/backups', '/db-backup', '/minio'].some(prefix => route.path.startsWith(prefix))
 )
 const isSecurityLogsRoute = computed(() =>
-  ['/security', '/activity-log', '/log-viewer'].some(prefix => route.path.startsWith(prefix))
+  ['/ssl', '/security', '/activity-log', '/log-viewer'].some(prefix => route.path.startsWith(prefix))
 )
 const isDevopsRoute = computed(() =>
   ['/docker', '/cron-jobs', '/federated', '/ops-center'].some(prefix => route.path.startsWith(prefix))
