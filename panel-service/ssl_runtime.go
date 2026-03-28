@@ -112,6 +112,8 @@ func issueLetsEncryptCertificate(domains []string, webroot string, dnsChallenge 
 		}
 		args = append(args, "--dns-cloudflare", "--dns-cloudflare-credentials", credentialsPath)
 	} else {
+		// Ensure webroot exists right before execution
+		_ = os.MkdirAll(webroot, 0o755)
 		args = append(args, "--webroot", "-w", webroot)
 	}
 	for _, domain := range domains {
