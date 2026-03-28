@@ -74,7 +74,7 @@ func runtimeDockerImages() ([]DockerImage, error) {
 	return images, nil
 }
 
-func createRuntimeDockerContainer(name, image string, ports []string, restartPolicy string) error {
+func createRuntimeDockerContainer(name, image string, ports []string, restartPolicy string, memoryLimit string, cpuLimit string, env []string, volumes []string) error {
 	command, err := containerRuntimeCommand()
 	if err != nil {
 		return err
@@ -89,6 +89,24 @@ func createRuntimeDockerContainer(name, image string, ports []string, restartPol
 	args := []string{"run", "-d", "--name", name}
 	if strings.TrimSpace(restartPolicy) != "" {
 		args = append(args, "--restart", strings.TrimSpace(restartPolicy))
+	}
+	if strings.TrimSpace(memoryLimit) != "" {
+		args = append(args, "-m", strings.TrimSpace(memoryLimit))
+	}
+	if strings.TrimSpace(cpuLimit) != "" {
+		args = append(args, "--cpus", strings.TrimSpace(cpuLimit))
+	}
+	for _, envVar := range env {
+		envVar = strings.TrimSpace(envVar)
+		if envVar != "" {
+			args = append(args, "-e", envVar)
+		}
+	}
+	for _, volume := range volumes {
+		volume = strings.TrimSpace(volume)
+		if volume != "" {
+			args = append(args, "-v", volume)
+		}
 	}
 	for _, port := range ports {
 		port = strings.TrimSpace(port)

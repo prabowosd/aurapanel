@@ -718,6 +718,17 @@ ensure_openlitespeed() {
   systemctl restart lshttpd >/dev/null 2>&1 || true
 }
 
+ensure_wp_cli() {
+  if ! command -v wp >/dev/null 2>&1; then
+    log "Installing WP-CLI..."
+    curl -sO https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+    chmod +x wp-cli.phar
+    mv wp-cli.phar /usr/local/bin/wp
+  else
+    log "WP-CLI is already installed."
+  fi
+}
+
 ensure_ols_public_listeners() {
   local ols_conf="/usr/local/lsws/conf/httpd_config.conf"
   local tls_key="/usr/local/lsws/admin/conf/webadmin.key"
@@ -1552,6 +1563,7 @@ main() {
   ensure_go
   ensure_node20
   ensure_openlitespeed
+  ensure_wp_cli
   ensure_ols_public_listeners
   ensure_openlitespeed_admin_php
   ensure_lsphp_database_drivers

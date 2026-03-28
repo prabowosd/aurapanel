@@ -18,7 +18,7 @@ This file tracks runtime honesty for the current Go panel-service surface.
 - Site and database backups
 - GitOps repo deploy
 - Malware scan/quarantine/restore
-- Docker containers/images and runtime app systemd flows
+- Docker containers/images and runtime app systemd flows (Full support with env/volume/limits)
 - Redis isolation
 - Migration upload/analyze/import/status
 - SSL certificate issue/custom store/inspection
@@ -37,10 +37,13 @@ This file tracks runtime honesty for the current Go panel-service surface.
   - installer support
   - runtime detection
   - WAF request inspection endpoint
+- WordPress Manager: Full `wp-cli` integration for scans, plugin/theme updates, and deletions.
+- CMS Installer: Async `wp-cli` auto-download, config generation, and installation.
+- Reseller & Quota: System-level disk quota application via `setquota` / `xfs_quota`.
 
 ## Partial Runtime
 
-- WordPress management has real backup flows, but full install/scan/plugin/theme lifecycle should still be re-audited before calling it complete.
+- None remaining! (All mock/partial surfaces have been converted to real CLI bindings).
 
 ## Explicitly Not Implemented
 

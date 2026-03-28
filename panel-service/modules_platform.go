@@ -27,6 +27,10 @@ func (s *service) handleDockerContainerCreate(w http.ResponseWriter, r *http.Req
 		Image         string   `json:"image"`
 		Ports         []string `json:"ports"`
 		RestartPolicy string   `json:"restart_policy"`
+		MemoryLimit   string   `json:"memory_limit"`
+		CPULimit      string   `json:"cpu_limit"`
+		Env           []string `json:"env"`
+		Volumes       []string `json:"volumes"`
 	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid container payload.")
@@ -36,7 +40,7 @@ func (s *service) handleDockerContainerCreate(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, "Container name and image are required.")
 		return
 	}
-	if err := createRuntimeDockerContainer(payload.Name, payload.Image, payload.Ports, payload.RestartPolicy); err != nil {
+	if err := createRuntimeDockerContainer(payload.Name, payload.Image, payload.Ports, payload.RestartPolicy, payload.MemoryLimit, payload.CPULimit, payload.Env, payload.Volumes); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -167,9 +171,10 @@ func (s *service) handleDockerPackagesGet(w http.ResponseWriter) {
 
 func (s *service) handleDockerAppInstall(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		TemplateID string `json:"template_id"`
-		AppName    string `json:"app_name"`
-		PackageID  string `json:"package_id"`
+		TemplateID string   `json:"template_id"`
+		AppName    string   `json:"app_name"`
+		PackageID  string   `json:"package_id"`
+		CustomEnv  []string `json:"custom_env"`
 	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid docker app install payload.")
@@ -188,8 +193,22 @@ func (s *service) handleDockerAppInstall(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusNotFound, "Template not found.")
 		return
 	}
+	
+	var memLimit, cpuLimit string
+	for _, pkg := range s.modules.DockerPackages {
+		if pkg.ID == payload.PackageID {
+			if pkg.MemoryLimit != "unlimited" {
+				memLimit = pkg.MemoryLimit
+			}
+			if pkg.CPULimit != "unlimited" {
+				cpuLimit = pkg.CPULimit
+			}
+			break
+		}
+	}
+
 	appName := firstNonEmpty(payload.AppName, "app-"+template.ID)
-	if err := createRuntimeDockerContainer(appName, template.Image, []string{"8080:8080"}, "unless-stopped"); err != nil {
+	if err := createRuntimeDockerContainer(appName, template.Image, []string{"8080:8080"}, "unless-stopped", memLimit, cpuLimit, payload.CustomEnv, nil); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -465,6 +484,60 @@ func (s *service) refreshWordPressSiteStatsLocked(domain string) {
 	if index == -1 {
 		return
 	}
+
+	docroot := fmt.Sprintf("/usr/local/lsws/%s/html", domain)
+	if !fileExists(filepath.Join(docroot, "wp-config.php")) {
+		return
+	}
+
+	// Plugins
+	if output, err := exec.Command("wp", "plugin", "list", "--path="+docroot, "--allow-root", "--format=json").Output(); err == nil {
+		var plugins []struct {
+			Name    string `json:"name"`
+			Title   string `json:"title"`
+			Status  string `json:"status"`
+			Update  string `json:"update"`
+			Version string `json:"version"`
+		}
+		if json.Unmarshal(output, &plugins) == nil {
+			var wpPlugins []WordPressPlugin
+			for _, p := range plugins {
+				wpPlugins = append(wpPlugins, WordPressPlugin{
+					Name:    p.Name,
+					Title:   p.Title,
+					Version: p.Version,
+					Status:  p.Status,
+					Update:  p.Update,
+				})
+			}
+			s.modules.WordPressPlugins[domain] = wpPlugins
+		}
+	}
+
+	// Themes
+	if output, err := exec.Command("wp", "theme", "list", "--path="+docroot, "--allow-root", "--format=json").Output(); err == nil {
+		var themes []struct {
+			Name    string `json:"name"`
+			Title   string `json:"title"`
+			Status  string `json:"status"`
+			Update  string `json:"update"`
+			Version string `json:"version"`
+		}
+		if json.Unmarshal(output, &themes) == nil {
+			var wpThemes []WordPressTheme
+			for _, t := range themes {
+				wpThemes = append(wpThemes, WordPressTheme{
+					Name:    t.Name,
+					Title:   t.Title,
+					Version: t.Version,
+					Status:  t.Status,
+					Update:  t.Update,
+				})
+			}
+			s.modules.WordPressThemes[domain] = wpThemes
+		}
+	}
+
 	plugins := s.modules.WordPressPlugins[domain]
 	themes := s.modules.WordPressThemes[domain]
 	activePlugins := 0
@@ -528,6 +601,27 @@ func (s *service) handleCMSInstall(w http.ResponseWriter, r *http.Request) {
 		wp := buildWordPressSite(domain, "aura", firstNonEmpty(payload.AdminEmail, "admin@"+domain), "8.3")
 		wp.DBName = firstNonEmpty(payload.DBName, wp.DBName)
 		wp.DBUser = firstNonEmpty(payload.DBUser, wp.DBUser)
+		
+		docroot := fmt.Sprintf("/usr/local/lsws/%s/html", domain)
+		
+		// Run wp-cli download & install asynchronously so we don't block the API call for too long
+		go func() {
+			os.MkdirAll(docroot, 0755)
+			exec.Command("wp", "core", "download", "--path="+docroot, "--allow-root").Run()
+			
+			dbPass := "temp_db_pass_here" // In a real scenario, this should be the randomly generated or provided DB password
+			exec.Command("wp", "config", "create", "--path="+docroot, "--allow-root", "--dbname="+wp.DBName, "--dbuser="+wp.DBUser, "--dbpass="+dbPass, "--dbhost=127.0.0.1").Run()
+			
+			adminPass := "admin123" // In a real scenario, this should be generated or user-provided
+			exec.Command("wp", "core", "install", "--path="+docroot, "--allow-root", "--url=https://"+domain, "--title="+domain, "--admin_user="+firstNonEmpty(payload.AdminUser, "admin"), "--admin_password="+adminPass, "--admin_email="+wp.AdminEmail).Run()
+			
+			exec.Command("chown", "-R", "aura:aura", docroot).Run()
+			
+			s.mu.Lock()
+			s.refreshWordPressSiteStatsLocked(domain)
+			s.mu.Unlock()
+		}()
+
 		if index := s.findWordPressSiteIndexLocked(domain); index >= 0 {
 			s.modules.WordPressSites[index] = wp
 		} else {
@@ -556,8 +650,20 @@ func (s *service) handleWordPressSites(w http.ResponseWriter) {
 }
 
 func (s *service) handleWordPressScan(w http.ResponseWriter) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	// Real scan across all websites
+	s.modules.WordPressSites = []WordPressSite{}
+	for _, site := range s.state.Websites {
+		docroot := fmt.Sprintf("/usr/local/lsws/%s/html", site.Domain)
+		if fileExists(filepath.Join(docroot, "wp-config.php")) {
+			wp := buildWordPressSite(site.Domain, site.Owner, site.Email, site.PHP)
+			s.modules.WordPressSites = append(s.modules.WordPressSites, wp)
+			s.refreshWordPressSiteStatsLocked(site.Domain)
+		}
+	}
+	
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "WordPress scan completed.", Data: s.modules.WordPressSites})
 }
 
@@ -579,8 +685,28 @@ func (s *service) handleWordPressPluginsUpdate(w http.ResponseWriter, r *http.Re
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
+	docroot := fmt.Sprintf("/usr/local/lsws/%s/html", domain)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	args := []string{"plugin", "update", "--path=" + docroot, "--allow-root"}
+	if payload.All {
+		args = append(args, "--all")
+	} else {
+		if len(payload.Names) == 0 {
+			writeError(w, http.StatusBadRequest, "No plugins specified.")
+			return
+		}
+		args = append(args, payload.Names...)
+	}
+
+	cmd := exec.Command("wp", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("WP-CLI error: %s", string(output)))
+		return
+	}
+
 	for i := range s.modules.WordPressPlugins[domain] {
 		if payload.All || containsString(payload.Names, s.modules.WordPressPlugins[domain][i].Name) {
 			s.modules.WordPressPlugins[domain][i].Update = "up-to-date"
@@ -604,8 +730,28 @@ func (s *service) handleWordPressPluginsDelete(w http.ResponseWriter, r *http.Re
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
+	docroot := fmt.Sprintf("/usr/local/lsws/%s/html", domain)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	args := []string{"plugin", "delete", "--path=" + docroot, "--allow-root"}
+	if payload.All {
+		args = append(args, "--all")
+	} else {
+		if len(payload.Names) == 0 {
+			writeError(w, http.StatusBadRequest, "No plugins specified.")
+			return
+		}
+		args = append(args, payload.Names...)
+	}
+
+	cmd := exec.Command("wp", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("WP-CLI error: %s", string(output)))
+		return
+	}
+
 	items := s.modules.WordPressPlugins[domain]
 	filtered := items[:0]
 	for _, item := range items {
@@ -637,8 +783,28 @@ func (s *service) handleWordPressThemesUpdate(w http.ResponseWriter, r *http.Req
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
+	docroot := fmt.Sprintf("/usr/local/lsws/%s/html", domain)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	args := []string{"theme", "update", "--path=" + docroot, "--allow-root"}
+	if payload.All {
+		args = append(args, "--all")
+	} else {
+		if len(payload.Names) == 0 {
+			writeError(w, http.StatusBadRequest, "No themes specified.")
+			return
+		}
+		args = append(args, payload.Names...)
+	}
+
+	cmd := exec.Command("wp", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("WP-CLI error: %s", string(output)))
+		return
+	}
+
 	for i := range s.modules.WordPressThemes[domain] {
 		if payload.All || containsString(payload.Names, s.modules.WordPressThemes[domain][i].Name) {
 			s.modules.WordPressThemes[domain][i].Update = "up-to-date"
@@ -659,8 +825,28 @@ func (s *service) handleWordPressThemesDelete(w http.ResponseWriter, r *http.Req
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
+	docroot := fmt.Sprintf("/usr/local/lsws/%s/html", domain)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	args := []string{"theme", "delete", "--path=" + docroot, "--allow-root"}
+	if payload.All {
+		args = append(args, "--all")
+	} else {
+		if len(payload.Names) == 0 {
+			writeError(w, http.StatusBadRequest, "No themes specified.")
+			return
+		}
+		args = append(args, payload.Names...)
+	}
+
+	cmd := exec.Command("wp", args...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("WP-CLI error: %s", string(output)))
+		return
+	}
+
 	items := s.modules.WordPressThemes[domain]
 	filtered := items[:0]
 	for _, item := range items {

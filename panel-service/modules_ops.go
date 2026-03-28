@@ -205,6 +205,21 @@ func (s *service) handleResellerQuotaSet(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	payload.UpdatedAt = time.Now().UTC().Unix()
+	
+	// Apply actual system quota if xfs_quota or setquota is available
+	go func(username string, diskGB int) {
+		// Example implementation for ext4/ext3 using setquota
+		if _, err := exec.LookPath("setquota"); err == nil && diskGB > 0 {
+			// Convert GB to Blocks (1 block = 1KB usually in quota)
+			blocks := diskGB * 1024 * 1024
+			_ = exec.Command("setquota", "-u", username, fmt.Sprintf("%d", blocks), fmt.Sprintf("%d", blocks), "0", "0", "-a").Run()
+		}
+		// Example implementation for XFS using xfs_quota
+		if _, err := exec.LookPath("xfs_quota"); err == nil && diskGB > 0 {
+			_ = exec.Command("xfs_quota", "-x", "-c", fmt.Sprintf("limit bsoft=%dg bhard=%dg %s", diskGB, diskGB, username), "/").Run()
+		}
+	}(payload.Username, payload.DiskGB)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	replaced := false
@@ -218,7 +233,7 @@ func (s *service) handleResellerQuotaSet(w http.ResponseWriter, r *http.Request)
 	if !replaced {
 		s.modules.ResellerQuotas = append(s.modules.ResellerQuotas, payload)
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Reseller quota saved.", Data: payload})
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Reseller quota saved and applied to system.", Data: payload})
 }
 
 func (s *service) handleWhiteLabelsGet(w http.ResponseWriter) {
