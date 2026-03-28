@@ -3,6 +3,8 @@ use crate::services::packages::PackageManager;
 use bcrypt::{hash, verify, DEFAULT_COST};
 use serde::{Deserialize, Serialize};
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -100,6 +102,10 @@ impl UserManager {
             let _ = Command::new("useradd")
                 .args(["-m", "-s", "/bin/bash", &username])
                 .output();
+
+            // OLS worker'in /home/<user>/public_html altina ulasabilmesi icin
+            // home dizininde traverse (execute) biti acik olmali.
+            let _ = ensure_home_traversable(&username);
 
             if let Ok(Some(pkg)) = PackageManager::get_package_by_name(&package) {
                 let _ =
@@ -303,6 +309,22 @@ fn state_root() -> PathBuf {
 
 fn users_db_path() -> PathBuf {
     state_root().join("users.json")
+}
+
+#[cfg(unix)]
+fn ensure_home_traversable(username: &str) -> Result<(), String> {
+    let home = format!("/home/{}", username);
+    if !Path::new(&home).exists() {
+        return Ok(());
+    }
+
+    fs::set_permissions(&home, fs::Permissions::from_mode(0o711))
+        .map_err(|e| format!("Home izinleri ayarlanamadi ({}): {}", home, e))
+}
+
+#[cfg(not(unix))]
+fn ensure_home_traversable(_username: &str) -> Result<(), String> {
+    Ok(())
 }
 
 fn save_users(users: &[PanelUser]) -> Result<(), String> {

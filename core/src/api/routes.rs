@@ -3463,12 +3463,24 @@ struct VhostListQuery {
 }
 
 async fn vhost_list_handler(
+    Extension(auth): Extension<AuthContext>,
     axum::extract::Query(query): axum::extract::Query<VhostListQuery>,
 ) -> Json<serde_json::Value> {
     use crate::services::nitro::NitroEngine;
     use std::cmp::min;
     match NitroEngine::list_vhosts() {
         Ok(mut sites) => {
+            if normalize_role(&auth.role) == ROLE_USER {
+                let username = auth.username.to_ascii_lowercase();
+                sites.retain(|site| {
+                    site.get("owner")
+                        .or_else(|| site.get("user"))
+                        .and_then(|v| v.as_str())
+                        .map(|owner| owner.eq_ignore_ascii_case(&username))
+                        .unwrap_or(false)
+                });
+            }
+
             if query.search.is_none()
                 && query.php.is_none()
                 && query.page.is_none()
