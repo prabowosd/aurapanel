@@ -50,6 +50,8 @@ func main() {
 	publicMux.HandleFunc("/api/auth/login", controllers.Login)
 	// v1 login is delegated to core to support role-based auth accounts.
 	publicMux.Handle("/api/v1/auth/login", coreProxy)
+	// Roundcube SSO bridge consumes one-time token without panel bearer auth.
+	publicMux.Handle("/api/v1/mail/webmail/sso/consume", coreProxy)
 
 	// Protected auth/me routes
 	protectedMux.HandleFunc("/api/auth/me", controllers.Me)
@@ -93,6 +95,7 @@ func main() {
 	mainRouter.Handle("/api/health", publicHandler)
 	mainRouter.Handle("/api/auth/login", publicHandler)
 	mainRouter.Handle("/api/v1/auth/login", publicHandler)
+	mainRouter.Handle("/api/v1/mail/webmail/sso/consume", publicHandler)
 
 	// Protected
 	mainRouter.Handle("/api/auth/me", protectedHandler)
