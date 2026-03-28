@@ -298,6 +298,10 @@ func renderOLSVhostConfig(item olsManagedSite) string {
 	builder.WriteString("  rewrite  {\n")
 	builder.WriteString("    enable                0\n")
 	builder.WriteString("  }\n")
+	builder.WriteString("  addDefaultCharset       off\n")
+	builder.WriteString("  phpIniOverride  {\n")
+	builder.WriteString("  }\n")
+	builder.WriteString("  forceStrict             0\n")
 	builder.WriteString("}\n\n")
 
 	builder.WriteString("extProcessor " + socketName + "{\n")
