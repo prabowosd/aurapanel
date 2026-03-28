@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -511,6 +512,8 @@ func (s *service) handleCompat(w http.ResponseWriter, r *http.Request) {
 		s.handleSecurityStatus(w)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/cloudflare/status":
 		s.handleCloudflareStatus(w)
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cloudflare/server-auth":
+		s.handleCloudflareServerAuth(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/security/ebpf/events":
 		s.handleEBPFEvents(w)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/security/ebpf/collect":
@@ -1973,6 +1976,54 @@ func readEnvFileValue(path, key string) string {
 	}
 
 	return ""
+}
+
+func writeEnvFileValues(path string, updates map[string]string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	lines := []string{}
+	if len(raw) > 0 {
+		lines = strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
+	}
+
+	seen := map[string]bool{}
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || !strings.Contains(trimmed, "=") {
+			continue
+		}
+		key := strings.TrimSpace(strings.SplitN(trimmed, "=", 2)[0])
+		if _, ok := updates[key]; !ok {
+			continue
+		}
+		lines[i] = key + "=" + updates[key]
+		seen[key] = true
+	}
+
+	keys := make([]string, 0, len(updates))
+	for key := range updates {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if seen[key] {
+			continue
+		}
+		lines = append(lines, key+"="+updates[key])
+	}
+
+	content := strings.TrimRight(strings.Join(lines, "\n"), "\n") + "\n"
+	tempPath := path + ".tmp"
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(tempPath, []byte(content), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tempPath, path)
 }
 
 func readTrimmedFile(path string) string {

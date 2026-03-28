@@ -407,6 +407,32 @@ func (s *service) handleCloudflareStatus(w http.ResponseWriter) {
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: cloudflareRuntimeSnapshot()})
 }
 
+func (s *service) handleCloudflareServerAuth(w http.ResponseWriter, r *http.Request) {
+	var payload map[string]interface{}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid Cloudflare server auth payload.")
+		return
+	}
+	creds := cloudflareRequestCredentials(payload)
+	if !creds.valid() {
+		writeError(w, http.StatusBadRequest, "Cloudflare email + API key or API token is required.")
+		return
+	}
+	autoSync := true
+	if value, ok := payload["auto_sync"]; ok {
+		autoSync = boolValue(value)
+	}
+	if err := persistCloudflareServerCredentials(creds, autoSync); err != nil {
+		writeError(w, http.StatusInternalServerError, "Cloudflare credentials could not be persisted to server env.")
+		return
+	}
+	writeJSON(w, http.StatusOK, apiResponse{
+		Status:  "success",
+		Message: "Cloudflare server credentials saved.",
+		Data:    cloudflareRuntimeSnapshot(),
+	})
+}
+
 func (s *service) handleCloudflareDNSList(w http.ResponseWriter, r *http.Request) {
 	var payload map[string]interface{}
 	if err := decodeJSON(r, &payload); err != nil {

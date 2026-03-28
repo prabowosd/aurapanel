@@ -26,6 +26,14 @@
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
+          <button
+            v-if="cfEmail || cfApiKey"
+            class="rounded-lg bg-gradient-to-r from-cyan-600 to-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:from-cyan-700 hover:to-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="serverSaving"
+            @click="saveServerAuth"
+          >
+            {{ serverSaving ? t('cloudflare_manager.server_status.saving') : t('cloudflare_manager.server_status.save_action') }}
+          </button>
           <span class="rounded-full px-3 py-1 text-xs font-medium" :class="serverStatus.configured ? 'bg-green-500/15 text-green-400' : 'bg-yellow-500/15 text-yellow-300'">
             {{ serverStatus.configured ? t('cloudflare_manager.server_status.configured') : t('cloudflare_manager.server_status.not_configured') }}
           </span>
@@ -379,6 +387,7 @@ const serverStatus = ref({
   credential_source: 'none',
   email_hint: '',
 })
+const serverSaving = ref(false)
 
 const tabs = [
   { id: 'zones', label: t('cloudflare_manager.tabs.zones') },
@@ -506,6 +515,35 @@ const connectCf = async (opts = {}) => {
     showNotif(err.response?.data?.error || t('cloudflare_manager.messages.connect_failed'), 'error')
   } finally {
     loading.value = false
+  }
+}
+
+const saveServerAuth = async () => {
+  if (!cfEmail.value || !cfApiKey.value) {
+    showNotif(t('cloudflare_manager.messages.credentials_required'), 'error')
+    return
+  }
+  serverSaving.value = true
+  try {
+    const { data } = await api.post('/cloudflare/server-auth', {
+      email: cfEmail.value,
+      api_key: cfApiKey.value,
+      auto_sync: true,
+    })
+    serverStatus.value = {
+      configured: Boolean(data?.data?.configured),
+      auto_sync: Boolean(data?.data?.auto_sync),
+      credential_source: data?.data?.credential_source || 'none',
+      email_hint: data?.data?.email_hint || '',
+    }
+    showNotif(t('cloudflare_manager.messages.server_auth_saved'))
+    if (!connected.value) {
+      await connectCf({ silent: true })
+    }
+  } catch (err) {
+    showNotif(err.response?.data?.message || t('cloudflare_manager.messages.server_auth_failed'), 'error')
+  } finally {
+    serverSaving.value = false
   }
 }
 

@@ -93,6 +93,8 @@ Object.assign(extraEn, {
       auto_sync_on: 'Auto-sync on',
       auto_sync_off: 'Auto-sync off',
       server_auth_active: 'Server-managed CloudFlare authentication is active. You can connect without entering browser-side credentials.',
+      save_action: 'Save To Server',
+      saving: 'Saving...',
     },
     tabs: {
       zones: 'Zones',
@@ -191,6 +193,8 @@ Object.assign(extraEn, {
       dev_mode_failed: 'Development mode could not be updated.',
       always_https_updated: 'Always HTTPS updated: {state}',
       minify_saved: 'Minify settings saved.',
+      server_auth_saved: 'CloudFlare credentials were saved to server env and auto-sync was enabled.',
+      server_auth_failed: 'CloudFlare server credentials could not be saved.',
     },
   },
   docker_manager_screen: {
@@ -343,6 +347,8 @@ Object.assign(extraTr, {
       auto_sync_on: 'Auto-sync acik',
       auto_sync_off: 'Auto-sync kapali',
       server_auth_active: 'Sunucu yonetimli CloudFlare dogrulamasi aktif. Tarayiciya credential girmeden baglanabilirsiniz.',
+      save_action: 'Sunucuya Kaydet',
+      saving: 'Kaydediliyor...',
     },
     tabs: { zones: 'Zonelar', dns: 'DNS Kayitlari', ssl: 'SSL/TLS', cache: 'Cache', security: 'Guvenlik' },
     zones: {
@@ -429,6 +435,8 @@ Object.assign(extraTr, {
       dev_mode_failed: 'Development mode guncellenemedi.',
       always_https_updated: 'Always HTTPS guncellendi: {state}',
       minify_saved: 'Minify ayarlari kaydedildi.',
+      server_auth_saved: 'CloudFlare credential sunucu env dosyasina yazildi ve auto-sync acildi.',
+      server_auth_failed: 'CloudFlare credential sunucuya kaydedilemedi.',
     },
   },
   docker_manager_screen: {

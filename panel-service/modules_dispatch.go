@@ -387,6 +387,9 @@ func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) b
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/cloudflare/status":
 		s.handleCloudflareStatus(w)
 		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cloudflare/server-auth":
+		s.handleCloudflareServerAuth(w, r)
+		return true
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cloudflare/dns/list":
 		s.handleCloudflareDNSList(w, r)
 		return true

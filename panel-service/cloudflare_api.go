@@ -12,6 +12,7 @@ import (
 )
 
 const cloudflareAPIBase = "https://api.cloudflare.com/client/v4"
+const cloudflareServiceEnvPath = "/etc/aurapanel/aurapanel-service.env"
 
 type cloudflareCredentials struct {
 	Email    string
@@ -125,6 +126,29 @@ func cloudflareRuntimeSnapshot() cloudflareRuntimeStatus {
 		HasAPIToken:      creds.APIToken != "",
 		HasGlobalKey:     creds.Email != "" && creds.APIKey != "",
 	}
+}
+
+func persistCloudflareServerCredentials(creds cloudflareCredentials, autoSync bool) error {
+	updates := map[string]string{
+		"AURAPANEL_CLOUDFLARE_EMAIL":     strings.TrimSpace(creds.Email),
+		"AURAPANEL_CLOUDFLARE_API_KEY":   strings.TrimSpace(creds.APIKey),
+		"AURAPANEL_CLOUDFLARE_API_TOKEN": strings.TrimSpace(creds.APIToken),
+		"AURAPANEL_CLOUDFLARE_AUTO_SYNC": "0",
+	}
+	if autoSync {
+		updates["AURAPANEL_CLOUDFLARE_AUTO_SYNC"] = "1"
+	}
+	if err := writeEnvFileValues(cloudflareServiceEnvPath, updates); err != nil {
+		return err
+	}
+
+	// Apply immediately so the running process can use the new credentials
+	// without waiting for a service restart.
+	_ = os.Setenv("AURAPANEL_CLOUDFLARE_EMAIL", updates["AURAPANEL_CLOUDFLARE_EMAIL"])
+	_ = os.Setenv("AURAPANEL_CLOUDFLARE_API_KEY", updates["AURAPANEL_CLOUDFLARE_API_KEY"])
+	_ = os.Setenv("AURAPANEL_CLOUDFLARE_API_TOKEN", updates["AURAPANEL_CLOUDFLARE_API_TOKEN"])
+	_ = os.Setenv("AURAPANEL_CLOUDFLARE_AUTO_SYNC", updates["AURAPANEL_CLOUDFLARE_AUTO_SYNC"])
+	return nil
 }
 
 func redactEmailHint(email string) string {
