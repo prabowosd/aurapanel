@@ -14,7 +14,15 @@ const deepMerge = (base, override) => {
   return override ?? base
 }
 
-const baseEn = {
+// Fetch localized json strings
+import enJson from '../locales/en.json'
+import trJson from '../locales/tr.json'
+
+const baseEn = enJson
+const baseTr = trJson
+
+const en = deepMerge(baseEn, extraEn)
+const tr = deepMerge(baseTr, extraTr)
   menu: {
     dashboard: 'Dashboard', websites: 'Websites', packages: 'Packages', users: 'Users', databases: 'Databases', emails: 'Emails', dns: 'DNS Management', security: 'Security', docker: 'Docker', docker_manager: 'Docker Manager', docker_apps: 'Docker Apps', cloudflare: 'CloudFlare', filemanager: 'File Manager', php: 'PHP Management', server_status: 'Server Status', reseller: 'Reseller Management'
   },

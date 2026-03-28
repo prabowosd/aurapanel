@@ -37,9 +37,9 @@ function buildTerminalUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const isDevPort = window.location.port === '5173'
   
-  // Connect directly to backend panel service (8081) for websockets to bypass 
-  // potential proxy buffering issues in the gateway.
-  const host = isDevPort ? `${window.location.hostname}:8081` : `${window.location.hostname}:8081`
+  // Use the standard port/gateway URL to bypass CORS and proxy connection resets
+  // Our gateway middleware now properly forwards the upgrade headers.
+  const host = isDevPort ? `${window.location.hostname}:8090` : window.location.host
   return `${protocol}//${host}/api/v1/terminal/ws?token=${encodeURIComponent(authStore.token || '')}`
 }
 
