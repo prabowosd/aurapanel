@@ -487,7 +487,7 @@ func (s *service) refreshWordPressSiteStatsLocked(domain string) {
 		return
 	}
 
-	docroot := fmt.Sprintf("/usr/local/lsws/%s/html", domain)
+	docroot := domainDocroot(domain)
 	if !fileExists(filepath.Join(docroot, "wp-config.php")) {
 		return
 	}
@@ -581,7 +581,7 @@ func (s *service) handleCMSInstall(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.findWebsiteLocked(domain) == nil {
-		s.state.Websites = append(s.state.Websites, Website{
+		site := Website{
 			Domain:        domain,
 			Owner:         "aura",
 			User:          "aura",
@@ -590,21 +590,27 @@ func (s *service) handleCMSInstall(w http.ResponseWriter, r *http.Request) {
 			Package:       "default",
 			Email:         firstNonEmpty(payload.AdminEmail, "admin@"+domain),
 			Status:        "active",
-			SSL:           true,
+			SSL:           false,
 			DiskUsage:     "256 MB",
 			Quota:         quotaForPackage(s.state.Packages, "default"),
 			MailDomain:    true,
 			ApacheBackend: false,
 			CreatedAt:     time.Now().UTC().Unix(),
-		})
-		s.ensureDefaultSiteArtifactsLocked(domain)
+		}
+		s.state.Websites = append(s.state.Websites, site)
+		if err := s.provisionWebsiteArtifactsLocked(site); err != nil {
+			// Rollback if provisioning fails
+			s.state.Websites = s.state.Websites[:len(s.state.Websites)-1]
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	if payload.AppType == "wordpress" {
 		wp := buildWordPressSite(domain, "aura", firstNonEmpty(payload.AdminEmail, "admin@"+domain), "8.3")
 		wp.DBName = firstNonEmpty(payload.DBName, wp.DBName)
 		wp.DBUser = firstNonEmpty(payload.DBUser, wp.DBUser)
 		
-		docroot := fmt.Sprintf("/usr/local/lsws/%s/html", domain)
+		docroot := domainDocroot(domain)
 		
 		// Run wp-cli download & install asynchronously so we don't block the API call for too long
 		go func() {
@@ -658,7 +664,7 @@ func (s *service) handleWordPressScan(w http.ResponseWriter) {
 	// Real scan across all websites
 	s.modules.WordPressSites = []WordPressSite{}
 	for _, site := range s.state.Websites {
-		docroot := fmt.Sprintf("/usr/local/lsws/%s/html", site.Domain)
+		docroot := domainDocroot(site.Domain)
 		if fileExists(filepath.Join(docroot, "wp-config.php")) {
 			wp := buildWordPressSite(site.Domain, site.Owner, site.Email, site.PHP)
 			s.modules.WordPressSites = append(s.modules.WordPressSites, wp)

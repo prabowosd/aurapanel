@@ -610,6 +610,15 @@ func (s *service) handleVhostList(w http.ResponseWriter, r *http.Request) {
 		if php != "" && site.PHPVersion != php && site.PHP != php {
 			continue
 		}
+		
+		// Ensure SSL status accurately reflects reality
+		if cert, ok := s.modules.SSLCertificates[site.Domain]; ok {
+			site.SSL = cert.Status == "issued"
+		} else {
+			certPath, _ := findCertificatePair(site.Domain)
+			site.SSL = certPath != ""
+		}
+		
 		filtered = append(filtered, site)
 	}
 
@@ -1627,7 +1636,15 @@ func (s *service) handleSSLIssue(w http.ResponseWriter, r *http.Request) {
 	if normalizeDomain(domain) != "" {
 		domains = append(domains, "www."+domain)
 	}
-	if err := issueLetsEncryptCertificate(domains, domainDocroot(domain), false); err != nil {
+	
+	// Ensure docroot exists before issuing SSL
+	docroot := domainDocroot(domain)
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to create docroot for SSL validation.")
+		return
+	}
+
+	if err := issueLetsEncryptCertificate(domains, docroot, false); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

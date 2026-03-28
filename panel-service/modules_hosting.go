@@ -1985,7 +1985,11 @@ func (s *service) handleSSLHostnameIssue(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
-	if err := issueLetsEncryptCertificate([]string{domain}, "/usr/local/lsws/Example/html", false); err != nil {
+	
+	webroot := "/usr/local/lsws/Example/html"
+	_ = os.MkdirAll(webroot, 0o755)
+
+	if err := issueLetsEncryptCertificate([]string{domain}, webroot, false); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -2020,7 +2024,11 @@ func (s *service) handleSSLMailIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
-	if err := issueLetsEncryptCertificate([]string{domain}, "/usr/local/lsws/Example/html", false); err != nil {
+	
+	webroot := "/usr/local/lsws/Example/html"
+	_ = os.MkdirAll(webroot, 0o755)
+
+	if err := issueLetsEncryptCertificate([]string{domain}, webroot, false); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -2074,7 +2082,11 @@ func (s *service) handleSSLWildcardIssue(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
-	if err := issueLetsEncryptCertificate([]string{domain, "*." + domain}, "/usr/local/lsws/Example/html", true); err != nil {
+	
+	webroot := "/usr/local/lsws/Example/html"
+	_ = os.MkdirAll(webroot, 0o755)
+
+	if err := issueLetsEncryptCertificate([]string{domain, "*." + domain}, webroot, true); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
