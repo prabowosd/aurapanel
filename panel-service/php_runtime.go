@@ -14,8 +14,19 @@ func phpVersionPackageToken(version string) string {
 }
 
 func discoverPHPVersions() []PHPVersionInfo {
-	patterns := []string{"/usr/local/lsws/lsphp*/bin/lsphp"}
+	supportedVersions := []string{"8.4", "8.3", "8.2", "8.1", "8.0", "7.4"}
 	items := map[string]PHPVersionInfo{}
+
+	// Initialize all supported versions as not installed
+	for _, v := range supportedVersions {
+		items[v] = PHPVersionInfo{
+			Version:   v,
+			Installed: false,
+			EOL:       strings.HasPrefix(v, "7.") || v == "8.0",
+		}
+	}
+
+	patterns := []string{"/usr/local/lsws/lsphp*/bin/lsphp"}
 	for _, pattern := range patterns {
 		matches, _ := filepath.Glob(pattern)
 		for _, match := range matches {
@@ -24,16 +35,22 @@ func discoverPHPVersions() []PHPVersionInfo {
 				continue
 			}
 			version := versionToken[:1] + "." + versionToken[1:]
-			items[version] = PHPVersionInfo{
-				Version:   version,
-				Installed: true,
-				EOL:       strings.HasPrefix(version, "7.") || version == "8.0",
+			
+			// If we found it on disk, mark as installed
+			if info, exists := items[version]; exists {
+				info.Installed = true
+				items[version] = info
+			} else {
+				// It's a version we found but wasn't in our supported list
+				items[version] = PHPVersionInfo{
+					Version:   version,
+					Installed: true,
+					EOL:       strings.HasPrefix(version, "7.") || version == "8.0",
+				}
 			}
 		}
 	}
-	if len(items) == 0 {
-		return []PHPVersionInfo{{Version: "8.3", Installed: true, EOL: false}}
-	}
+
 	versions := make([]PHPVersionInfo, 0, len(items))
 	for _, item := range items {
 		versions = append(versions, item)

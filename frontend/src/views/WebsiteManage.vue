@@ -453,7 +453,7 @@ const route = useRoute()
 const router = useRouter()
 
 const domain = computed(() => String(route.params.domain || '').toLowerCase())
-const phpVersions = ['8.4', '8.3', '8.2', '8.1', '8.0', '7.4']
+const phpVersions = ref([])
 
 const error = ref('')
 const site = ref({})
@@ -696,6 +696,19 @@ async function loadSite() {
   }
 }
 
+async function loadPhpVersions() {
+  try {
+    const res = await api.get('/php/versions')
+    const all = res.data?.data || []
+    phpVersions.value = all.filter(v => v.installed).map(v => v.version)
+    if (phpVersions.value.length === 0) {
+      phpVersions.value = ['8.4', '8.3', '8.2', '8.1', '8.0', '7.4'] // Fallback
+    }
+  } catch {
+    phpVersions.value = ['8.4', '8.3', '8.2', '8.1', '8.0', '7.4']
+  }
+}
+
 async function loadAliases() {
   const res = await api.get('/websites/aliases', { params: { domain: domain.value } })
   aliases.value = res.data?.data || []
@@ -909,5 +922,8 @@ watch(insightTab, async () => {
   await refreshInsights()
 })
 
-onMounted(refreshAll)
+onMounted(() => {
+  loadPhpVersions()
+  refreshAll()
+})
 </script>

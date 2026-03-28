@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="space-y-6">
     <div class="flex items-center justify-between gap-4">
       <div>
@@ -571,7 +571,7 @@ const postgresUsers = ref([])
 
 const search = ref('')
 const phpFilter = ref('')
-const phpVersions = ['8.4', '8.3', '8.2', '8.1', '8.0', '7.4']
+const phpVersions = ref([])
 
 const showAddSiteModal = ref(false)
 const showEditSiteModal = ref(false)
@@ -729,6 +729,19 @@ function isSuspended(site) {
   return String(site?.status || 'active').toLowerCase() === 'suspended'
 }
 
+async function loadPhpVersions() {
+  try {
+    const res = await api.get('/php/versions')
+    const all = res.data?.data || []
+    phpVersions.value = all.filter(v => v.installed).map(v => v.version)
+    if (phpVersions.value.length === 0) {
+      phpVersions.value = ['8.4', '8.3', '8.2', '8.1', '8.0', '7.4'] // Fallback
+    }
+  } catch {
+    phpVersions.value = ['8.4', '8.3', '8.2', '8.1', '8.0', '7.4']
+  }
+}
+
 async function loadSites() {
   try {
     const res = await api.get('/vhost/list', {
@@ -872,7 +885,7 @@ async function refreshAll() {
   loading.value = true
   error.value = ''
   try {
-    await Promise.all([loadSites(), loadUsers(), loadSubdomains(), loadDbLinks(), loadDatabases(), loadPackages(), loadPlatformStatus()])
+    await Promise.all([loadSites(), loadUsers(), loadSubdomains(), loadDbLinks(), loadDatabases(), loadPackages(), loadPlatformStatus(), loadPhpVersions()])
     if (!advancedDomain.value) {
       advancedDomain.value = parentDomains.value[0] || ''
     }
