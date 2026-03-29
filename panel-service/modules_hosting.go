@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -1248,16 +1249,38 @@ func (s *service) handleMailWebmailConsume(w http.ResponseWriter, r *http.Reques
 		_, _ = w.Write([]byte("<html><body><h1>Webmail token expired</h1></body></html>"))
 		return
 	}
-	baseURL := strings.TrimSpace(os.Getenv("AURAPANEL_WEBMAIL_BASE_URL"))
-	if baseURL == "" {
-		baseURL = "/webmail/"
-	}
+	baseURL := resolveWebmailBaseURL(r)
 	if strings.Contains(baseURL, "?") {
 		baseURL += "&"
 	} else {
 		baseURL += "?"
 	}
 	http.Redirect(w, r, fmt.Sprintf("%s_task=login&_action=login&_user=%s&_autologin_token=%s", baseURL, url.QueryEscape(item.Address), url.QueryEscape(token)), http.StatusFound)
+}
+
+func resolveWebmailBaseURL(r *http.Request) string {
+	baseURL := strings.TrimSpace(os.Getenv("AURAPANEL_WEBMAIL_BASE_URL"))
+	if baseURL != "" {
+		return baseURL
+	}
+
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		return "/webmail/index.php"
+	}
+
+	originalHost := host
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil && parsedHost != "" {
+		host = parsedHost
+	}
+
+	scheme := "https"
+	if strings.EqualFold(host, "localhost") || host == "127.0.0.1" || host == "::1" {
+		scheme = "http"
+		host = originalHost
+	}
+
+	return fmt.Sprintf("%s://%s/webmail/index.php", scheme, host)
 }
 
 func (s *service) handleMailWebmailVerify(w http.ResponseWriter, r *http.Request) {

@@ -636,14 +636,11 @@ passdb {
 }
 
 userdb {
-  driver = passwd-file
-  args = username_format=%u /etc/dovecot/users
+  driver = static
+  args = uid=${vmail_uid} gid=${vmail_gid} home=${vmail_base}/%d/%n allow_all_users=yes
 }
 
-mail_uid = ${vmail_uid}
-mail_gid = ${vmail_gid}
-mail_home = ${vmail_base}/%d/%n
-mail_location = maildir:~/Maildir
+mail_location = maildir:${vmail_base}/%d/%n
 
 plugin {
   quota = maildir:User quota

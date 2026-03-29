@@ -447,6 +447,77 @@ func mailVmailGID() int {
 	return value
 }
 
+func ensureMailRuntimeBaseline() error {
+	if !mailProvisioningAvailable() {
+		return nil
+	}
+
+	vmailUID := mailVmailUID()
+	vmailGID := mailVmailGID()
+	vmailBase := mailVmailBaseDir()
+
+	if err := os.MkdirAll(vmailBase, 0750); err != nil {
+		return err
+	}
+	_ = os.Chown(vmailBase, vmailUID, vmailGID)
+
+	for _, path := range []string{"/etc/dovecot", "/etc/dovecot/conf.d", "/etc/postfix"} {
+		if err := os.MkdirAll(path, 0755); err != nil {
+			return err
+		}
+	}
+
+	for _, path := range []string{vmailUsersFilePath(), "/etc/dovecot/master-users", postfixVmailboxPath(), postfixVmailboxDomainsPath(), postfixVirtualPath(), postfixVirtualRegexpPath()} {
+		file, err := os.OpenFile(path, os.O_CREATE, 0640)
+		if err != nil {
+			return err
+		}
+		_ = file.Close()
+	}
+
+	dovecotConf := fmt.Sprintf(`auth_master_user_separator = *
+
+passdb {
+  driver = passwd-file
+  args = /etc/dovecot/master-users
+  master = yes
+  pass = yes
+}
+
+passdb {
+  driver = passwd-file
+  args = scheme=SHA512-CRYPT username_format=%%u %s
+}
+
+mail_location = maildir:%s/%%d/%%n
+
+userdb {
+  driver = static
+  args = uid=%d gid=%d home=%s/%%d/%%n allow_all_users=yes
+}
+`, vmailUsersFilePath(), vmailBase, vmailUID, vmailGID, vmailBase)
+	if err := os.WriteFile("/etc/dovecot/conf.d/90-aurapanel-vmail.conf", []byte(dovecotConf), 0644); err != nil {
+		return err
+	}
+
+	postfixSettings := []string{
+		fmt.Sprintf("virtual_mailbox_base=%s", vmailBase),
+		fmt.Sprintf("virtual_mailbox_domains=hash:%s", postfixVmailboxDomainsPath()),
+		fmt.Sprintf("virtual_mailbox_maps=hash:%s", postfixVmailboxPath()),
+		fmt.Sprintf("virtual_alias_maps=hash:%s,regexp:%s", postfixVirtualPath(), postfixVirtualRegexpPath()),
+		fmt.Sprintf("virtual_minimum_uid=%d", vmailUID),
+		fmt.Sprintf("virtual_uid_maps=static:%d", vmailUID),
+		fmt.Sprintf("virtual_gid_maps=static:%d", vmailGID),
+	}
+	for _, setting := range postfixSettings {
+		if err := exec.Command("postconf", "-e", setting).Run(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func provisionMailDomain(domain string) error {
 	if !mailProvisioningAvailable() {
 		return nil
@@ -603,6 +674,9 @@ func setSystemCatchAll(domain, target string, enabled bool) error {
 }
 
 func reloadMailRuntime() error {
+	if err := ensureMailRuntimeBaseline(); err != nil {
+		return err
+	}
 	for _, mapPath := range []string{postfixVmailboxDomainsPath(), postfixVmailboxPath(), postfixVirtualPath()} {
 		_ = exec.Command("postmap", mapPath).Run()
 	}
