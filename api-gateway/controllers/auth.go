@@ -61,11 +61,54 @@ func devSimulationEnabled() bool {
 	return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on"
 }
 
+func gatewayEnvPath() string {
+	if path := strings.TrimSpace(os.Getenv("AURAPANEL_GATEWAY_ENV_PATH")); path != "" {
+		return path
+	}
+	return "/etc/aurapanel/aurapanel.env"
+}
+
+func initialPasswordPath() string {
+	if path := strings.TrimSpace(os.Getenv("AURAPANEL_INITIAL_PASSWORD_FILE")); path != "" {
+		return path
+	}
+	return "/opt/aurapanel/logs/initial_password.txt"
+}
+
+func readEnvFileValue(path, key string) string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	prefix := key + "="
+	for _, line := range strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(trimmed, prefix))
+		}
+	}
+	return ""
+}
+
 func loadAdminCredentials() (adminCredentials, error) {
+	envEmail := strings.TrimSpace(os.Getenv("AURAPANEL_ADMIN_EMAIL"))
+	envPasswordHash := strings.TrimSpace(os.Getenv("AURAPANEL_ADMIN_PASSWORD_BCRYPT"))
+	envPasswordText := strings.TrimSpace(os.Getenv("AURAPANEL_ADMIN_PASSWORD"))
 	creds := adminCredentials{
-		email:        strings.TrimSpace(os.Getenv("AURAPANEL_ADMIN_EMAIL")),
-		passwordHash: strings.TrimSpace(os.Getenv("AURAPANEL_ADMIN_PASSWORD_BCRYPT")),
-		passwordText: strings.TrimSpace(os.Getenv("AURAPANEL_ADMIN_PASSWORD")),
+		email:        envEmail,
+		passwordHash: envPasswordHash,
+		passwordText: envPasswordText,
+	}
+
+	if creds.email == "" {
+		creds.email = readEnvFileValue(gatewayEnvPath(), "AURAPANEL_ADMIN_EMAIL")
+	}
+	if envPasswordHash == "" && envPasswordText == "" {
+		creds.passwordHash = readEnvFileValue(gatewayEnvPath(), "AURAPANEL_ADMIN_PASSWORD_BCRYPT")
+		creds.passwordText = readEnvFileValue(gatewayEnvPath(), "AURAPANEL_ADMIN_PASSWORD")
 	}
 
 	if creds.email == "" {
@@ -73,7 +116,7 @@ func loadAdminCredentials() (adminCredentials, error) {
 	}
 
 	if creds.passwordHash == "" && creds.passwordText == "" {
-		passwordFile := "/opt/aurapanel/logs/initial_password.txt"
+		passwordFile := initialPasswordPath()
 		if raw, err := os.ReadFile(passwordFile); err == nil {
 			creds.passwordText = strings.TrimSpace(string(raw))
 		}

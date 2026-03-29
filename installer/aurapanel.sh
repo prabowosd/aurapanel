@@ -208,6 +208,25 @@ install_optional_packages() {
   fi
 }
 
+systemd_unit_exists() {
+  local unit="$1"
+  local load_state=""
+  if [ -z "${unit}" ]; then
+    return 1
+  fi
+
+  if systemctl list-unit-files --full --all "${unit}" 2>/dev/null | awk '{print $1}' | grep -Fxq "${unit}"; then
+    return 0
+  fi
+
+  load_state="$(systemctl show -p LoadState --value "${unit}" 2>/dev/null | tr -d '\r')"
+  if [ -n "${load_state}" ] && [ "${load_state}" != "not-found" ]; then
+    return 0
+  fi
+
+  systemctl cat "${unit}" >/dev/null 2>&1
+}
+
 install_pdns_policy_guard() {
   if [ "${PKG_MGR}" != "apt" ]; then
     return 0
@@ -674,7 +693,8 @@ configure_pureftpd() {
   touch /etc/pure-ftpd/pureftpd.passwd
   pure-pw mkdb /etc/pure-ftpd/pureftpd.pdb -f /etc/pure-ftpd/pureftpd.passwd >/dev/null 2>&1 || true
 
-  if systemctl list-unit-files | grep -q '^pure-ftpd\.service'; then
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  if systemd_unit_exists "pure-ftpd.service"; then
     systemctl enable pure-ftpd >/dev/null 2>&1 || true
     systemctl restart pure-ftpd >/dev/null 2>&1 || true
     ok "PureFTPd service enabled and restarted."
@@ -1667,9 +1687,11 @@ EOF
 
 enable_stack_services() {
   local services=(mariadb postgresql redis-server redis docker fail2ban pdns pure-ftpd postfix dovecot aurapanel-htaccess-watcher)
+  local unit=""
 
   for svc in "${services[@]}"; do
-    if systemctl list-unit-files | grep -qE "^${svc}\\.service"; then
+    unit="${svc}.service"
+    if systemd_unit_exists "${unit}"; then
       systemctl enable "${svc}" >/dev/null 2>&1 || true
       systemctl restart "${svc}" >/dev/null 2>&1 || true
     fi
@@ -1807,13 +1829,13 @@ smoke_check() {
   systemctl is-active --quiet aurapanel-api || fail "aurapanel-api is not active"
   systemctl is-active --quiet lshttpd || fail "lshttpd is not active"
   systemctl is-active --quiet minio || fail "minio is not active"
-  if systemctl list-unit-files | grep -q '^pure-ftpd\.service'; then
+  if systemd_unit_exists "pure-ftpd.service"; then
     systemctl is-active --quiet pure-ftpd || fail "pure-ftpd is not active"
   fi
-  if systemctl list-unit-files | grep -q '^postfix\.service'; then
+  if systemd_unit_exists "postfix.service"; then
     systemctl is-active --quiet postfix || fail "postfix is not active"
   fi
-  if systemctl list-unit-files | grep -q '^dovecot\.service'; then
+  if systemd_unit_exists "dovecot.service"; then
     systemctl is-active --quiet dovecot || fail "dovecot is not active"
   fi
   if command -v ufw >/dev/null 2>&1; then

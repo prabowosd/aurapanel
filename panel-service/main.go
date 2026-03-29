@@ -28,6 +28,8 @@ const (
 	defaultGatewayPort  = 8090
 	currentPanelVersion = "Aura Panel V1"
 	updateCacheTTL      = 15 * time.Minute
+	defaultAdminEmail   = "admin@server.com"
+	defaultAdminPass    = "password123"
 )
 
 type apiResponse struct {
@@ -1125,7 +1127,45 @@ func (s *service) handleUsersChangePassword(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusNotFound, "User not found.")
 		return
 	}
-	user.PasswordHash = mustHashPassword(payload.NewPassword)
+
+	adminEmail, _ := loadAdminSeedCredentials()
+	oldHash := user.PasswordHash
+	newHash := mustHashPassword(payload.NewPassword)
+	shouldSyncAdminArtifacts := isSeedAdminUser(*user, adminEmail)
+	rollbackEnv := func() {}
+
+	user.PasswordHash = newHash
+	if shouldSyncAdminArtifacts {
+		oldEmail := firstNonEmpty(
+			readEnvFileValue(adminGatewayEnvPath(), "AURAPANEL_ADMIN_EMAIL"),
+			strings.TrimSpace(user.Email),
+			defaultAdminEmail,
+		)
+		oldPassword := firstNonEmpty(
+			readEnvFileValue(adminGatewayEnvPath(), "AURAPANEL_ADMIN_PASSWORD"),
+			readTrimmedFile(adminInitialPasswordPath()),
+		)
+		oldHashValue := firstNonEmpty(
+			readEnvFileValue(adminGatewayEnvPath(), "AURAPANEL_ADMIN_PASSWORD_BCRYPT"),
+			oldHash,
+		)
+		rollbackEnv = func() {
+			_ = syncAdminCredentialArtifacts(oldEmail, oldPassword, oldHashValue)
+		}
+		if err := syncAdminCredentialArtifacts(strings.TrimSpace(user.Email), payload.NewPassword, newHash); err != nil {
+			user.PasswordHash = oldHash
+			writeError(w, http.StatusInternalServerError, "Admin credential artifacts could not be synchronized.")
+			return
+		}
+	}
+
+	if err := s.saveRuntimeStateLocked(); err != nil {
+		user.PasswordHash = oldHash
+		rollbackEnv()
+		writeError(w, http.StatusInternalServerError, "Password update could not be persisted.")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Password updated."})
 }
 
@@ -2403,6 +2443,60 @@ func writeEnvFileValues(path string, updates map[string]string) error {
 	return os.Rename(tempPath, path)
 }
 
+func adminGatewayEnvPath() string {
+	return firstNonEmpty(strings.TrimSpace(os.Getenv("AURAPANEL_GATEWAY_ENV_PATH")), "/etc/aurapanel/aurapanel.env")
+}
+
+func adminServiceEnvPath() string {
+	return firstNonEmpty(strings.TrimSpace(os.Getenv("AURAPANEL_SERVICE_ENV_PATH")), "/etc/aurapanel/aurapanel-service.env")
+}
+
+func adminInitialPasswordPath() string {
+	return firstNonEmpty(strings.TrimSpace(os.Getenv("AURAPANEL_INITIAL_PASSWORD_FILE")), "/opt/aurapanel/logs/initial_password.txt")
+}
+
+func writeAdminPasswordFile(password string) error {
+	path := adminInitialPasswordPath()
+	password = strings.TrimSpace(password)
+	if password == "" {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(password+"\n"), 0o600)
+}
+
+func syncAdminCredentialArtifacts(email, password, passwordHash string) error {
+	email = firstNonEmpty(strings.TrimSpace(email), defaultAdminEmail)
+	password = strings.TrimSpace(password)
+	passwordHash = strings.TrimSpace(passwordHash)
+	if passwordHash == "" {
+		return fmt.Errorf("admin password hash is required")
+	}
+
+	updates := map[string]string{
+		"AURAPANEL_ADMIN_EMAIL":           email,
+		"AURAPANEL_ADMIN_PASSWORD":        password,
+		"AURAPANEL_ADMIN_PASSWORD_BCRYPT": passwordHash,
+	}
+	for _, path := range []string{adminGatewayEnvPath(), adminServiceEnvPath()} {
+		if err := writeEnvFileValues(path, updates); err != nil {
+			return err
+		}
+	}
+	if err := writeAdminPasswordFile(password); err != nil {
+		return err
+	}
+	_ = os.Setenv("AURAPANEL_ADMIN_EMAIL", email)
+	_ = os.Setenv("AURAPANEL_ADMIN_PASSWORD", password)
+	_ = os.Setenv("AURAPANEL_ADMIN_PASSWORD_BCRYPT", passwordHash)
+	return nil
+}
+
 func readTrimmedFile(path string) string {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -2412,31 +2506,31 @@ func readTrimmedFile(path string) string {
 }
 
 func loadAdminSeedCredentials() (string, string) {
-	const (
-		gatewayEnvPath      = "/etc/aurapanel/aurapanel.env"
-		initialPasswordPath = "/opt/aurapanel/logs/initial_password.txt"
-		defaultAdminEmail   = "admin@server.com"
-		defaultAdminPass    = "password123"
-	)
+	envAdminEmail := strings.TrimSpace(os.Getenv("AURAPANEL_ADMIN_EMAIL"))
+	envAdminHash := strings.TrimSpace(os.Getenv("AURAPANEL_ADMIN_PASSWORD_BCRYPT"))
+	envAdminPassword := strings.TrimSpace(os.Getenv("AURAPANEL_ADMIN_PASSWORD"))
 
 	adminEmail := firstNonEmpty(
-		strings.TrimSpace(os.Getenv("AURAPANEL_ADMIN_EMAIL")),
-		readEnvFileValue(gatewayEnvPath, "AURAPANEL_ADMIN_EMAIL"),
+		envAdminEmail,
+		readEnvFileValue(adminGatewayEnvPath(), "AURAPANEL_ADMIN_EMAIL"),
 		defaultAdminEmail,
 	)
 
-	adminHash := firstNonEmpty(
-		strings.TrimSpace(os.Getenv("AURAPANEL_ADMIN_PASSWORD_BCRYPT")),
-		readEnvFileValue(gatewayEnvPath, "AURAPANEL_ADMIN_PASSWORD_BCRYPT"),
-	)
+	if envAdminHash != "" {
+		return adminEmail, envAdminHash
+	}
+	if envAdminPassword != "" {
+		return adminEmail, mustHashPassword(envAdminPassword)
+	}
+
+	adminHash := strings.TrimSpace(readEnvFileValue(adminGatewayEnvPath(), "AURAPANEL_ADMIN_PASSWORD_BCRYPT"))
 	if adminHash != "" {
 		return adminEmail, adminHash
 	}
 
 	adminPassword := firstNonEmpty(
-		strings.TrimSpace(os.Getenv("AURAPANEL_ADMIN_PASSWORD")),
-		readEnvFileValue(gatewayEnvPath, "AURAPANEL_ADMIN_PASSWORD"),
-		readTrimmedFile(initialPasswordPath),
+		readEnvFileValue(adminGatewayEnvPath(), "AURAPANEL_ADMIN_PASSWORD"),
+		readTrimmedFile(adminInitialPasswordPath()),
 		defaultAdminPass,
 	)
 
