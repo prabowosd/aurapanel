@@ -2083,6 +2083,7 @@ func (s *service) ensureDNSArtifactsLocked(domain string, mailDomain bool) {
 			NS2: fmt.Sprintf("ns2.%s", normalizedDomain),
 		}
 	}
+	_ = syncPowerDNSZone(normalizedDomain, s.modules.DNSRecords[normalizedDomain], s.modules.DefaultNameservers.NS1, s.modules.DefaultNameservers.NS2)
 }
 
 func (s *service) upsertDNSRecordLocked(domain string, record DNSRecord) {
@@ -2131,6 +2132,7 @@ func (s *service) ensureMailArtifactsLocked(site Website) {
 }
 
 func (s *service) removeDNSArtifactsLocked(domain string) {
+	_ = removePowerDNSZone(domain)
 	filteredZones := s.modules.DNSZones[:0]
 	for _, zone := range s.modules.DNSZones {
 		if zone.Name != domain {

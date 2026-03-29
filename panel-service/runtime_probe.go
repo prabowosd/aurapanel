@@ -129,9 +129,14 @@ func collectHostServices() []ServiceStatus {
 		{Name: "openlitespeed", Desc: "OpenLiteSpeed web server", Units: []string{"lshttpd", "openlitespeed", "lsws"}},
 		{Name: "mariadb", Desc: "MariaDB database engine", Units: []string{"mariadb"}},
 		{Name: "postgresql", Desc: "PostgreSQL database engine", Units: []string{"postgresql"}},
+		{Name: "redis", Desc: "Redis in-memory data store", Units: []string{"redis-server", "redis"}},
+		{Name: "docker", Desc: "Docker container runtime", Units: []string{"docker"}},
+		{Name: "fail2ban", Desc: "Fail2Ban intrusion prevention", Units: []string{"fail2ban"}},
+		{Name: "pdns", Desc: "PowerDNS authoritative daemon", Units: []string{"pdns"}},
 		{Name: "postfix", Desc: "Postfix mail transport", Units: []string{"postfix"}},
 		{Name: "dovecot", Desc: "Dovecot mail access", Units: []string{"dovecot"}},
 		{Name: "pure-ftpd", Desc: "FTP service", Units: []string{"pure-ftpd"}},
+		{Name: "minio", Desc: "MinIO object storage", Units: []string{"minio"}},
 	}
 
 	services := make([]ServiceStatus, 0, len(candidates))
@@ -231,15 +236,40 @@ func serviceUnitName(serviceName string) (string, bool) {
 		return "mariadb.service", true
 	case "postgresql":
 		return "postgresql.service", true
+	case "redis":
+		if systemctlUnitExists("redis-server.service") {
+			return "redis-server.service", true
+		}
+		return "redis.service", true
+	case "docker":
+		return "docker.service", true
+	case "fail2ban":
+		return "fail2ban.service", true
+	case "pdns":
+		return "pdns.service", true
 	case "postfix":
 		return "postfix.service", true
 	case "dovecot":
 		return "dovecot.service", true
 	case "pure-ftpd":
 		return "pure-ftpd.service", true
+	case "minio":
+		return "minio.service", true
 	default:
 		return "", false
 	}
+}
+
+func systemctlUnitExists(unit string) bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	cmd := exec.Command("systemctl", "list-unit-files", unit)
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(output), unit)
 }
 
 func detectSystemdStatus(units ...string) (string, bool) {

@@ -689,7 +689,7 @@ func upsertSystemMailbox(address, password string) error {
 	if err := upsertPasswdFileLine(vmailUsersFilePath(), address, "{SHA512-CRYPT}"+hashed); err != nil {
 		return err
 	}
-	if err := upsertSimpleMapLine(postfixVmailboxPath(), address, fmt.Sprintf("%s/%s/", domain, username)); err != nil {
+	if err := upsertSimpleMapLine(postfixVmailboxPath(), address, fmt.Sprintf("%s/%s/Maildir/", domain, username)); err != nil {
 		return err
 	}
 
@@ -766,13 +766,57 @@ func reloadMailRuntime() error {
 	if err := ensureMailRuntimeBaseline(); err != nil {
 		return err
 	}
+	if err := normalizeVmailboxMaildirMappings(); err != nil {
+		return err
+	}
 	for _, mapPath := range []string{postfixVmailboxDomainsPath(), postfixVmailboxPath(), postfixVirtualPath()} {
 		_ = exec.Command("postmap", mapPath).Run()
+		ensurePostfixMapReadable(mapPath + ".db")
 	}
 	for _, unit := range []string{"postfix", "dovecot"} {
 		_ = exec.Command("systemctl", "restart", unit).Run()
 	}
 	return nil
+}
+
+func normalizeVmailboxMaildirMappings() error {
+	items := parseSimpleMapFile(postfixVmailboxPath())
+	changed := false
+	for key, value := range items {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" || strings.Contains(trimmed, " ") {
+			continue
+		}
+		for strings.Contains(trimmed, "/Maildir/Maildir/") {
+			trimmed = strings.ReplaceAll(trimmed, "/Maildir/Maildir/", "/Maildir/")
+			items[key] = trimmed
+			changed = true
+		}
+		if strings.HasSuffix(trimmed, "/Maildir/") {
+			continue
+		}
+		if strings.HasSuffix(trimmed, "/") {
+			items[key] = trimmed + "Maildir/"
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return writeSimpleMapFile(postfixVmailboxPath(), items)
+}
+
+func ensurePostfixMapReadable(path string) {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return
+	}
+	_ = os.Chmod(path, 0644)
+	if grp, lookupErr := user.LookupGroup("postfix"); lookupErr == nil {
+		if gid, convErr := strconv.Atoi(grp.Gid); convErr == nil {
+			_ = os.Chown(path, -1, gid)
+		}
+	}
 }
 
 func hashMailPassword(password string) (string, error) {

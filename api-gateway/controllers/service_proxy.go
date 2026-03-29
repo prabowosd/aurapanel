@@ -54,9 +54,21 @@ func NewServiceProxy() (http.Handler, error) {
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
+		incomingHost := strings.TrimSpace(req.Host)
+		forwardedProto := firstForwardedValue(req.Header.Get("X-Forwarded-Proto"))
+		if forwardedProto == "" {
+			if req.TLS != nil {
+				forwardedProto = "https"
+			} else {
+				forwardedProto = "http"
+			}
+		}
 		originalDirector(req)
 		req.Host = target.Host
-		req.Header.Set("X-Forwarded-Host", req.Host)
+		if incomingHost != "" {
+			req.Header.Set("X-Forwarded-Host", incomingHost)
+		}
+		req.Header.Set("X-Forwarded-Proto", forwardedProto)
 		
 		// The standard ReverseProxy handles websockets automatically in Go 1.12+,
 		// we just need to make sure we don't accidentally buffer or block the upgrade.
@@ -86,6 +98,17 @@ func isWebsocketUpgrade(r *http.Request) bool {
 	upgrade := strings.ToLower(strings.TrimSpace(r.Header.Get("Upgrade")))
 	connection := strings.ToLower(strings.TrimSpace(r.Header.Get("Connection")))
 	return upgrade == "websocket" || strings.Contains(connection, "upgrade")
+}
+
+func firstForwardedValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if idx := strings.Index(value, ","); idx >= 0 {
+		value = value[:idx]
+	}
+	return strings.TrimSpace(value)
 }
 
 var ErrNonLoopbackServiceTarget = &serviceProxyPolicyError{msg: "gateway-only mode requires loopback AURAPANEL_SERVICE_URL"}

@@ -1250,7 +1250,7 @@ func (s *service) handleMailWebmailConsume(w http.ResponseWriter, r *http.Reques
 		_, _ = w.Write([]byte("<html><body><h1>Webmail token expired</h1></body></html>"))
 		return
 	}
-	baseURL := resolveWebmailBaseURL(r)
+	baseURL := s.resolveWebmailBaseURL(r)
 	if strings.Contains(baseURL, "?") {
 		baseURL += "&"
 	} else {
@@ -1259,13 +1259,37 @@ func (s *service) handleMailWebmailConsume(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, fmt.Sprintf("%s_task=login&_action=login&_user=%s&_autologin_token=%s", baseURL, url.QueryEscape(item.Address), url.QueryEscape(token)), http.StatusFound)
 }
 
-func resolveWebmailBaseURL(r *http.Request) string {
+func (s *service) resolveWebmailBaseURL(r *http.Request) string {
 	baseURL := strings.TrimSpace(os.Getenv("AURAPANEL_WEBMAIL_BASE_URL"))
 	if baseURL != "" {
 		return baseURL
 	}
 
-	host := strings.TrimSpace(r.Host)
+	s.mu.RLock()
+	websiteDomain := ""
+	for _, site := range s.state.Websites {
+		domain := normalizeDomain(site.Domain)
+		if domain == "" {
+			continue
+		}
+		if certPath, keyPath := findCertificatePair(domain); certPath != "" && keyPath != "" {
+			websiteDomain = domain
+			break
+		}
+	}
+	hostnameSSLDomain := normalizeDomain(s.modules.SSLBindings.HostnameSSLDomain)
+	s.mu.RUnlock()
+	if websiteDomain != "" {
+		return fmt.Sprintf("https://%s/webmail/index.php", websiteDomain)
+	}
+	if hostnameSSLDomain != "" {
+		return fmt.Sprintf("https://%s/webmail/index.php", hostnameSSLDomain)
+	}
+
+	host := forwardedHeaderValue(r.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = strings.TrimSpace(r.Host)
+	}
 	if host == "" {
 		return "/webmail/index.php"
 	}
@@ -1275,13 +1299,27 @@ func resolveWebmailBaseURL(r *http.Request) string {
 		host = parsedHost
 	}
 
-	scheme := "https"
+	scheme := forwardedHeaderValue(r.Header.Get("X-Forwarded-Proto"))
+	if scheme == "" {
+		scheme = "https"
+	}
 	if strings.EqualFold(host, "localhost") || host == "127.0.0.1" || host == "::1" {
 		scheme = "http"
 		host = originalHost
 	}
 
 	return fmt.Sprintf("%s://%s/webmail/index.php", scheme, host)
+}
+
+func forwardedHeaderValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if idx := strings.Index(value, ","); idx >= 0 {
+		value = value[:idx]
+	}
+	return strings.TrimSpace(value)
 }
 
 func (s *service) handleMailWebmailVerify(w http.ResponseWriter, r *http.Request) {

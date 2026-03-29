@@ -305,6 +305,13 @@ func renderOLSVhostConfig(item olsManagedSite) string {
 	builder.WriteString("  }\n")
 	builder.WriteString("  forceStrict             0\n")
 	builder.WriteString("}\n\n")
+	builder.WriteString("context /webmail/ {\n")
+	builder.WriteString("  location                /usr/local/lsws/Example/html/webmail/\n")
+	builder.WriteString("  allowBrowse             1\n")
+	builder.WriteString("  rewrite  {\n")
+	builder.WriteString("    enable                0\n")
+	builder.WriteString("  }\n")
+	builder.WriteString("}\n\n")
 
 	builder.WriteString("extProcessor " + socketName + "{\n")
 	builder.WriteString("  type                    lsapi\n")
@@ -334,14 +341,19 @@ func renderOLSVhostConfig(item olsManagedSite) string {
 		builder.WriteString("  php_admin_value open_basedir \"" + olsOpenBasedirValue(item.Site.Domain) + "\"\n")
 	}
 	builder.WriteString("}\n\n")
+	certPath, keyPath := findCertificatePair(item.Site.Domain)
 	builder.WriteString("rewrite  {\n")
 	builder.WriteString("  enable                  1\n")
 	builder.WriteString("  autoLoadHtaccess        1\n")
+	if certPath != "" && keyPath != "" {
+		builder.WriteString("  RewriteCond %{HTTPS} !=on\n")
+		builder.WriteString("  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]\n")
+	}
 	if !strings.EqualFold(item.Site.Status, "active") {
 		builder.WriteString("  RewriteRule ^(.*)$ - [F,L]\n")
 	}
 	builder.WriteString("}\n\n")
-	if certPath, keyPath := findCertificatePair(item.Site.Domain); certPath != "" && keyPath != "" {
+	if certPath != "" && keyPath != "" {
 		builder.WriteString("vhssl  {\n")
 		builder.WriteString("  keyFile                 " + filepath.ToSlash(keyPath) + "\n")
 		builder.WriteString("  certFile                " + filepath.ToSlash(certPath) + "\n")
@@ -358,7 +370,7 @@ func renderOLSVhostConfig(item olsManagedSite) string {
 
 func olsOpenBasedirValue(domain string) string {
 	domain = normalizeDomain(domain)
-	return fmt.Sprintf("/home/%s/:/home/%s/public_html/:/tmp:/var/tmp:/usr/local/lib/php/:/dev/urandom", domain, domain)
+	return fmt.Sprintf("/home/%s/:/home/%s/public_html/:/tmp:/var/tmp:/usr/local/lib/php/:/dev/urandom:/usr/local/lsws/Example/html/webmail/:/usr/local/lsws/Example/html/webmail/temp/:/usr/local/lsws/Example/html/webmail/logs/", domain, domain)
 }
 
 func renderOLSHTTPDConfig(current string, sites []olsManagedSite) (string, error) {

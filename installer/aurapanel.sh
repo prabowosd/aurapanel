@@ -217,7 +217,7 @@ configure_powerdns() {
     return 0
   fi
 
-  local schema_file db_path backend_conf
+  local schema_file db_path backend_conf public_ip
   db_path="/var/lib/powerdns/aurapanel.sqlite3"
   backend_conf="/etc/powerdns/pdns.d/aurapanel-gsqlite3.conf"
 
@@ -233,17 +233,28 @@ configure_powerdns() {
         break
       fi
     done
-    if [ -n "${schema_file}" ] && command -v sqlite3 >/dev/null 2>&1; then
+  if [ -n "${schema_file}" ] && command -v sqlite3 >/dev/null 2>&1; then
       sqlite3 "${db_path}" < "${schema_file}" >/dev/null 2>&1 || warn "PowerDNS SQLite schema bootstrap failed."
     else
       warn "PowerDNS SQLite schema file not found; service may require manual backend initialization."
     fi
+  fi
+  if id -u pdns >/dev/null 2>&1; then
+    chown -R pdns:pdns /var/lib/powerdns >/dev/null 2>&1 || true
+    chmod 660 "${db_path}" >/dev/null 2>&1 || true
+  fi
+
+  public_ip="$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')"
+  if [ -z "${public_ip}" ]; then
+    public_ip="$(hostname -I 2>/dev/null | awk '{print $1; exit}')"
   fi
 
   cat <<EOF > "${backend_conf}"
 launch=gsqlite3
 gsqlite3-database=${db_path}
 api=no
+local-port=53
+local-address=${public_ip:-0.0.0.0}
 EOF
 
   if systemctl list-unit-files | grep -q '^pdns\.service'; then
@@ -575,7 +586,7 @@ Requires=lshttpd.service
 
 [Service]
 Type=simple
-ExecStart=/bin/bash -lc 'inotifywait -m -r -e close_write,create,delete,move --format "%w%f" /home | while read -r changed; do case "$changed" in */.htaccess) /usr/local/lsws/bin/lswsctrl reload >/dev/null 2>&1 || true ;; esac; done'
+ExecStart=/bin/bash -lc 'inotifywait -m -r -e close_write,create,delete,move --format "%%w%%f" /home | while read -r changed; do case "$changed" in */.htaccess) /usr/local/lsws/bin/lswsctrl reload >/dev/null 2>&1 || true ;; esac; done'
 Restart=always
 RestartSec=2
 
@@ -699,10 +710,35 @@ EOF
   chown -R "${webmail_owner}:${webmail_group}" "${webmail_dir}" >/dev/null 2>&1 || true
   chmod 750 "${webmail_dir}/logs" "${webmail_dir}/temp" >/dev/null 2>&1 || true
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_BACKEND" "vmail"
-  delete_env "${SERVICE_ENV_FILE}" "AURAPANEL_WEBMAIL_BASE_URL"
 
   rm -rf "${tmpdir}"
   ok "Roundcube setup completed at ${webmail_dir}"
+}
+
+configure_ols_webmail_route() {
+  local example_vh="/usr/local/lsws/conf/vhosts/Example/vhconf.conf"
+
+  if [ ! -f "${example_vh}" ]; then
+    warn "Example vhost config not found. Roundcube route bootstrap skipped."
+    return 0
+  fi
+
+  sed -i 's/indexFiles index.html/indexFiles index.php, index.html/' "${example_vh}" >/dev/null 2>&1 || true
+
+  if ! grep -q '# AURAPANEL WEBMAIL BEGIN' "${example_vh}" 2>/dev/null; then
+    cat <<'EOF' >> "${example_vh}"
+
+# AURAPANEL WEBMAIL BEGIN
+context /webmail/{
+  allowBrowse 1
+  location /usr/local/lsws/Example/html/webmail/
+}
+# AURAPANEL WEBMAIL END
+EOF
+  fi
+
+  /usr/local/lsws/bin/lswsctrl restart >/dev/null 2>&1 || true
+  ok "OpenLiteSpeed webmail route ensured."
 }
 
 configure_mail_stack_vmail() {
@@ -758,6 +794,10 @@ EOF
     postmap /etc/postfix/vmailbox_domains >/dev/null 2>&1 || true
     postmap /etc/postfix/vmailbox >/dev/null 2>&1 || true
     postmap /etc/postfix/virtual >/dev/null 2>&1 || true
+    chmod 644 /etc/postfix/vmailbox_domains.db /etc/postfix/vmailbox.db /etc/postfix/virtual.db >/dev/null 2>&1 || true
+    if getent group postfix >/dev/null 2>&1; then
+      chgrp postfix /etc/postfix/vmailbox_domains.db /etc/postfix/vmailbox.db /etc/postfix/virtual.db >/dev/null 2>&1 || true
+    fi
   fi
 
   cat <<EOF >/etc/dovecot/conf.d/90-aurapanel-vmail.conf
@@ -1428,7 +1468,6 @@ EOF
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_BACKUP_MINIO_ENDPOINT" "http://127.0.0.1:9000"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_BACKUP_MINIO_BUCKET" "aurapanel-backups"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_BACKEND" "vmail"
-  delete_env "${SERVICE_ENV_FILE}" "AURAPANEL_WEBMAIL_BASE_URL"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_UID" "5000"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_GID" "5000"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_BASE" "/var/mail/vhosts"
@@ -1658,7 +1697,7 @@ smoke_check() {
   curl -fsS "http://127.0.0.1:${panel_port}/api/health" >/dev/null || fail "Gateway health check failed"
   curl -fsS "http://127.0.0.1:${panel_port}/" >/dev/null || fail "Panel static endpoint failed"
   curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null || fail "MinIO health check failed"
-  curl -fsS 'http://127.0.0.1/webmail/index.php?_task=login' >/dev/null 2>&1 || warn "Roundcube login endpoint check skipped/failed (non-fatal)."
+  curl -fsS 'http://127.0.0.1/webmail/index.php?_task=login' >/dev/null 2>&1 || fail "Roundcube login endpoint failed"
 
   panel_user="$(panel_admin_email)"
   panel_pass="$(panel_admin_password)"
@@ -1758,6 +1797,7 @@ main() {
   configure_powerdns
   configure_minio_service
   configure_roundcube
+  configure_ols_webmail_route
   configure_mail_stack_vmail
   configure_htaccess_watcher
   build_components
