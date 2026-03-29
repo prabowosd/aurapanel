@@ -468,6 +468,50 @@ a {
   line-height: 1.65;
 }
 
+.faq-list {
+  margin: 0.55rem 0 0.7rem;
+  padding-left: 1.1rem;
+  color: var(--text-soft);
+  line-height: 1.62;
+}
+
+.faq-list a {
+  color: #1b59df;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.faq-list a:hover {
+  color: #1148bf;
+}
+
+.install-snippet {
+  margin: 0.7rem 0;
+  border: 1px solid #cfe1ff;
+  background: #f2f7ff;
+  border-radius: 12px;
+  padding: 0.72rem 0.8rem;
+  overflow-x: auto;
+}
+
+.install-snippet code {
+  font-family: "Consolas", "SFMono-Regular", "Courier New", monospace;
+  font-size: 0.86rem;
+  color: #1c3f8b;
+  white-space: pre;
+}
+
+.link-strong {
+  color: #1b59df;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 700;
+}
+
+.link-strong:hover {
+  color: #1148bf;
+}
+
 .cta-strip {
   border: 1px solid var(--line);
   background: linear-gradient(130deg, #ffffff 0%, #f4f8ff 100%);

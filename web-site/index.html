@@ -30,7 +30,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/styles.css?v=20260330b">
+  <link rel="stylesheet" href="/assets/styles.css?v=20260330c">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -56,10 +56,42 @@
     "mainEntity": [
       {
         "@type": "Question",
-        "name": "What is AuraPanel used for?",
+        "name": "How do I install AuraPanel on a fresh Ubuntu host?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "AuraPanel is used to operate hosting workloads including websites, DNS, SSL, mailbox flows, firewall checks and service visibility from one control plane."
+          "text": "Run sudo apt update && sudo apt upgrade -y, then run curl -fsSL https://raw.githubusercontent.com/mkoyazilim/aurapanel/main/install.sh | sudo bash. The installer prepares core services and the panel runtime."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Which ports should be open before installation?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "At minimum keep 22, 80 and 443 open. For panel and mail stack workflows you may also need 7080, 8090, 25, 465, 587, 110, 995, 143 and 993 based on enabled components."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I access the panel after installation?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Open your panel hostname in the browser over HTTPS and login with the admin credentials defined during setup. If login fails, verify service status and firewall reachability."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I issue website SSL from AuraPanel?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "In Manage SSL select your domain, ensure DNS A/AAAA records point to the server, then issue Let's Encrypt SSL. Confirm OpenLiteSpeed runtime is active before reload."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Where are the official AuraPanel GitHub links?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Use https://github.com/mkoyazilim/aurapanel for source code, https://github.com/mkoyazilim/aurapanel/issues for issue tracking, and https://raw.githubusercontent.com/mkoyazilim/aurapanel/main/install.sh for the installer script."
         }
       },
       {
@@ -68,22 +100,6 @@
         "acceptedAnswer": {
           "@type": "Answer",
           "text": "Yes. AuraPanel includes role-based controls and operational guardrails designed for tenant-aware hosting environments."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "Does AuraPanel support OpenLiteSpeed workflows?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "Yes. AuraPanel provides operational integration for OpenLiteSpeed website provisioning, SSL and runtime workflows."
-        }
-      },
-      {
-        "@type": "Question",
-        "name": "Where can I join the AuraPanel community?",
-        "acceptedAnswer": {
-          "@type": "Answer",
-          "text": "You can join through the community page at https://www.aurapanel.info/community.html."
         }
       }
     ]
@@ -110,6 +126,7 @@
         <a href="#reports">Reports</a>
         <a href="#workflow">Workflow</a>
         <a href="#faq">FAQ</a>
+        <a href="#github">GitHub</a>
         <a href="/community.html">Community</a>
         <a class="btn btn-primary nav-join" href="/community.html">Join Community</a>
       </nav>
@@ -292,6 +309,41 @@
         </div>
         <div class="faq-grid">
           <article class="faq-item reveal">
+            <h3>How do I install AuraPanel on a fresh server?</h3>
+            <p>Use a fresh Ubuntu host with sudo/root privileges and run:</p>
+            <pre class="install-snippet"><code>sudo apt update &amp;&amp; sudo apt upgrade -y
+curl -fsSL https://raw.githubusercontent.com/mkoyazilim/aurapanel/main/install.sh | sudo bash</code></pre>
+            <p>After setup, open your panel hostname over HTTPS and login with the configured admin account.</p>
+          </article>
+          <article class="faq-item reveal">
+            <h3>Which ports are required for a standard deployment?</h3>
+            <p>Open required network ports before acceptance tests:</p>
+            <ul class="faq-list">
+              <li>Base access: 22, 80, 443</li>
+              <li>Panel and OLS operations: 7080, 8090</li>
+              <li>Mail stack if enabled: 25, 465, 587, 110, 995, 143, 993</li>
+            </ul>
+            <p>If any required port is blocked, SSL, webmail or panel checks may fail.</p>
+          </article>
+          <article class="faq-item reveal">
+            <h3>How do I issue and verify Let's Encrypt SSL?</h3>
+            <p>In <strong>Manage SSL</strong>, choose the website domain and issue certificate after DNS points to your server IP.</p>
+            <ul class="faq-list">
+              <li>Verify OpenLiteSpeed is running before certificate reload.</li>
+              <li>Check `www` and root domain are mapped to the same vhost.</li>
+              <li>Retest with browser + `https` lock validation after issuance.</li>
+            </ul>
+          </article>
+          <article class="faq-item reveal">
+            <h3>Where are official GitHub links for install and support?</h3>
+            <ul class="faq-list">
+              <li><a href="https://github.com/mkoyazilim/aurapanel" target="_blank" rel="noopener noreferrer">Main Repository</a></li>
+              <li><a href="https://raw.githubusercontent.com/mkoyazilim/aurapanel/main/install.sh" target="_blank" rel="noopener noreferrer">Installer Script (install.sh)</a></li>
+              <li><a href="https://github.com/mkoyazilim/aurapanel/issues" target="_blank" rel="noopener noreferrer">Issue Tracker</a></li>
+              <li><a href="https://github.com/mkoyazilim/aurapanel/blob/main/README.md" target="_blank" rel="noopener noreferrer">Installation Guide (README)</a></li>
+            </ul>
+          </article>
+          <article class="faq-item reveal">
             <h3>What can I manage with AuraPanel?</h3>
             <p>Websites, DNS zones, SSL, mailbox workflows, service health surfaces and operational guardrails.</p>
           </article>
@@ -299,13 +351,36 @@
             <h3>Is AuraPanel suitable for SEO-conscious hosting teams?</h3>
             <p>Yes. Stable SSL, healthy response surfaces, DNS consistency and operational visibility all support technical SEO quality.</p>
           </article>
-          <article class="faq-item reveal">
-            <h3>How do I join early community access?</h3>
-            <p>Visit the community page and submit the join form. The request is stored in the community intake database.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="github" class="section soft-gradient" aria-labelledby="github-title">
+      <div class="container">
+        <div class="section-head reveal">
+          <p class="eyebrow">GitHub</p>
+          <h2 id="github-title">Official AuraPanel sources, installer and support channels.</h2>
+        </div>
+        <div class="card-grid">
+          <article class="feature-card reveal">
+            <h3>Source Repository</h3>
+            <p>Track releases, commits and project structure.</p>
+            <p><a class="link-strong" href="https://github.com/mkoyazilim/aurapanel" target="_blank" rel="noopener noreferrer">github.com/mkoyazilim/aurapanel</a></p>
           </article>
-          <article class="faq-item reveal">
-            <h3>Does AuraPanel support OpenLiteSpeed?</h3>
-            <p>Yes. Core workflows are aligned with OpenLiteSpeed operations and hosting panel needs.</p>
+          <article class="feature-card reveal">
+            <h3>One-Line Installer</h3>
+            <p>Use the latest official installer script for fresh deployments.</p>
+            <p><a class="link-strong" href="https://raw.githubusercontent.com/mkoyazilim/aurapanel/main/install.sh" target="_blank" rel="noopener noreferrer">raw.githubusercontent.com/.../install.sh</a></p>
+          </article>
+          <article class="feature-card reveal">
+            <h3>Issue Tracker</h3>
+            <p>Report bugs, attach logs and follow fix progress.</p>
+            <p><a class="link-strong" href="https://github.com/mkoyazilim/aurapanel/issues" target="_blank" rel="noopener noreferrer">Open Issues</a></p>
+          </article>
+          <article class="feature-card reveal">
+            <h3>Documentation</h3>
+            <p>Read setup notes and runtime guidance.</p>
+            <p><a class="link-strong" href="https://github.com/mkoyazilim/aurapanel/blob/main/README.md" target="_blank" rel="noopener noreferrer">README</a></p>
           </article>
         </div>
       </div>
@@ -329,10 +404,12 @@
       <div class="footer-links">
         <a href="/">Home</a>
         <a href="/community.html">Community</a>
+        <a href="https://github.com/mkoyazilim/aurapanel" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://raw.githubusercontent.com/mkoyazilim/aurapanel/main/install.sh" target="_blank" rel="noopener noreferrer">Install Script</a>
       </div>
     </div>
   </footer>
 
-  <script src="/assets/app.js?v=20260330b"></script>
+  <script src="/assets/app.js?v=20260330c"></script>
 </body>
 </html>
