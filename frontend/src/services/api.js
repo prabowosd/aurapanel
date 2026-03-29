@@ -11,7 +11,6 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || defaultBaseUrl,
   timeout: 60000, // Increased timeout to 60 seconds for long running tasks like SSL issuance
   headers: {
-    'Content-Type': 'application/json',
     Accept: 'application/json',
   },
 })
@@ -42,6 +41,15 @@ api.interceptors.request.use(config => {
   if (authStore.token) {
     config.headers.Authorization = `Bearer ${authStore.token}`
   }
+
+  const isFormData = typeof FormData !== 'undefined' && config?.data instanceof FormData
+  if (isFormData) {
+    // Let browser/axios generate multipart boundary automatically.
+    delete config.headers['Content-Type']
+  } else if (!config.headers['Content-Type']) {
+    config.headers['Content-Type'] = 'application/json'
+  }
+
   return config
 }, error => Promise.reject(error))
 

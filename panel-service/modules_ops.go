@@ -1089,7 +1089,17 @@ func (s *service) updateMigrationJobProgressLocked(job *MigrationJob) {
 
 func (s *service) handleMigrationUpload(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(64 << 20); err != nil {
-		writeError(w, http.StatusBadRequest, "Migration upload could not be parsed.")
+		errText := strings.ToLower(strings.TrimSpace(err.Error()))
+		switch {
+		case strings.Contains(errText, "multipart"),
+			strings.Contains(errText, "boundary"):
+			writeError(w, http.StatusBadRequest, "Migration upload could not be parsed. Use multipart/form-data upload.")
+		case strings.Contains(errText, "request body too large"),
+			strings.Contains(errText, "too large"):
+			writeError(w, http.StatusRequestEntityTooLarge, "Migration upload is too large for current limits.")
+		default:
+			writeError(w, http.StatusBadRequest, "Migration upload could not be parsed.")
+		}
 		return
 	}
 	file, header, err := r.FormFile("file")
