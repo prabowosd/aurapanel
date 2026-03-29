@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AuraPanel Community | Build Hosting Together</title>
+  <meta name="description" content="Join the AuraPanel community to share hosting practices, roadmap feedback, and production learnings.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./assets/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav-wrap">
+      <a href="./index.html" class="brand" aria-label="AuraPanel home">
+        <span class="brand-dot"></span>
+        <span>AuraPanel</span>
+      </a>
+      <nav class="main-nav" aria-label="Primary navigation">
+        <a href="./index.html#features">Features</a>
+        <a href="./index.html#reports">Reports</a>
+        <a href="./community.html" aria-current="page">Community</a>
+      </nav>
+      <a class="btn btn-secondary" href="./index.html">Back To Home</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero section">
+      <div class="container hero-grid">
+        <div class="hero-copy reveal">
+          <p class="eyebrow">AuraPanel Community</p>
+          <h1>Operator-led roadmap. Real infrastructure feedback.</h1>
+          <p class="lead">
+            This is where hosting operators, resellers, and developers collaborate on features, testing loops,
+            and reliability priorities. If you run production workloads, your voice belongs here.
+          </p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="#join">Join The Program</a>
+            <a class="btn btn-secondary" href="#channels">Explore Channels</a>
+          </div>
+        </div>
+        <div class="hero-panel reveal">
+          <div class="panel-window">
+            <div class="panel-head">
+              <span class="dot red"></span>
+              <span class="dot yellow"></span>
+              <span class="dot green"></span>
+              <span class="window-title">Community Snapshot</span>
+            </div>
+            <div class="panel-body">
+              <div class="kpi-card">
+                <p class="kpi-label">Beta Teams</p>
+                <p class="kpi-value"><span data-count="42">0</span></p>
+              </div>
+              <div class="kpi-card">
+                <p class="kpi-label">Open Feedback Threads</p>
+                <p class="kpi-value"><span data-count="118">0</span></p>
+              </div>
+              <div class="kpi-card">
+                <p class="kpi-label">Resolved Community Requests</p>
+                <p class="kpi-value"><span data-count="76">0</span></p>
+              </div>
+              <div class="kpi-card">
+                <p class="kpi-label">Average Response Time</p>
+                <p class="kpi-value"><span data-count="11.4">0</span>h</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="channels" class="section soft-gradient">
+      <div class="container">
+        <div class="section-head reveal">
+          <p class="eyebrow">Community Channels</p>
+          <h2>Pick your collaboration path.</h2>
+        </div>
+        <div class="card-grid">
+          <article class="feature-card reveal">
+            <h3>Operator Forum</h3>
+            <p>Discuss production patterns, migration strategies, and incident learnings with peers.</p>
+          </article>
+          <article class="feature-card reveal">
+            <h3>Release Feedback Calls</h3>
+            <p>Monthly sessions focused on roadmap priorities, acceptance criteria, and UX friction points.</p>
+          </article>
+          <article class="feature-card reveal">
+            <h3>Contributor Track</h3>
+            <p>Submit docs, issue reproductions, hardening notes, and test fixtures for faster iteration.</p>
+          </article>
+          <article class="feature-card reveal">
+            <h3>Partner Circle</h3>
+            <p>Agency and hosting partner lane for co-marketing, deployment templates, and onboarding playbooks.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-head reveal">
+          <p class="eyebrow">Contribution Model</p>
+          <h2>How we work together.</h2>
+        </div>
+        <div class="timeline">
+          <article class="timeline-item reveal">
+            <span class="step-index">01</span>
+            <div>
+              <h3>Share Context</h3>
+              <p>Tell us your stack, traffic shape, and operational pain points.</p>
+            </div>
+          </article>
+          <article class="timeline-item reveal">
+            <span class="step-index">02</span>
+            <div>
+              <h3>Test In Stages</h3>
+              <p>Run acceptance checks and report regressions with reproducible steps.</p>
+            </div>
+          </article>
+          <article class="timeline-item reveal">
+            <span class="step-index">03</span>
+            <div>
+              <h3>Close The Loop</h3>
+              <p>Review fixes, update guidance, and improve shared operational playbooks.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="join" class="section soft-gradient">
+      <div class="container join-grid">
+        <div class="reveal">
+          <p class="eyebrow">Join Program</p>
+          <h2>Request community access.</h2>
+          <p>Submit your details and we will follow up with onboarding steps and channel invites.</p>
+          <p class="fine-print">Note: This first version stores your request in browser storage for quick demo flow.</p>
+        </div>
+        <form id="joinForm" class="join-form reveal" novalidate>
+          <label for="fullName">Full Name</label>
+          <input id="fullName" name="fullName" type="text" autocomplete="name" required>
+
+          <label for="email">Work Email</label>
+          <input id="email" name="email" type="email" autocomplete="email" required>
+
+          <label for="role">Role</label>
+          <select id="role" name="role" required>
+            <option value="">Select role</option>
+            <option value="operator">Hosting Operator</option>
+            <option value="agency">Agency Partner</option>
+            <option value="developer">Developer</option>
+            <option value="reseller">Reseller</option>
+          </select>
+
+          <label for="focus">Focus Area</label>
+          <textarea id="focus" name="focus" rows="4" placeholder="Security hardening, migration, DNS, mail, monitoring..." required></textarea>
+
+          <button class="btn btn-primary" type="submit">Send Join Request</button>
+          <p id="formMessage" class="form-message" aria-live="polite"></p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-wrap">
+      <p>© <span id="year"></span> AuraPanel Community.</p>
+      <div class="footer-links">
+        <a href="./index.html">Home</a>
+        <a href="./community.html">Community</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="./assets/app.js"></script>
+  <script src="./assets/community.js"></script>
+</body>
+</html>
