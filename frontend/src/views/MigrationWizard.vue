@@ -20,14 +20,14 @@
     <div class="aura-card space-y-4">
       <h2 class="text-lg font-semibold text-white">1. Backup Yukle ve Kaynak Sec</h2>
       <p class="text-xs text-gray-400">
-        Not: Bu ekran su an tam sunucu imaji degil, hesap/site tabanli backup (.tar.gz/.tgz) importu icindir.
+        Not: Bu ekran su an tam sunucu imaji degil, hesap/site tabanli backup (.tar.gz/.tgz/.zip) importu icindir.
       </p>
       <div class="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <div class="space-y-2 lg:col-span-2">
-          <label class="block text-sm text-gray-400">Backup dosyasi (.tar.gz / .tgz)</label>
+          <label class="block text-sm text-gray-400">Backup dosyasi (.tar.gz / .tgz / .zip)</label>
           <input
             type="file"
-            accept=".tar.gz,.tgz,application/gzip,application/x-gzip"
+            accept=".tar,.tar.gz,.tgz,.zip,application/gzip,application/x-gzip,application/zip"
             class="aura-input w-full"
             @change="onFileSelect"
           />
@@ -38,6 +38,8 @@
             <option value="auto">Otomatik</option>
             <option value="cpanel">cPanel</option>
             <option value="cyberpanel">CyberPanel</option>
+            <option value="plesk">Plesk</option>
+            <option value="generic">Generic</option>
           </select>
         </div>
       </div>
@@ -74,7 +76,7 @@
       </div>
 
       <div v-if="analysis" class="space-y-4">
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-6">
           <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
             <p class="text-xs text-gray-400">Panel</p>
             <p class="text-sm text-white mt-1">{{ analysis.source_type }}</p>
@@ -90,6 +92,55 @@
           <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
             <p class="text-xs text-gray-400">E-Posta</p>
             <p class="text-sm text-white mt-1">{{ analysis.stats.email_count }}</p>
+          </div>
+          <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
+            <p class="text-xs text-gray-400">Arsiv Boyutu</p>
+            <p class="text-sm text-white mt-1">{{ analysis.archive_size_human || '-' }}</p>
+          </div>
+          <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
+            <p class="text-xs text-gray-400">Pre-check</p>
+            <p class="text-sm mt-1" :class="isPrecheckReady ? 'text-green-400' : 'text-red-400'">
+              {{ isPrecheckReady ? 'READY' : 'BLOCKED' }}
+            </p>
+          </div>
+        </div>
+
+        <div class="rounded-lg border border-panel-border p-3 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="text-sm font-semibold text-white">Pre-check Raporu</h3>
+            <p class="text-xs text-gray-300">
+              Tahmini sure: <span class="text-white">{{ etaText(analysis.precheck?.eta_seconds) }}</span>
+            </p>
+          </div>
+
+          <div class="space-y-2 text-xs">
+            <div
+              v-for="(item, idx) in analysis.precheck?.checks || []"
+              :key="`${item.name}-${idx}`"
+              class="rounded border border-panel-border bg-panel-dark px-3 py-2"
+            >
+              <p class="font-semibold" :class="checkClass(item.status)">{{ item.name }} - {{ item.status }}</p>
+              <p class="text-gray-300 mt-1">{{ item.detail }}</p>
+            </div>
+          </div>
+
+          <div v-if="(analysis.precheck?.conflicts || []).length" class="rounded-lg border border-red-500/30 bg-red-500/5 p-3">
+            <p class="text-xs text-red-300 mb-2">Conflicts:</p>
+            <p
+              v-for="(conflict, idx) in analysis.precheck?.conflicts || []"
+              :key="`${conflict.type}-${conflict.target}-${idx}`"
+              class="text-xs mb-1"
+              :class="conflictClass(conflict.severity)"
+            >
+              - [{{ conflict.type }}] {{ conflict.target }}: {{ conflict.message }}
+            </p>
+          </div>
+
+          <div v-if="(analysis.precheck?.recommendations || []).length" class="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-3">
+            <p class="text-xs text-cyan-300 mb-2">Oneriler:</p>
+            <p v-for="(rec, idx) in analysis.precheck?.recommendations || []" :key="idx" class="text-xs text-cyan-100 mb-1">
+              - {{ rec }}
+            </p>
           </div>
         </div>
 
@@ -127,10 +178,11 @@
     <div class="aura-card space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h2 class="text-lg font-semibold text-white">3. Import Baslat ve Izle</h2>
-        <button class="btn-primary" :disabled="importStarting || !archivePath" @click="startImport">
+        <button class="btn-primary" :disabled="importStarting || !archivePath || !isPrecheckReady" @click="startImport">
           {{ importStarting ? 'Baslatiliyor...' : 'Import Baslat' }}
         </button>
       </div>
+      <p class="text-xs text-gray-400">Import sadece pre-check sonucu READY ise baslatilir.</p>
 
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div>
@@ -177,7 +229,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import api from '../services/api'
 
 const selectedFile = ref(null)
@@ -194,6 +246,7 @@ const analysis = ref(null)
 const job = ref(null)
 const error = ref('')
 const success = ref('')
+const isPrecheckReady = computed(() => Boolean(analysis.value?.precheck?.ready))
 
 let pollTimer = null
 
@@ -246,6 +299,7 @@ async function analyzeBackup() {
     const payload = {
       archive_path: archivePath.value,
       source_type: sourceType.value === 'auto' ? null : sourceType.value,
+      target_owner: targetOwner.value || 'aura',
     }
     const res = await api.post('/migration/analyze', payload)
     analysis.value = res.data?.data || null
@@ -273,6 +327,10 @@ function startPolling() {
 
 async function startImport() {
   if (!archivePath.value) return
+  if (!isPrecheckReady.value) {
+    setError('Pre-check sonucunda blocker var. Import baslatilmadi.')
+    return
+  }
   importStarting.value = true
   error.value = ''
   success.value = ''
@@ -281,6 +339,7 @@ async function startImport() {
       archive_path: archivePath.value,
       source_type: sourceType.value === 'auto' ? null : sourceType.value,
       target_owner: targetOwner.value || 'aura',
+      allow_conflicts: false,
     }
     const res = await api.post('/migration/import/start', payload)
     job.value = res.data?.data || null
@@ -316,6 +375,32 @@ function statusClass(status) {
   if (value === 'failed') return 'text-red-400'
   if (value === 'running') return 'text-blue-400'
   return 'text-yellow-400'
+}
+
+function checkClass(status) {
+  const value = String(status || '').toLowerCase()
+  if (value === 'pass') return 'text-green-400'
+  if (value === 'warn') return 'text-yellow-300'
+  if (value === 'fail') return 'text-red-400'
+  return 'text-gray-300'
+}
+
+function conflictClass(severity) {
+  const value = String(severity || '').toLowerCase()
+  if (value === 'high') return 'text-red-300'
+  if (value === 'medium') return 'text-orange-300'
+  return 'text-yellow-200'
+}
+
+function etaText(seconds) {
+  const raw = Number(seconds || 0)
+  if (!raw) return '-'
+  const mins = Math.round(raw / 60)
+  if (mins < 1) return `${raw}s`
+  if (mins < 60) return `${mins} dk`
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  return m === 0 ? `${h} sa` : `${h} sa ${m} dk`
 }
 
 function resetAll() {

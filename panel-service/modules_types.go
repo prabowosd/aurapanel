@@ -382,13 +382,38 @@ type MigrationStats struct {
 	EmailCount    int `json:"email_count"`
 }
 
+type MigrationCheck struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+}
+
+type MigrationConflict struct {
+	Type     string `json:"type"`
+	Target   string `json:"target"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+}
+
+type MigrationPrecheck struct {
+	Ready           bool                `json:"ready"`
+	ETASeconds      int                 `json:"eta_seconds"`
+	Checks          []MigrationCheck    `json:"checks"`
+	Conflicts       []MigrationConflict `json:"conflicts"`
+	Recommendations []string            `json:"recommendations"`
+}
+
 type MigrationAnalysis struct {
-	SourceType      string         `json:"source_type"`
-	Stats           MigrationStats `json:"stats"`
-	MySQLDumps      []string       `json:"mysql_dumps"`
-	EmailAccounts   []string       `json:"email_accounts"`
-	VhostCandidates []string       `json:"vhost_candidates"`
-	Warnings        []string       `json:"warnings"`
+	SourceType      string            `json:"source_type"`
+	ArchivePath     string            `json:"archive_path"`
+	ArchiveSize     int64             `json:"archive_size_bytes"`
+	ArchiveSizeText string            `json:"archive_size_human"`
+	Stats           MigrationStats    `json:"stats"`
+	MySQLDumps      []string          `json:"mysql_dumps"`
+	EmailAccounts   []string          `json:"email_accounts"`
+	VhostCandidates []string          `json:"vhost_candidates"`
+	Warnings        []string          `json:"warnings"`
+	Precheck        MigrationPrecheck `json:"precheck"`
 }
 
 type MigrationSummary struct {
@@ -396,6 +421,9 @@ type MigrationSummary struct {
 	EmailPlanFile    string   `json:"email_plan_file"`
 	VhostPlanFile    string   `json:"vhost_plan_file"`
 	SystemApply      bool     `json:"system_apply_enabled"`
+	PrecheckReady    bool     `json:"precheck_ready"`
+	ConflictCount    int      `json:"conflict_count"`
+	ETASeconds       int      `json:"eta_seconds"`
 }
 
 type MigrationJob struct {

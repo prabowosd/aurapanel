@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,68 @@ func migrationUploadsDir() string {
 
 func migrationJobsDir() string {
 	return "/var/lib/aurapanel/migrations/jobs"
+}
+
+func normalizeMigrationSourceTypeInput(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "", "auto":
+		return "", nil
+	case "cpanel", "cyberpanel", "plesk", "generic":
+		return normalized, nil
+	case "openlitespeed":
+		return "cyberpanel", nil
+	default:
+		return "", fmt.Errorf("unsupported source type: %s", value)
+	}
+}
+
+func migrationSourceLabel(source string) string {
+	switch strings.TrimSpace(strings.ToLower(source)) {
+	case "cpanel":
+		return "cPanel"
+	case "cyberpanel":
+		return "CyberPanel"
+	case "plesk":
+		return "Plesk"
+	case "generic":
+		return "Generic"
+	default:
+		return "Auto"
+	}
+}
+
+func formatMigrationBytesHuman(size int64) string {
+	if size <= 0 {
+		return "0 B"
+	}
+	units := []string{"B", "KB", "MB", "GB", "TB"}
+	value := float64(size)
+	unit := 0
+	for value >= 1024 && unit < len(units)-1 {
+		value /= 1024
+		unit++
+	}
+	if unit == 0 {
+		return fmt.Sprintf("%d %s", size, units[unit])
+	}
+	return fmt.Sprintf("%.1f %s", value, units[unit])
+}
+
+func estimateMigrationETASeconds(analysis MigrationAnalysis) int {
+	seconds := 45
+	seconds += analysis.Stats.DatabaseCount * 35
+	seconds += analysis.Stats.EmailCount * 8
+	seconds += len(analysis.VhostCandidates) * 20
+	seconds += int(math.Min(900, float64(analysis.Stats.FileCount/80)))
+	seconds += int(math.Min(600, float64(analysis.ArchiveSize/(50*1024*1024))*20))
+	if seconds < 60 {
+		return 60
+	}
+	if seconds > 7200 {
+		return 7200
+	}
+	return seconds
 }
 
 func saveMigrationUpload(fileName string, src io.Reader) (string, error) {
@@ -62,17 +125,23 @@ func migrationArchiveEntries(path string) ([]string, error) {
 }
 
 func guessMigrationSourceType(entries []string, fallback string) string {
-	if fallback != "" {
-		return fallback
+	if normalized, err := normalizeMigrationSourceTypeInput(fallback); err == nil && normalized != "" {
+		return normalized
 	}
 	for _, entry := range entries {
 		lower := strings.ToLower(entry)
 		switch {
-		case strings.Contains(lower, "homedir/"), strings.Contains(lower, "userdata/"):
+		case strings.Contains(lower, "cpmove-"),
+			strings.Contains(lower, "homedir/"),
+			strings.Contains(lower, "userdata/"):
 			return "cpanel"
-		case strings.Contains(lower, "domains/"), strings.Contains(lower, "httpdocs"):
+		case strings.Contains(lower, "domains/"),
+			strings.Contains(lower, "httpdocs/"),
+			strings.Contains(lower, "plesk"):
 			return "plesk"
-		case strings.Contains(lower, "vhosts/"), strings.Contains(lower, "openlitespeed"):
+		case strings.Contains(lower, "vhosts/"),
+			strings.Contains(lower, "openlitespeed"),
+			strings.Contains(lower, "cyberpanel"):
 			return "cyberpanel"
 		}
 	}
@@ -97,7 +166,19 @@ func uniqueStrings(items []string) []string {
 }
 
 func analyzeMigrationArchive(path, sourceType string) (MigrationAnalysis, error) {
-	entries, err := migrationArchiveEntries(path)
+	archivePath := filepath.Clean(strings.TrimSpace(path))
+	if archivePath == "" {
+		return MigrationAnalysis{}, fmt.Errorf("archive path is required")
+	}
+	info, err := os.Stat(archivePath)
+	if err != nil {
+		return MigrationAnalysis{}, err
+	}
+	if info.IsDir() {
+		return MigrationAnalysis{}, fmt.Errorf("archive path must be a file")
+	}
+
+	entries, err := migrationArchiveEntries(archivePath)
 	if err != nil {
 		return MigrationAnalysis{}, err
 	}
@@ -139,8 +220,17 @@ func analyzeMigrationArchive(path, sourceType string) (MigrationAnalysis, error)
 	if len(vhostCandidates) == 0 {
 		warnings = append(warnings, "No obvious vhost candidates detected; manual review may be required.")
 	}
+
+	detectedSource := guessMigrationSourceType(entries, strings.TrimSpace(sourceType))
+	if detectedSource == "generic" {
+		warnings = append(warnings, "Source panel could not be detected with high confidence; run pre-check before import.")
+	}
+
 	return MigrationAnalysis{
-		SourceType:      guessMigrationSourceType(entries, strings.TrimSpace(sourceType)),
+		SourceType:      detectedSource,
+		ArchivePath:     archivePath,
+		ArchiveSize:     info.Size(),
+		ArchiveSizeText: formatMigrationBytesHuman(info.Size()),
 		Stats:           MigrationStats{FileCount: len(entries), DatabaseCount: len(mysqlDumps), EmailCount: len(emailAccounts)},
 		MySQLDumps:      mysqlDumps,
 		EmailAccounts:   emailAccounts,
@@ -164,10 +254,10 @@ func extractMigrationArchive(path, destination string) error {
 	}
 }
 
-func importMigrationArchive(path, sourceType, targetOwner string) (MigrationJob, error) {
-	analysis, err := analyzeMigrationArchive(path, sourceType)
-	if err != nil {
-		return MigrationJob{}, err
+func importMigrationArchive(analysis MigrationAnalysis, targetOwner string) (MigrationJob, error) {
+	path := strings.TrimSpace(analysis.ArchivePath)
+	if path == "" {
+		return MigrationJob{}, fmt.Errorf("archive path is required")
 	}
 	jobID := "mig-" + generateSecret(6)
 	workDir := filepath.Join(migrationJobsDir(), jobID)
@@ -194,11 +284,19 @@ func importMigrationArchive(path, sourceType, targetOwner string) (MigrationJob,
 	if err := os.WriteFile(vhostPlanPath, vhostPlan, 0o644); err != nil {
 		return MigrationJob{}, err
 	}
+
+	initialProgress := 35
+	status := "running"
+	if analysis.Precheck.Ready {
+		initialProgress = 55
+	}
+
 	return MigrationJob{
 		ID:       jobID,
-		Status:   "completed",
-		Progress: 100,
+		Status:   status,
+		Progress: initialProgress,
 		Logs: []string{
+			fmt.Sprintf("Source profile: %s", migrationSourceLabel(analysis.SourceType)),
 			fmt.Sprintf("Archive saved from %s", path),
 			fmt.Sprintf("Archive extracted to %s", extractDir),
 			fmt.Sprintf("Email plan generated: %s", emailPlanPath),
@@ -209,6 +307,9 @@ func importMigrationArchive(path, sourceType, targetOwner string) (MigrationJob,
 			EmailPlanFile:    emailPlanPath,
 			VhostPlanFile:    vhostPlanPath,
 			SystemApply:      false,
+			PrecheckReady:    analysis.Precheck.Ready,
+			ConflictCount:    len(analysis.Precheck.Conflicts),
+			ETASeconds:       analysis.Precheck.ETASeconds,
 		},
 	}, nil
 }

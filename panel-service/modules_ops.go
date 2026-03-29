@@ -901,6 +901,192 @@ func (s *service) handleCloudflareAnalytics(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: result})
 }
 
+func (s *service) isMigrationArchivePathAllowedLocked(path string) bool {
+	cleanPath := filepath.Clean(strings.TrimSpace(path))
+	if cleanPath == "" {
+		return false
+	}
+	root := filepath.Clean(migrationUploadsDir())
+	if cleanPath == root {
+		return false
+	}
+	if strings.HasPrefix(cleanPath, root+string(os.PathSeparator)) {
+		return true
+	}
+	_, ok := s.modules.UploadedArchives[cleanPath]
+	return ok
+}
+
+func (s *service) buildMigrationPrecheckLocked(analysis MigrationAnalysis, targetOwner string) MigrationPrecheck {
+	checks := []MigrationCheck{}
+	conflicts := []MigrationConflict{}
+	recommendations := []string{}
+	ready := true
+
+	target := sanitizeName(strings.TrimSpace(targetOwner))
+	if target == "" {
+		target = "aura"
+	}
+
+	if analysis.ArchivePath == "" {
+		ready = false
+		checks = append(checks, MigrationCheck{Name: "Archive path", Status: "fail", Detail: "Archive path is missing."})
+	} else {
+		checks = append(checks, MigrationCheck{
+			Name:   "Archive integrity",
+			Status: "pass",
+			Detail: fmt.Sprintf("%s archive detected (%s).", migrationSourceLabel(analysis.SourceType), firstNonEmpty(analysis.ArchiveSizeText, "size unknown")),
+		})
+	}
+
+	if analysis.SourceType == "generic" {
+		checks = append(checks, MigrationCheck{Name: "Source detection", Status: "warn", Detail: "Source type confidence is low; manual review is recommended."})
+		recommendations = append(recommendations, "Set source type manually (cPanel/Plesk/CyberPanel) before import for safer mapping.")
+	} else {
+		checks = append(checks, MigrationCheck{Name: "Source detection", Status: "pass", Detail: fmt.Sprintf("Source type resolved as %s.", migrationSourceLabel(analysis.SourceType))})
+	}
+
+	if analysis.Stats.FileCount <= 0 {
+		ready = false
+		checks = append(checks, MigrationCheck{Name: "Archive content", Status: "fail", Detail: "Archive looks empty or unreadable."})
+		conflicts = append(conflicts, MigrationConflict{
+			Type:     "archive",
+			Target:   analysis.ArchivePath,
+			Severity: "high",
+			Message:  "No importable files were detected.",
+		})
+	} else {
+		checks = append(checks, MigrationCheck{Name: "Archive content", Status: "pass", Detail: fmt.Sprintf("%d files discovered.", analysis.Stats.FileCount)})
+	}
+
+	owner := s.findUserLocked(target)
+	if owner == nil {
+		ready = false
+		checks = append(checks, MigrationCheck{Name: "Target owner", Status: "fail", Detail: fmt.Sprintf("Target owner %q does not exist.", target)})
+		conflicts = append(conflicts, MigrationConflict{
+			Type:     "owner",
+			Target:   target,
+			Severity: "high",
+			Message:  "Target owner is missing.",
+		})
+		recommendations = append(recommendations, fmt.Sprintf("Create owner user %q before starting import.", target))
+	} else {
+		checks = append(checks, MigrationCheck{Name: "Target owner", Status: "pass", Detail: fmt.Sprintf("Owner %q is available with role %q.", owner.Username, normalizeRole(owner.Role))})
+	}
+
+	existingSites := map[string]Website{}
+	for _, site := range s.state.Websites {
+		existingSites[normalizeDomain(site.Domain)] = site
+	}
+	domainConflicts := 0
+	for _, raw := range analysis.VhostCandidates {
+		domain := normalizeDomain(raw)
+		if domain == "" {
+			continue
+		}
+		existing, ok := existingSites[domain]
+		if !ok {
+			continue
+		}
+		domainConflicts++
+		ready = false
+		conflicts = append(conflicts, MigrationConflict{
+			Type:     "domain",
+			Target:   domain,
+			Severity: "high",
+			Message:  fmt.Sprintf("Domain already exists under owner %q.", firstNonEmpty(existing.Owner, existing.User, "unknown")),
+		})
+	}
+	if domainConflicts > 0 {
+		checks = append(checks, MigrationCheck{
+			Name:   "Domain conflicts",
+			Status: "fail",
+			Detail: fmt.Sprintf("%d domain conflict(s) detected.", domainConflicts),
+		})
+		recommendations = append(recommendations, "Rename conflicting domains in source backup or import into clean target domains.")
+	} else if len(analysis.VhostCandidates) == 0 {
+		checks = append(checks, MigrationCheck{Name: "Domain conflicts", Status: "warn", Detail: "No domain candidates found; website mapping may need manual input."})
+	} else {
+		checks = append(checks, MigrationCheck{Name: "Domain conflicts", Status: "pass", Detail: "No website domain collision detected."})
+	}
+
+	existingMailboxes := map[string]Mailbox{}
+	for _, mailbox := range s.modules.Mailboxes {
+		existingMailboxes[strings.ToLower(strings.TrimSpace(mailbox.Address))] = mailbox
+	}
+	mailConflicts := 0
+	for _, raw := range analysis.EmailAccounts {
+		address := strings.ToLower(strings.TrimSpace(raw))
+		if address == "" {
+			continue
+		}
+		existing, ok := existingMailboxes[address]
+		if !ok {
+			continue
+		}
+		mailConflicts++
+		ready = false
+		conflicts = append(conflicts, MigrationConflict{
+			Type:     "mailbox",
+			Target:   address,
+			Severity: "medium",
+			Message:  fmt.Sprintf("Mailbox already exists for owner %q.", firstNonEmpty(existing.Owner, existing.User, "unknown")),
+		})
+	}
+	if mailConflicts > 0 {
+		checks = append(checks, MigrationCheck{
+			Name:   "Mailbox conflicts",
+			Status: "fail",
+			Detail: fmt.Sprintf("%d mailbox conflict(s) detected.", mailConflicts),
+		})
+		recommendations = append(recommendations, "Clean existing mailbox accounts or map them to different addresses before import.")
+	} else {
+		checks = append(checks, MigrationCheck{Name: "Mailbox conflicts", Status: "pass", Detail: "No mailbox collision detected."})
+	}
+
+	if len(analysis.MySQLDumps) == 0 {
+		checks = append(checks, MigrationCheck{Name: "Database payload", Status: "warn", Detail: "No SQL dump found in archive."})
+	} else {
+		checks = append(checks, MigrationCheck{Name: "Database payload", Status: "pass", Detail: fmt.Sprintf("%d SQL dump(s) detected.", len(analysis.MySQLDumps))})
+	}
+
+	if len(recommendations) == 0 {
+		recommendations = append(recommendations, "Pre-check clean. You can start import safely in DRY-RUN mode.")
+	}
+
+	eta := estimateMigrationETASeconds(analysis)
+	checks = append(checks, MigrationCheck{Name: "ETA", Status: "pass", Detail: fmt.Sprintf("Estimated migration duration ~%d seconds.", eta)})
+
+	return MigrationPrecheck{
+		Ready:           ready,
+		ETASeconds:      eta,
+		Checks:          checks,
+		Conflicts:       conflicts,
+		Recommendations: uniqueStrings(recommendations),
+	}
+}
+
+func (s *service) updateMigrationJobProgressLocked(job *MigrationJob) {
+	if job == nil {
+		return
+	}
+	if strings.EqualFold(job.Status, "completed") || strings.EqualFold(job.Status, "failed") {
+		return
+	}
+	job.PollCount++
+	switch {
+	case job.PollCount <= 1:
+		if job.Progress < 75 {
+			job.Progress = 75
+		}
+		job.Logs = append(job.Logs, "Validation phase completed. Artifact plans are ready.")
+	case job.PollCount >= 2:
+		job.Progress = 100
+		job.Status = "completed"
+		job.Logs = append(job.Logs, "Migration planning completed (dry-run). Apply stage can now be executed.")
+	}
+}
+
 func (s *service) handleMigrationUpload(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(64 << 20); err != nil {
 		writeError(w, http.StatusBadRequest, "Migration upload could not be parsed.")
@@ -932,41 +1118,98 @@ func (s *service) handleMigrationAnalyze(w http.ResponseWriter, r *http.Request)
 	var payload struct {
 		ArchivePath string  `json:"archive_path"`
 		SourceType  *string `json:"source_type"`
+		TargetOwner string  `json:"target_owner"`
 	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid migration analysis payload.")
 		return
 	}
+	archivePath := filepath.Clean(strings.TrimSpace(payload.ArchivePath))
+	if archivePath == "" {
+		writeError(w, http.StatusBadRequest, "Archive path is required.")
+		return
+	}
+	s.mu.RLock()
+	allowed := s.isMigrationArchivePathAllowedLocked(archivePath)
+	s.mu.RUnlock()
+	if !allowed {
+		writeError(w, http.StatusBadRequest, "Archive path is not allowed.")
+		return
+	}
 	sourceType := ""
 	if payload.SourceType != nil {
 		sourceType = strings.TrimSpace(*payload.SourceType)
 	}
-	analysis, err := analyzeMigrationArchive(payload.ArchivePath, sourceType)
+	normalizedSource, err := normalizeMigrationSourceTypeInput(sourceType)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	analysis, err := analyzeMigrationArchive(archivePath, normalizedSource)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.modules.MigrationAnalyses[payload.ArchivePath] = analysis
+	analysis.Precheck = s.buildMigrationPrecheckLocked(analysis, payload.TargetOwner)
+	s.modules.MigrationAnalyses[archivePath] = analysis
+	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: analysis})
 }
 
 func (s *service) handleMigrationImportStart(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		ArchivePath string  `json:"archive_path"`
-		SourceType  *string `json:"source_type"`
-		TargetOwner string  `json:"target_owner"`
+		ArchivePath    string  `json:"archive_path"`
+		SourceType     *string `json:"source_type"`
+		TargetOwner    string  `json:"target_owner"`
+		AllowConflicts bool    `json:"allow_conflicts"`
 	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid migration start payload.")
+		return
+	}
+	archivePath := filepath.Clean(strings.TrimSpace(payload.ArchivePath))
+	if archivePath == "" {
+		writeError(w, http.StatusBadRequest, "Archive path is required.")
+		return
+	}
+	s.mu.RLock()
+	allowed := s.isMigrationArchivePathAllowedLocked(archivePath)
+	s.mu.RUnlock()
+	if !allowed {
+		writeError(w, http.StatusBadRequest, "Archive path is not allowed.")
 		return
 	}
 	sourceType := ""
 	if payload.SourceType != nil {
 		sourceType = strings.TrimSpace(*payload.SourceType)
 	}
-	job, err := importMigrationArchive(payload.ArchivePath, sourceType, payload.TargetOwner)
+	normalizedSource, err := normalizeMigrationSourceTypeInput(sourceType)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	analysis, err := analyzeMigrationArchive(archivePath, normalizedSource)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.mu.Lock()
+	precheck := s.buildMigrationPrecheckLocked(analysis, payload.TargetOwner)
+	analysis.Precheck = precheck
+	s.modules.MigrationAnalyses[archivePath] = analysis
+	s.mu.Unlock()
+
+	if !precheck.Ready && !payload.AllowConflicts {
+		writeJSON(w, http.StatusConflict, apiResponse{
+			Status:  "error",
+			Message: "Migration pre-check failed. Resolve conflicts before import.",
+			Data:    precheck,
+		})
+		return
+	}
+
+	job, err := importMigrationArchive(analysis, payload.TargetOwner)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -974,17 +1217,22 @@ func (s *service) handleMigrationImportStart(w http.ResponseWriter, r *http.Requ
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.modules.MigrationJobs = append([]MigrationJob{job}, s.modules.MigrationJobs...)
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: job, Message: "Migration import completed."})
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: job, Message: "Migration import started."})
 }
 
 func (s *service) handleMigrationImportStatus(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "Migration job id is required.")
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for i := range s.modules.MigrationJobs {
 		if s.modules.MigrationJobs[i].ID != id {
 			continue
 		}
+		s.updateMigrationJobProgressLocked(&s.modules.MigrationJobs[i])
 		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.MigrationJobs[i]})
 		return
 	}
