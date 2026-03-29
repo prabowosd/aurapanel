@@ -30,15 +30,17 @@ const (
 )
 
 type AuthUser struct {
-	Email string
-	Role  string
-	Name  string
+	Email    string
+	Role     string
+	Name     string
+	Username string
 }
 
 type gatewayClaims struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Role  string `json:"role"`
+	Email    string `json:"email"`
+	Name     string `json:"name"`
+	Role     string `json:"role"`
+	Username string `json:"username,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -94,6 +96,10 @@ func RequireSecurityConfig() error {
 	}
 	if strings.EqualFold(secret, "change-me-in-production") {
 		return errors.New("AURAPANEL_JWT_SECRET must not use insecure default value")
+	}
+	proxyToken := strings.TrimSpace(os.Getenv("AURAPANEL_INTERNAL_PROXY_TOKEN"))
+	if len(proxyToken) < 32 {
+		return errors.New("AURAPANEL_INTERNAL_PROXY_TOKEN must be set and at least 32 characters")
 	}
 
 	return nil
@@ -185,14 +191,36 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			WriteError(w, r, http.StatusUnauthorized, "AUTH_INVALID_ROLE", "Token role is invalid")
 			return
 		}
+		username := sanitizeIdentity(strings.TrimSpace(claims.Username))
+		if username == "" {
+			local := strings.Split(strings.ToLower(strings.TrimSpace(claims.Email)), "@")
+			if len(local) > 0 {
+				username = sanitizeIdentity(local[0])
+			}
+		}
 
 		ctx := context.WithValue(r.Context(), authUserContextKey, AuthUser{
-			Email: claims.Email,
-			Role:  role,
-			Name:  claims.Name,
+			Email:    claims.Email,
+			Role:     role,
+			Name:     claims.Name,
+			Username: username,
 		})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func sanitizeIdentity(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return ""
+	}
+	builder := strings.Builder{}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			builder.WriteRune(r)
+		}
+	}
+	return builder.String()
 }
 
 func extractToken(r *http.Request) string {

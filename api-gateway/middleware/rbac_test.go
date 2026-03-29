@@ -48,7 +48,7 @@ func TestRBACMiddlewareBlocksResellerOnAdminRoute(t *testing.T) {
 	}
 }
 
-func TestRBACMiddlewareAllowsUserFileOps(t *testing.T) {
+func TestRBACMiddlewareBlocksUserFileOps(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -59,7 +59,39 @@ func TestRBACMiddlewareAllowsUserFileOps(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+}
+
+func TestRBACMiddlewareBlocksUserSSHKeyEndpoints(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := RBACMiddleware(next)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/security/ssh-keys", nil)
+	req = withAuthUser(req, roleUser)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+}
+
+func TestRBACMiddlewareBlocksResellerCustomSSLRead(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := RBACMiddleware(next)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/websites/custom-ssl", nil)
+	req = withAuthUser(req, roleReseller)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
 	}
 }

@@ -12,6 +12,33 @@ import (
 	"time"
 )
 
+func sanitizeBackupDestination(item BackupDestination) BackupDestination {
+	item.Password = ""
+	return item
+}
+
+func sanitizeBackupDestinations(items []BackupDestination) []BackupDestination {
+	if len(items) == 0 {
+		return []BackupDestination{}
+	}
+	sanitized := make([]BackupDestination, 0, len(items))
+	for _, item := range items {
+		sanitized = append(sanitized, sanitizeBackupDestination(item))
+	}
+	return sanitized
+}
+
+func isAllowedTransferHomeDir(homeDir string) bool {
+	normalized := normalizeVirtualPath(homeDir)
+	if normalized == "/" || normalized == "/home" {
+		return false
+	}
+	if strings.Contains(normalized, "..") {
+		return false
+	}
+	return strings.HasPrefix(normalized, "/home/")
+}
+
 func (s *service) firstInstalledPHPVersionLocked() string {
 	for _, item := range s.modules.PHPVersions {
 		if item.Installed {
@@ -400,6 +427,15 @@ func (s *service) handlePostgresTuningSet(w http.ResponseWriter, r *http.Request
 
 func (s *service) handleWebsiteAdvancedConfigGet(w http.ResponseWriter, r *http.Request) {
 	domain := normalizeDomain(r.URL.Query().Get("domain"))
+	if domain != "" {
+		if !isValidDomainName(domain) {
+			writeError(w, http.StatusBadRequest, "Invalid domain.")
+			return
+		}
+		if !s.requireDomainAccess(w, r, domain) {
+			return
+		}
+	}
 	config := WebsiteAdvancedConfig{}
 	if domain != "" {
 		s.mu.RLock()
@@ -462,9 +498,23 @@ func (s *service) handleMailTuningSet(w http.ResponseWriter, r *http.Request) {
 
 func (s *service) handleWebsiteCustomSSLGet(w http.ResponseWriter, r *http.Request) {
 	domain := normalizeDomain(r.URL.Query().Get("domain"))
+	if !isValidDomainName(domain) {
+		writeError(w, http.StatusBadRequest, "Invalid domain.")
+		return
+	}
+	if !s.requireDomainAccess(w, r, domain) {
+		return
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.state.CustomSSL[domain]})
+	current := s.state.CustomSSL[domain]
+	writeJSON(w, http.StatusOK, apiResponse{
+		Status: "success",
+		Data: WebsiteCustomSSL{
+			CertPEM: current.CertPEM,
+			KeyPEM:  "",
+		},
+	})
 }
 
 func (s *service) handleWebsiteCustomSSLSet(w http.ResponseWriter, r *http.Request) {
@@ -478,6 +528,13 @@ func (s *service) handleWebsiteCustomSSLSet(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
+	if !isValidDomainName(domain) {
+		writeError(w, http.StatusBadRequest, "Invalid domain.")
+		return
+	}
+	if !s.requireDomainAccess(w, r, domain) {
+		return
+	}
 	if err := storeCustomCertificate(domain, payload.CertPEM, payload.KeyPEM); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -506,6 +563,13 @@ func (s *service) handleWebsiteOpenBasedirSet(w http.ResponseWriter, r *http.Req
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
+	if !isValidDomainName(domain) {
+		writeError(w, http.StatusBadRequest, "Invalid domain.")
+		return
+	}
+	if !s.requireDomainAccess(w, r, domain) {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ensureDefaultSiteArtifactsLocked(domain)
@@ -529,6 +593,13 @@ func (s *service) handleWebsiteRewriteSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
+	if !isValidDomainName(domain) {
+		writeError(w, http.StatusBadRequest, "Invalid domain.")
+		return
+	}
+	if !s.requireDomainAccess(w, r, domain) {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ensureDefaultSiteArtifactsLocked(domain)
@@ -558,6 +629,13 @@ func (s *service) handleWebsiteVhostConfigSet(w http.ResponseWriter, r *http.Req
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
+	if !isValidDomainName(domain) {
+		writeError(w, http.StatusBadRequest, "Invalid domain.")
+		return
+	}
+	if !s.requireDomainAccess(w, r, domain) {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ensureDefaultSiteArtifactsLocked(domain)
@@ -679,8 +757,11 @@ func (s *service) handleAliasCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	domain := normalizeDomain(payload.Domain)
 	alias := normalizeDomain(payload.Alias)
-	if domain == "" || alias == "" {
+	if !isValidDomainName(domain) || !isValidDomainName(alias) {
 		writeError(w, http.StatusBadRequest, "Domain and alias are required.")
+		return
+	}
+	if !s.requireDomainAccess(w, r, domain) {
 		return
 	}
 	s.mu.Lock()
@@ -702,6 +783,13 @@ func (s *service) handleAliasCreate(w http.ResponseWriter, r *http.Request) {
 func (s *service) handleAliasDelete(w http.ResponseWriter, r *http.Request) {
 	domain := normalizeDomain(r.URL.Query().Get("domain"))
 	alias := normalizeDomain(r.URL.Query().Get("alias"))
+	if !isValidDomainName(domain) || !isValidDomainName(alias) {
+		writeError(w, http.StatusBadRequest, "Domain and alias are required.")
+		return
+	}
+	if !s.requireDomainAccess(w, r, domain) {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	filtered := s.state.Aliases[:0]
@@ -727,8 +815,11 @@ func (s *service) handleAliasDelete(w http.ResponseWriter, r *http.Request) {
 
 func (s *service) handleWebsiteTraffic(w http.ResponseWriter, r *http.Request) {
 	domain := normalizeDomain(r.URL.Query().Get("domain"))
-	if domain == "" {
+	if !isValidDomainName(domain) {
 		writeError(w, http.StatusBadRequest, "Domain is required.")
+		return
+	}
+	if !s.requireDomainAccess(w, r, domain) {
 		return
 	}
 	hours := clampInt(queryInt(r, "hours", 24), 1, 168)
@@ -1392,6 +1483,10 @@ func (s *service) handleTransferCreate(w http.ResponseWriter, r *http.Request, k
 		HomeDir:   normalizeVirtualPath(payload.HomeDir),
 		CreatedAt: time.Now().UTC().Unix(),
 	}
+	if !isAllowedTransferHomeDir(account.HomeDir) {
+		writeError(w, http.StatusBadRequest, "Home directory must be under /home/<account>/...")
+		return
+	}
 	if err := createRuntimeTransferAccount(kind, account.Username, payload.Password, account.HomeDir); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -1780,7 +1875,7 @@ func (s *service) handleFileCreateDir(w http.ResponseWriter, r *http.Request) {
 func (s *service) handleBackupDestinationsGet(w http.ResponseWriter) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.BackupDestinations})
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: sanitizeBackupDestinations(s.modules.BackupDestinations)})
 }
 
 func (s *service) handleBackupDestinationSet(w http.ResponseWriter, r *http.Request) {
@@ -1803,7 +1898,11 @@ func (s *service) handleBackupDestinationSet(w http.ResponseWriter, r *http.Requ
 	if !replaced {
 		s.modules.BackupDestinations = append(s.modules.BackupDestinations, payload)
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Backup destination saved.", Data: payload})
+	writeJSON(w, http.StatusOK, apiResponse{
+		Status:  "success",
+		Message: "Backup destination saved.",
+		Data:    sanitizeBackupDestination(payload),
+	})
 }
 
 func (s *service) handleBackupDestinationDelete(w http.ResponseWriter, r *http.Request) {

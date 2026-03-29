@@ -10,6 +10,10 @@ import (
 func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) bool {
 	switch {
 	case r.URL.Path == "/api/v1/terminal/ws":
+		if !terminalFeatureEnabled() {
+			writeError(w, http.StatusForbidden, "Terminal feature is disabled.")
+			return true
+		}
 		s.handleTerminalWSRoute(w, r)
 		return true
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/php/versions":
@@ -597,6 +601,11 @@ func normalizeVirtualPath(path string) string {
 		trimmed = strings.TrimRight(trimmed, "/")
 	}
 	return trimmed
+}
+
+func terminalFeatureEnabled() bool {
+	normalized := strings.ToLower(strings.TrimSpace(envOr("AURAPANEL_TERMINAL_ENABLED", "")))
+	return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on"
 }
 
 func virtualBaseName(path string) string {

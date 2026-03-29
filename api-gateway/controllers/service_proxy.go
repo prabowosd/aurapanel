@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/aurapanel/api-gateway/middleware"
 )
 
 func serviceBaseURL() string {
@@ -54,6 +56,7 @@ func NewServiceProxy() (http.Handler, error) {
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
+		authUser, hasAuthUser := middleware.GetAuthUser(req.Context())
 		incomingHost := strings.TrimSpace(req.Host)
 		forwardedProto := firstForwardedValue(req.Header.Get("X-Forwarded-Proto"))
 		if forwardedProto == "" {
@@ -69,16 +72,31 @@ func NewServiceProxy() (http.Handler, error) {
 			req.Header.Set("X-Forwarded-Host", incomingHost)
 		}
 		req.Header.Set("X-Forwarded-Proto", forwardedProto)
-		
+
+		req.Header.Del("X-Aura-Auth-Email")
+		req.Header.Del("X-Aura-Auth-Role")
+		req.Header.Del("X-Aura-Auth-Name")
+		req.Header.Del("X-Aura-Auth-Username")
+		req.Header.Del("X-Aura-Proxy-Token")
+		if hasAuthUser {
+			req.Header.Set("X-Aura-Auth-Email", strings.TrimSpace(authUser.Email))
+			req.Header.Set("X-Aura-Auth-Role", strings.TrimSpace(authUser.Role))
+			req.Header.Set("X-Aura-Auth-Name", strings.TrimSpace(authUser.Name))
+			req.Header.Set("X-Aura-Auth-Username", strings.TrimSpace(authUser.Username))
+		}
+		if token := strings.TrimSpace(os.Getenv("AURAPANEL_INTERNAL_PROXY_TOKEN")); token != "" {
+			req.Header.Set("X-Aura-Proxy-Token", token)
+		}
+
 		// The standard ReverseProxy handles websockets automatically in Go 1.12+,
 		// we just need to make sure we don't accidentally buffer or block the upgrade.
 		// DO NOT rewrite scheme to ws/wss, as http.Transport doesn't support them.
 	}
-	
+
 	// Add websocket explicit support to proxy transport if needed
-	// The standard ReverseProxy handles websockets automatically in Go 1.12+, 
+	// The standard ReverseProxy handles websockets automatically in Go 1.12+,
 	// but we need to make sure we don't accidentally buffer or block the upgrade.
-	
+
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)

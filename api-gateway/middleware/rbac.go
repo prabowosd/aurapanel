@@ -31,7 +31,18 @@ func pathMatchesPrefix(path, prefix string) bool {
 	return path == normalizedPrefix || strings.HasPrefix(path, normalizedPrefix+"/")
 }
 
+func isRestrictedNonAdminPath(path string) bool {
+	return pathMatchesPrefix(path, "/api/v1/files") ||
+		pathMatchesPrefix(path, "/api/v1/security/ssh-keys") ||
+		pathMatchesPrefix(path, "/api/v1/websites/custom-ssl") ||
+		pathMatchesPrefix(path, "/api/v1/websites/vhost-config")
+}
+
 func resellerAllowed(path string) bool {
+	if isRestrictedNonAdminPath(path) {
+		return false
+	}
+
 	allowedPrefixes := []string{
 		"/api/v1/auth/me",
 		"/api/v1/vhost",
@@ -44,14 +55,12 @@ func resellerAllowed(path string) bool {
 		"/api/v1/backup",
 		"/api/v1/apps",
 		"/api/v1/wordpress",
-		"/api/v1/files",
 		"/api/v1/php",
 		"/api/v1/ssl",
 		"/api/v1/monitor/cron",
 		"/api/v1/monitor/logs/site",
 		"/api/v1/security/status",
 		"/api/v1/security/firewall",
-		"/api/v1/security/ssh-keys",
 		"/api/v1/security/2fa",
 		"/api/v1/security/immutable/status",
 		"/api/v1/security/ebpf/events",
@@ -72,21 +81,19 @@ func resellerAllowed(path string) bool {
 }
 
 func userAllowed(method, path string) bool {
+	if isRestrictedNonAdminPath(path) {
+		return false
+	}
+
 	if path == "/api/v1/auth/me" || path == "/api/v1/status/metrics" || path == "/api/v1/status/services" || path == "/api/v1/status/update" {
 		return true
 	}
 
 	// Personal security actions.
 	if pathMatchesPrefix(path, "/api/v1/security/2fa") ||
-		pathMatchesPrefix(path, "/api/v1/security/ssh-keys") ||
 		pathMatchesPrefix(path, "/api/v1/security/status") ||
 		pathMatchesPrefix(path, "/api/v1/security/immutable/status") ||
 		pathMatchesPrefix(path, "/api/v1/security/ebpf/events") {
-		return true
-	}
-
-	// File manager uses POST/DELETE even for browse/read operations.
-	if pathMatchesPrefix(path, "/api/v1/files") {
 		return true
 	}
 
@@ -94,7 +101,6 @@ func userAllowed(method, path string) bool {
 		return pathMatchesPrefix(path, "/api/v1/vhost/list") ||
 			pathMatchesPrefix(path, "/api/v1/websites/aliases") ||
 			pathMatchesPrefix(path, "/api/v1/websites/advanced-config") ||
-			pathMatchesPrefix(path, "/api/v1/websites/custom-ssl") ||
 			pathMatchesPrefix(path, "/api/v1/monitor/logs/site") ||
 			pathMatchesPrefix(path, "/api/v1/analytics/website-traffic")
 	}

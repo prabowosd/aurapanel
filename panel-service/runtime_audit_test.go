@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -68,6 +69,12 @@ func TestHandleWebsiteAdvancedConfigGetDoesNotMutateState(t *testing.T) {
 	svc.bootstrapModules()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/websites/advanced-config?domain=example.com", nil)
+	req = req.WithContext(context.WithValue(req.Context(), servicePrincipalContextKey, servicePrincipal{
+		Email:    "admin@server.com",
+		Role:     "admin",
+		Username: "admin",
+		Name:     "Admin",
+	}))
 	rec := httptest.NewRecorder()
 	svc.handleWebsiteAdvancedConfigGet(rec, req)
 

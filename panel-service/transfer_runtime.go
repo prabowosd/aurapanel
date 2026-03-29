@@ -39,12 +39,12 @@ func resolvedTransferOwner(homeDir string) string {
 	if len(parts) >= 3 && parts[1] == "home" && systemUserExists(parts[2]) {
 		return parts[2]
 	}
-	for _, candidate := range []string{"www-data", "nobody", "root"} {
+	for _, candidate := range []string{"www-data", "nobody"} {
 		if systemUserExists(candidate) {
 			return candidate
 		}
 	}
-	return "root"
+	return "nobody"
 }
 
 func ensureOwnedDirectory(path, owner string) error {

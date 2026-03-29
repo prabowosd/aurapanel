@@ -2,7 +2,10 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
@@ -24,12 +27,17 @@ import (
 )
 
 const (
-	defaultServiceAddr  = ":8081"
+	defaultServiceAddr  = "127.0.0.1:8081"
 	defaultGatewayPort  = 8090
 	currentPanelVersion = "Aura Panel V1"
 	updateCacheTTL      = 15 * time.Minute
 	defaultAdminEmail   = "admin@server.com"
 	defaultAdminPass    = "password123"
+	maxJSONBodyBytes    = 1 << 20
+
+	serviceMaxFailedAttempts = 5
+	serviceFailureWindow     = 10 * time.Minute
+	serviceLockDuration      = 15 * time.Minute
 )
 
 type apiResponse struct {
@@ -269,17 +277,47 @@ type service struct {
 }
 
 type jwtClaims struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Role  string `json:"role"`
+	Email    string `json:"email"`
+	Name     string `json:"name"`
+	Role     string `json:"role"`
+	Username string `json:"username,omitempty"`
 	jwt.RegisteredClaims
 }
 
+type serviceContextKey string
+
+const servicePrincipalContextKey serviceContextKey = "service_principal"
+
+type servicePrincipal struct {
+	Email    string
+	Name     string
+	Role     string
+	Username string
+}
+
+type serviceLoginAttempt struct {
+	Failures    int
+	FirstFail   time.Time
+	LockedUntil time.Time
+}
+
+var (
+	serviceLoginAttemptsMu sync.Mutex
+	serviceLoginAttempts   = map[string]serviceLoginAttempt{}
+)
+
 func main() {
+	if err := requireServiceSecurityConfig(); err != nil {
+		log.Fatalf("security configuration error: %v", err)
+	}
+
 	svc := newService()
 	addr := strings.TrimSpace(os.Getenv("AURAPANEL_SERVICE_ADDR"))
 	if addr == "" {
 		addr = defaultServiceAddr
+	}
+	if !serviceAllowRemoteBind() && !isLoopbackBindAddress(addr) {
+		log.Fatalf("refusing non-loopback bind address %q without AURAPANEL_ALLOW_REMOTE_SERVICE=true", addr)
 	}
 
 	log.Printf("AuraPanel panel-service listening on %s", addr)
@@ -376,8 +414,52 @@ func seedState() appState {
 
 func (s *service) routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/api/v1/", persistenceMiddleware(loggingMiddleware(http.HandlerFunc(s.handleCompat)), s))
+	mux.Handle("/api/v1/", serviceAuthMiddleware(persistenceMiddleware(loggingMiddleware(http.HandlerFunc(s.handleCompat)), s)))
 	return mux
+}
+
+func requireServiceSecurityConfig() error {
+	if devSimulationEnabled() {
+		return nil
+	}
+	secret := strings.TrimSpace(os.Getenv("AURAPANEL_JWT_SECRET"))
+	if len(secret) < 32 {
+		return fmt.Errorf("AURAPANEL_JWT_SECRET must be set and at least 32 chars")
+	}
+	proxyToken := strings.TrimSpace(os.Getenv("AURAPANEL_INTERNAL_PROXY_TOKEN"))
+	if len(proxyToken) < 32 {
+		return fmt.Errorf("AURAPANEL_INTERNAL_PROXY_TOKEN must be set and at least 32 chars")
+	}
+	return nil
+}
+
+func devSimulationEnabled() bool {
+	normalized := strings.ToLower(strings.TrimSpace(os.Getenv("AURAPANEL_DEV_SIMULATION")))
+	return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on"
+}
+
+func serviceAllowRemoteBind() bool {
+	normalized := strings.ToLower(strings.TrimSpace(os.Getenv("AURAPANEL_ALLOW_REMOTE_SERVICE")))
+	return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on"
+}
+
+func isLoopbackBindAddress(addr string) bool {
+	host := strings.TrimSpace(addr)
+	if strings.Contains(host, ":") {
+		parsedHost, _, err := net.SplitHostPort(host)
+		if err == nil {
+			host = parsedHost
+		}
+	}
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {
@@ -386,6 +468,367 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 		log.Printf("[%s] %s %s", time.Since(start).Round(time.Millisecond), r.Method, r.URL.Path)
 	})
+}
+
+func servicePublicRoute(method, path string) bool {
+	switch {
+	case method == http.MethodGet && path == "/api/v1/health":
+		return true
+	case method == http.MethodPost && path == "/api/v1/auth/login":
+		return true
+	case path == "/api/v1/mail/webmail/sso/consume":
+		return true
+	default:
+		return false
+	}
+}
+
+func serviceAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if servicePublicRoute(r.Method, r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		expected := strings.TrimSpace(os.Getenv("AURAPANEL_INTERNAL_PROXY_TOKEN"))
+		received := strings.TrimSpace(r.Header.Get("X-Aura-Proxy-Token"))
+		if expected != "" {
+			if subtle.ConstantTimeCompare([]byte(expected), []byte(received)) != 1 {
+				writeError(w, http.StatusUnauthorized, "Unauthorized.")
+				return
+			}
+		} else if !devSimulationEnabled() {
+			writeError(w, http.StatusUnauthorized, "Unauthorized.")
+			return
+		} else if !isLoopbackRemoteAddr(r.RemoteAddr) {
+			writeError(w, http.StatusUnauthorized, "Unauthorized.")
+			return
+		}
+
+		principal, ok := servicePrincipalFromHeaders(r)
+		if !ok {
+			writeError(w, http.StatusUnauthorized, "Unauthorized.")
+			return
+		}
+		ctx := context.WithValue(r.Context(), servicePrincipalContextKey, principal)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func isLoopbackRemoteAddr(remoteAddr string) bool {
+	host := strings.TrimSpace(remoteAddr)
+	if strings.Contains(host, ":") {
+		parsedHost, _, err := net.SplitHostPort(host)
+		if err == nil {
+			host = parsedHost
+		}
+	}
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func servicePrincipalFromHeaders(r *http.Request) (servicePrincipal, bool) {
+	email := strings.TrimSpace(r.Header.Get("X-Aura-Auth-Email"))
+	role := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Aura-Auth-Role")))
+	name := strings.TrimSpace(r.Header.Get("X-Aura-Auth-Name"))
+	username := sanitizeName(strings.TrimSpace(r.Header.Get("X-Aura-Auth-Username")))
+	if username == "" {
+		username = sanitizeName(strings.Split(strings.ToLower(email), "@")[0])
+	}
+	if email == "" {
+		return servicePrincipal{}, false
+	}
+	if role != "admin" && role != "reseller" && role != "user" {
+		return servicePrincipal{}, false
+	}
+	return servicePrincipal{
+		Email:    strings.ToLower(email),
+		Name:     name,
+		Role:     role,
+		Username: username,
+	}, true
+}
+
+func principalFromContext(ctx context.Context) (servicePrincipal, bool) {
+	value := ctx.Value(servicePrincipalContextKey)
+	if value == nil {
+		return servicePrincipal{}, false
+	}
+	principal, ok := value.(servicePrincipal)
+	return principal, ok
+}
+
+func servicePathMatchesPrefix(path, prefix string) bool {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return false
+	}
+	normalizedPrefix := strings.TrimSuffix(prefix, "/")
+	return path == normalizedPrefix || strings.HasPrefix(path, normalizedPrefix+"/")
+}
+
+func (s *service) readRequestJSONMap(r *http.Request) map[string]interface{} {
+	if r == nil || r.Body == nil {
+		return nil
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxJSONBodyBytes))
+	if err != nil {
+		return nil
+	}
+	_ = r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return nil
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil
+	}
+	return payload
+}
+
+func requestStringField(payload map[string]interface{}, key string) string {
+	if payload == nil {
+		return ""
+	}
+	raw, ok := payload[key]
+	if !ok {
+		return ""
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
+func normalizeDomainCandidate(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.Contains(value, "@") {
+		parts := strings.Split(value, "@")
+		value = parts[len(parts)-1]
+	}
+	return normalizeDomain(value)
+}
+
+func (s *service) resolveOwnedDomainCandidate(principal servicePrincipal, raw string) (string, bool) {
+	candidate := normalizeDomainCandidate(raw)
+	if candidate == "" {
+		return "", false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	current := candidate
+	for {
+		if s.canAccessDomainLocked(principal, current) {
+			return current, true
+		}
+		dot := strings.Index(current, ".")
+		if dot < 0 {
+			break
+		}
+		current = current[dot+1:]
+	}
+	return "", false
+}
+
+func (s *service) domainContextFromRequest(r *http.Request) (string, bool) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		return "", false
+	}
+	queryKeys := []string{"domain", "parent_domain", "base_domain", "site_domain", "source_domain", "staging_domain", "fqdn", "address", "source", "email"}
+	for _, key := range queryKeys {
+		if value := strings.TrimSpace(r.URL.Query().Get(key)); value != "" {
+			if resolved, ok := s.resolveOwnedDomainCandidate(principal, value); ok {
+				return resolved, true
+			}
+		}
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/v1/dns/zones/") {
+		rest := strings.TrimPrefix(r.URL.Path, "/api/v1/dns/zones/")
+		parts := strings.SplitN(rest, "/", 2)
+		if len(parts) > 0 {
+			if resolved, ok := s.resolveOwnedDomainCandidate(principal, parts[0]); ok {
+				return resolved, true
+			}
+		}
+	}
+	payload := s.readRequestJSONMap(r)
+	bodyKeys := []string{"domain", "parent_domain", "base_domain", "site_domain", "source_domain", "staging_domain", "fqdn", "address", "source", "email"}
+	for _, key := range bodyKeys {
+		if value := requestStringField(payload, key); value != "" {
+			if resolved, ok := s.resolveOwnedDomainCandidate(principal, value); ok {
+				return resolved, true
+			}
+		}
+	}
+	return "", false
+}
+
+func (s *service) rawDomainFromRequest(r *http.Request) string {
+	keys := []string{"domain", "parent_domain", "base_domain", "site_domain", "source_domain", "staging_domain", "fqdn", "address", "source", "email"}
+	for _, key := range keys {
+		if value := strings.TrimSpace(r.URL.Query().Get(key)); value != "" {
+			if normalized := normalizeDomainCandidate(value); normalized != "" {
+				return normalized
+			}
+		}
+	}
+	payload := s.readRequestJSONMap(r)
+	for _, key := range keys {
+		if value := requestStringField(payload, key); value != "" {
+			if normalized := normalizeDomainCandidate(value); normalized != "" {
+				return normalized
+			}
+		}
+	}
+	return ""
+}
+
+func (s *service) nonAdminCanProvisionDomain(principal servicePrincipal, r *http.Request, domain string) bool {
+	s.mu.RLock()
+	if s.canAccessDomainLocked(principal, domain) {
+		s.mu.RUnlock()
+		return true
+	}
+	s.mu.RUnlock()
+	payload := s.readRequestJSONMap(r)
+	ids := principalAliases(principal)
+	for _, key := range []string{"user", "owner", "email"} {
+		value := strings.TrimSpace(requestStringField(payload, key))
+		if value == "" {
+			continue
+		}
+		if key == "email" {
+			value = strings.Split(strings.ToLower(value), "@")[0]
+		}
+		if _, ok := ids[sanitizeName(value)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *service) nonAdminRoutePolicy(w http.ResponseWriter, r *http.Request) bool {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return false
+	}
+	if principal.Role == "admin" {
+		return true
+	}
+	path := strings.TrimSpace(r.URL.Path)
+	method := r.Method
+
+	allowedWithoutDomain := []string{
+		"/api/v1/auth/me",
+		"/api/v1/status/metrics",
+		"/api/v1/status/services",
+		"/api/v1/status/update",
+		"/api/v1/security/status",
+		"/api/v1/security/immutable/status",
+		"/api/v1/security/2fa/setup",
+		"/api/v1/security/2fa/verify",
+		"/api/v1/vhost/list",
+	}
+	for _, prefix := range allowedWithoutDomain {
+		if servicePathMatchesPrefix(path, prefix) {
+			return true
+		}
+	}
+
+	adminOnlyPrefixes := []string{
+		"/api/v1/users",
+		"/api/v1/packages",
+		"/api/v1/files",
+		"/api/v1/php",
+		"/api/v1/ols",
+		"/api/v1/storage/minio",
+		"/api/v1/federated",
+		"/api/v1/activity/log",
+		"/api/v1/migration",
+		"/api/v1/acl",
+		"/api/v1/reseller",
+		"/api/v1/docker",
+		"/api/v1/gitops",
+		"/api/v1/perf",
+		"/api/v1/cloudflare",
+		"/api/v1/security/ssh-keys",
+		"/api/v1/security/firewall",
+		"/api/v1/security/waf",
+		"/api/v1/security/hardening/apply",
+		"/api/v1/security/fail2ban",
+		"/api/v1/security/ssh/config",
+		"/api/v1/security/live-patch",
+		"/api/v1/security/malware",
+		"/api/v1/status/service/control",
+		"/api/v1/status/panel-port",
+		"/api/v1/backup/destinations",
+		"/api/v1/backup/schedules",
+		"/api/v1/db/mariadb/tuning",
+		"/api/v1/db/postgresql/tuning",
+		"/api/v1/mail/tuning",
+		"/api/v1/ftp/tuning",
+		"/api/v1/websites/vhost-config",
+		"/api/v1/websites/custom-ssl",
+	}
+	for _, prefix := range adminOnlyPrefixes {
+		if servicePathMatchesPrefix(path, prefix) {
+			writeError(w, http.StatusForbidden, "This endpoint is restricted to admin users.")
+			return false
+		}
+	}
+
+	if (path == "/api/v1/vhost" || path == "/api/v1/vhost/create") && method == http.MethodPost {
+		rawDomain := s.rawDomainFromRequest(r)
+		if rawDomain == "" {
+			writeError(w, http.StatusForbidden, "Domain context is required for this operation.")
+			return false
+		}
+		if !isValidDomainName(rawDomain) {
+			writeError(w, http.StatusBadRequest, "A valid domain is required.")
+			return false
+		}
+		if s.nonAdminCanProvisionDomain(principal, r, rawDomain) {
+			return true
+		}
+		writeError(w, http.StatusForbidden, "You cannot provision this domain with current account context.")
+		return false
+	}
+
+	domain, hasDomain := s.domainContextFromRequest(r)
+	if !hasDomain {
+		writeError(w, http.StatusForbidden, "Domain context is required for this operation.")
+		return false
+	}
+	if !isValidDomainName(domain) {
+		writeError(w, http.StatusBadRequest, "A valid domain is required.")
+		return false
+	}
+	if servicePathMatchesPrefix(path, "/api/v1/dns") && (path == "/api/v1/dns/zone" || strings.Contains(path, "/dns/zones/")) {
+		if s.nonAdminCanProvisionDomain(principal, r, domain) {
+			return true
+		}
+	}
+	if servicePathMatchesPrefix(path, "/api/v1/mail/webmail/sso") {
+		if s.nonAdminCanProvisionDomain(principal, r, domain) {
+			return true
+		}
+		return s.requireDomainAccess(w, r, domain)
+	}
+	return s.requireDomainAccess(w, r, domain)
 }
 
 type statusCapturingResponseWriter struct {
@@ -476,6 +919,11 @@ func persistenceMiddleware(next http.Handler, svc *service) http.Handler {
 }
 
 func (s *service) handleCompat(w http.ResponseWriter, r *http.Request) {
+	if !servicePublicRoute(r.Method, r.URL.Path) {
+		if !s.nonAdminRoutePolicy(w, r) {
+			return
+		}
+	}
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/health":
 		s.handleHealth(w)
@@ -744,6 +1192,63 @@ func normalizeComparableVersion(value string) string {
 	return replacer.Replace(normalized)
 }
 
+func serviceClientIP(r *http.Request) string {
+	if xff := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); xff != "" {
+		parts := strings.Split(xff, ",")
+		if len(parts) > 0 {
+			return strings.TrimSpace(parts[0])
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
+	}
+	return strings.TrimSpace(r.RemoteAddr)
+}
+
+func serviceAttemptKey(r *http.Request, email string) string {
+	return strings.ToLower(strings.TrimSpace(serviceClientIP(r) + "|" + email))
+}
+
+func serviceIsLoginBlocked(key string) (bool, time.Duration) {
+	serviceLoginAttemptsMu.Lock()
+	defer serviceLoginAttemptsMu.Unlock()
+
+	attempt, ok := serviceLoginAttempts[key]
+	if !ok {
+		return false, 0
+	}
+	if attempt.LockedUntil.After(time.Now()) {
+		return true, time.Until(attempt.LockedUntil)
+	}
+	if !attempt.LockedUntil.IsZero() {
+		delete(serviceLoginAttempts, key)
+	}
+	return false, 0
+}
+
+func serviceRecordLoginFailure(key string) {
+	serviceLoginAttemptsMu.Lock()
+	defer serviceLoginAttemptsMu.Unlock()
+
+	now := time.Now()
+	attempt := serviceLoginAttempts[key]
+	if attempt.FirstFail.IsZero() || now.Sub(attempt.FirstFail) > serviceFailureWindow {
+		attempt = serviceLoginAttempt{Failures: 0, FirstFail: now}
+	}
+	attempt.Failures++
+	if attempt.Failures >= serviceMaxFailedAttempts {
+		attempt.LockedUntil = now.Add(serviceLockDuration)
+	}
+	serviceLoginAttempts[key] = attempt
+}
+
+func serviceClearLoginAttempts(key string) {
+	serviceLoginAttemptsMu.Lock()
+	defer serviceLoginAttemptsMu.Unlock()
+	delete(serviceLoginAttempts, key)
+}
+
 func (s *service) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Email     string `json:"email"`
@@ -761,6 +1266,11 @@ func (s *service) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Email and password are required.")
 		return
 	}
+	attemptKey := serviceAttemptKey(r, email)
+	if blocked, remaining := serviceIsLoginBlocked(attemptKey); blocked {
+		writeError(w, http.StatusTooManyRequests, fmt.Sprintf("Too many failed attempts. Try again in %s.", remaining.Round(time.Second)))
+		return
+	}
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -774,6 +1284,7 @@ func (s *service) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if matched == nil {
+		serviceRecordLoginFailure(attemptKey)
 		writeError(w, http.StatusUnauthorized, "Invalid credentials.")
 		return
 	}
@@ -790,9 +1301,11 @@ func (s *service) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if bcrypt.CompareHashAndPassword([]byte(matched.PasswordHash), []byte(password)) != nil {
+		serviceRecordLoginFailure(attemptKey)
 		writeError(w, http.StatusUnauthorized, "Invalid credentials.")
 		return
 	}
+	serviceClearLoginAttempts(attemptKey)
 
 	token, err := issueToken(*matched)
 	if err != nil {
@@ -807,17 +1320,103 @@ func (s *service) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *service) findUserByEmailLocked(email string) *PanelUser {
+	needle := strings.ToLower(strings.TrimSpace(email))
+	if needle == "" {
+		return nil
+	}
+	for i := range s.state.Users {
+		if strings.EqualFold(strings.TrimSpace(s.state.Users[i].Email), needle) {
+			return &s.state.Users[i]
+		}
+	}
+	return nil
+}
+
+func principalAliases(pr servicePrincipal) map[string]struct{} {
+	ids := map[string]struct{}{}
+	add := func(value string) {
+		value = sanitizeName(value)
+		if value != "" {
+			ids[value] = struct{}{}
+		}
+	}
+	add(pr.Username)
+	local := strings.Split(strings.ToLower(strings.TrimSpace(pr.Email)), "@")
+	if len(local) > 0 {
+		add(local[0])
+	}
+	return ids
+}
+
+func (s *service) principalOwnsWebsiteLocked(pr servicePrincipal, site Website) bool {
+	if pr.Role == "admin" {
+		return true
+	}
+	ids := principalAliases(pr)
+	if user := s.findUserByEmailLocked(pr.Email); user != nil {
+		ids[sanitizeName(user.Username)] = struct{}{}
+	}
+	owner := sanitizeName(site.Owner)
+	if _, ok := ids[owner]; ok && owner != "" {
+		return true
+	}
+	siteUser := sanitizeName(site.User)
+	if _, ok := ids[siteUser]; ok && siteUser != "" {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(site.Email), strings.TrimSpace(pr.Email))
+}
+
+func (s *service) canAccessDomainLocked(pr servicePrincipal, domain string) bool {
+	if pr.Role == "admin" {
+		return true
+	}
+	site := s.findWebsiteLocked(normalizeDomain(domain))
+	if site == nil {
+		return false
+	}
+	return s.principalOwnsWebsiteLocked(pr, *site)
+}
+
+func (s *service) requireDomainAccess(w http.ResponseWriter, r *http.Request, domain string) bool {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return false
+	}
+	if principal.Role == "admin" {
+		return true
+	}
+	s.mu.RLock()
+	allowed := s.canAccessDomainLocked(principal, domain)
+	s.mu.RUnlock()
+	if !allowed {
+		writeError(w, http.StatusForbidden, "Access denied for this domain.")
+		return false
+	}
+	return true
+}
+
 func (s *service) handleVhostList(w http.ResponseWriter, r *http.Request) {
 	search := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("search")))
 	php := strings.TrimSpace(r.URL.Query().Get("php"))
 	page := maxInt(1, queryInt(r, "page", 1))
 	perPage := clampInt(queryInt(r, "per_page", 20), 1, 200)
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	var filtered []Website
 	for _, site := range s.state.Websites {
+		if !s.principalOwnsWebsiteLocked(principal, site) {
+			continue
+		}
 		if search != "" && !strings.Contains(strings.ToLower(site.Domain), search) && !strings.Contains(strings.ToLower(site.Owner), search) {
 			continue
 		}
@@ -883,8 +1482,8 @@ func (s *service) handleVhostCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	domain := normalizeDomain(payload.Domain)
-	if domain == "" {
-		writeError(w, http.StatusBadRequest, "Domain is required.")
+	if !isValidDomainName(domain) {
+		writeError(w, http.StatusBadRequest, "A valid domain is required.")
 		return
 	}
 	if payload.ApacheBackend && !apacheBackendAvailable() {
@@ -954,6 +1553,13 @@ func (s *service) handleVhostDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	domain := normalizeDomain(payload.Domain)
+	if !isValidDomainName(domain) {
+		writeError(w, http.StatusBadRequest, "A valid domain is required.")
+		return
+	}
+	if !s.requireDomainAccess(w, r, domain) {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -988,6 +1594,13 @@ func (s *service) handleVhostUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	domain := normalizeDomain(payload.Domain)
+	if !isValidDomainName(domain) {
+		writeError(w, http.StatusBadRequest, "A valid domain is required.")
+		return
+	}
+	if !s.requireDomainAccess(w, r, domain) {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1582,14 +2195,26 @@ func (s *service) handleDBLinksDelete(w http.ResponseWriter, r *http.Request) {
 
 func (s *service) handleAliasesList(w http.ResponseWriter, r *http.Request) {
 	domain := normalizeDomain(r.URL.Query().Get("domain"))
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
+	if domain != "" && !s.requireDomainAccess(w, r, domain) {
+		return
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	var items []DomainAlias
 	for _, alias := range s.state.Aliases {
-		if domain == "" || alias.Domain == domain {
-			items = append(items, alias)
+		if domain != "" && alias.Domain != domain {
+			continue
 		}
+		if principal.Role != "admin" && !s.canAccessDomainLocked(principal, alias.Domain) {
+			continue
+		}
+		items = append(items, alias)
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: items})
 }
@@ -1798,6 +2423,11 @@ func (s *service) handleFirewallRuleDelete(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *service) handleSSHKeysList(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok || principal.Role != "admin" {
+		writeError(w, http.StatusForbidden, "Only admin can manage SSH keys.")
+		return
+	}
 	user := strings.TrimSpace(r.URL.Query().Get("user"))
 	if user == "" {
 		user = "root"
@@ -1806,6 +2436,11 @@ func (s *service) handleSSHKeysList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *service) handleSSHKeyCreate(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok || principal.Role != "admin" {
+		writeError(w, http.StatusForbidden, "Only admin can manage SSH keys.")
+		return
+	}
 	var payload struct {
 		User      string `json:"user"`
 		Title     string `json:"title"`
@@ -1829,6 +2464,11 @@ func (s *service) handleSSHKeyCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *service) handleSSHKeyDelete(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok || principal.Role != "admin" {
+		writeError(w, http.StatusForbidden, "Only admin can manage SSH keys.")
+		return
+	}
 	user := strings.TrimSpace(r.URL.Query().Get("user"))
 	keyID := strings.TrimSpace(r.URL.Query().Get("key_id"))
 	if user == "" {
@@ -1867,8 +2507,11 @@ func (s *service) handleHardeningApply(w http.ResponseWriter, r *http.Request) {
 func (s *service) handleSiteLogs(w http.ResponseWriter, r *http.Request) {
 	domain := normalizeDomain(r.URL.Query().Get("domain"))
 	kind := firstNonEmpty(strings.TrimSpace(r.URL.Query().Get("kind")), "access")
-	if domain == "" {
-		writeError(w, http.StatusBadRequest, "Domain is required.")
+	if !isValidDomainName(domain) {
+		writeError(w, http.StatusBadRequest, "A valid domain is required.")
+		return
+	}
+	if !s.requireDomainAccess(w, r, domain) {
 		return
 	}
 	lines, err := realSiteLogs(domain, kind)
@@ -1888,6 +2531,13 @@ func (s *service) handleSSLIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
+	if !isValidDomainName(domain) {
+		writeError(w, http.StatusBadRequest, "A valid domain is required.")
+		return
+	}
+	if !s.requireDomainAccess(w, r, domain) {
+		return
+	}
 	domains := []string{domain}
 	if normalizeDomain(domain) != "" {
 		domains = append(domains, "www."+domain)
@@ -1938,6 +2588,9 @@ func (s *service) setWebsiteStatus(w http.ResponseWriter, r *http.Request, statu
 	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid website status payload.")
+		return
+	}
+	if !s.requireDomainAccess(w, r, normalizeDomain(payload.Domain)) {
 		return
 	}
 	s.mu.Lock()
@@ -2251,9 +2904,10 @@ func (s *service) removeSiteArtifactsLocked(domain string) error {
 func issueToken(user PanelUser) (string, error) {
 	now := time.Now().UTC()
 	claims := jwtClaims{
-		Email: user.Email,
-		Name:  firstNonEmpty(user.Name, user.Username),
-		Role:  normalizeRole(user.Role),
+		Email:    user.Email,
+		Name:     firstNonEmpty(user.Name, user.Username),
+		Role:     normalizeRole(user.Role),
+		Username: sanitizeName(user.Username),
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   user.Email,
 			Issuer:    envOr("AURAPANEL_JWT_ISSUER", "aurapanel-gateway"),
@@ -2263,12 +2917,23 @@ func issueToken(user PanelUser) (string, error) {
 			ExpiresAt: jwt.NewNumericDate(now.Add(12 * time.Hour)),
 		},
 	}
+	secret := jwtSecret()
+	if len(secret) < 32 {
+		return "", fmt.Errorf("jwt secret is not configured")
+	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(jwtSecret()))
+	return token.SignedString([]byte(secret))
 }
 
 func jwtSecret() string {
-	return envOr("AURAPANEL_JWT_SECRET", "aurapanel_dev_only_secret_change_me")
+	secret := strings.TrimSpace(os.Getenv("AURAPANEL_JWT_SECRET"))
+	if secret != "" {
+		return secret
+	}
+	if devSimulationEnabled() {
+		return "aurapanel_dev_only_secret_change_me"
+	}
+	return ""
 }
 
 func publicUsers(users []PanelUser) []PanelUser {
@@ -2341,6 +3006,37 @@ func normalizePlanType(value string) string {
 
 func normalizeDomain(value string) string {
 	return strings.Trim(strings.ToLower(strings.TrimSpace(value)), ".")
+}
+
+func isValidDomainName(value string) bool {
+	domain := normalizeDomain(value)
+	if domain == "" || len(domain) > 253 {
+		return false
+	}
+	if strings.Contains(domain, "/") || strings.Contains(domain, "\\") || strings.Contains(domain, "..") {
+		return false
+	}
+	labels := strings.Split(domain, ".")
+	if len(labels) < 2 {
+		return false
+	}
+	for _, label := range labels {
+		if len(label) == 0 || len(label) > 63 {
+			return false
+		}
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for i := 0; i < len(label); i++ {
+			c := label[i]
+			isLetter := c >= 'a' && c <= 'z'
+			isDigit := c >= '0' && c <= '9'
+			if !isLetter && !isDigit && c != '-' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func sanitizeName(value string) string {
@@ -2539,8 +3235,17 @@ func loadAdminSeedCredentials() (string, string) {
 
 func decodeJSON(r *http.Request, dst interface{}) error {
 	defer r.Body.Close()
-	decoder := json.NewDecoder(r.Body)
-	return decoder.Decode(dst)
+	limited := io.LimitReader(r.Body, maxJSONBodyBytes)
+	decoder := json.NewDecoder(limited)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
+		return err
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return fmt.Errorf("invalid JSON payload")
+	}
+	return nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload interface{}) {

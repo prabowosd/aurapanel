@@ -27,10 +27,11 @@ type AuthResponse struct {
 }
 
 type User struct {
-	ID    int    `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
-	Role  string `json:"role"`
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Role     string `json:"role"`
+	Username string `json:"username,omitempty"`
 }
 
 type adminCredentials struct {
@@ -142,18 +143,20 @@ func verifyPassword(input string, creds adminCredentials) bool {
 }
 
 type gatewayClaims struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Role  string `json:"role"`
+	Email    string `json:"email"`
+	Name     string `json:"name"`
+	Role     string `json:"role"`
+	Username string `json:"username,omitempty"`
 	jwt.RegisteredClaims
 }
 
 func issueToken(user User) (string, error) {
 	now := time.Now().UTC()
 	claims := gatewayClaims{
-		Email: user.Email,
-		Name:  user.Name,
-		Role:  user.Role,
+		Email:    user.Email,
+		Name:     user.Name,
+		Role:     user.Role,
+		Username: user.Username,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   user.Email,
 			Issuer:    middleware.JwtIssuer(),
@@ -268,10 +271,11 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	clearLoginAttempts(key)
 
 	user := User{
-		ID:    1,
-		Name:  "System Administrator",
-		Email: creds.email,
-		Role:  "admin",
+		ID:       1,
+		Name:     "System Administrator",
+		Email:    creds.email,
+		Role:     "admin",
+		Username: "admin",
 	}
 
 	token, err := issueToken(user)
@@ -292,9 +296,10 @@ func Me(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, User{
-		ID:    1,
-		Name:  authUser.Name,
-		Email: authUser.Email,
-		Role:  authUser.Role,
+		ID:       1,
+		Name:     authUser.Name,
+		Email:    authUser.Email,
+		Role:     authUser.Role,
+		Username: authUser.Username,
 	})
 }

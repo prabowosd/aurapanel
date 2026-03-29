@@ -64,6 +64,11 @@ func computeTOTP(secret string, now time.Time) string {
 }
 
 func (s *service) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
 	var payload struct {
 		AccountName string `json:"account_name"`
 	}
@@ -72,6 +77,15 @@ func (s *service) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	account := strings.TrimSpace(payload.AccountName)
+	if principal.Role != "admin" {
+		account = principal.Username
+	}
+	if account == "" {
+		account = principal.Username
+	}
+	if account == "" {
+		account = principal.Email
+	}
 	if account == "" {
 		account = "admin"
 	}
@@ -83,7 +97,7 @@ func (s *service) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 	if s.state.TwoFASecrets == nil {
 		s.state.TwoFASecrets = map[string]string{}
 	}
-	s.state.TwoFASecrets[strings.ToLower(account)] = secret
+	s.state.TwoFASecrets[strings.ToLower(strings.TrimSpace(account))] = secret
 	writeJSON(w, http.StatusOK, apiResponse{
 		Status: "success",
 		Data: map[string]interface{}{
@@ -94,6 +108,11 @@ func (s *service) handleTOTPSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *service) handleTOTPVerify(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
 	var payload struct {
 		Token string `json:"token"`
 	}
@@ -105,15 +124,35 @@ func (s *service) handleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	candidates := []string{
+		strings.ToLower(strings.TrimSpace(principal.Username)),
+		strings.ToLower(strings.TrimSpace(principal.Email)),
+	}
+	for i := range s.state.Users {
+		if strings.EqualFold(strings.TrimSpace(s.state.Users[i].Email), strings.TrimSpace(principal.Email)) {
+			candidates = append(candidates, strings.ToLower(strings.TrimSpace(s.state.Users[i].Username)))
+		}
+	}
+	seen := map[string]struct{}{}
 	now := time.Now().UTC()
-	for account, secret := range s.state.TwoFASecrets {
-		if !verifyStoredTOTPSecret(secret, payload.Token, now) {
+	for _, account := range candidates {
+		account = strings.TrimSpace(account)
+		if account == "" {
+			continue
+		}
+		if _, exists := seen[account]; exists {
+			continue
+		}
+		seen[account] = struct{}{}
+		secret := strings.TrimSpace(s.state.TwoFASecrets[account])
+		if secret == "" || !verifyStoredTOTPSecret(secret, payload.Token, now) {
 			continue
 		}
 		for i := range s.state.Users {
-			if strings.EqualFold(s.state.Users[i].Username, account) || strings.EqualFold(s.state.Users[i].Email, account) {
+			if strings.EqualFold(s.state.Users[i].Username, account) || strings.EqualFold(s.state.Users[i].Email, account) || strings.EqualFold(s.state.Users[i].Email, principal.Email) {
 				s.state.Users[i].TwoFAEnabled = true
-				s.state.TwoFASecrets[s.state.Users[i].Username] = secret
+				s.state.TwoFASecrets[strings.ToLower(strings.TrimSpace(s.state.Users[i].Username))] = secret
+				s.state.TwoFASecrets[strings.ToLower(strings.TrimSpace(s.state.Users[i].Email))] = secret
 			}
 		}
 		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Valid: true})

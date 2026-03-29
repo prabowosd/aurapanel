@@ -12,9 +12,20 @@ import (
 func TestRequireSecurityConfigFailsWithoutSecret(t *testing.T) {
 	t.Setenv("AURAPANEL_DEV_SIMULATION", "")
 	t.Setenv("AURAPANEL_JWT_SECRET", "")
+	t.Setenv("AURAPANEL_INTERNAL_PROXY_TOKEN", "")
 
 	if err := RequireSecurityConfig(); err == nil {
 		t.Fatalf("expected RequireSecurityConfig to fail without JWT secret")
+	}
+}
+
+func TestRequireSecurityConfigFailsWithoutInternalProxyToken(t *testing.T) {
+	t.Setenv("AURAPANEL_DEV_SIMULATION", "")
+	t.Setenv("AURAPANEL_JWT_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("AURAPANEL_INTERNAL_PROXY_TOKEN", "")
+
+	if err := RequireSecurityConfig(); err == nil {
+		t.Fatalf("expected RequireSecurityConfig to fail without internal proxy token")
 	}
 }
 

@@ -1517,14 +1517,17 @@ write_service_env_defaults() {
   mkdir -p "${GATEWAY_ENV_DIR}" "${PROJECT_DIR}/logs"
   chmod 700 "${GATEWAY_ENV_DIR}"
   local shared_jwt_secret=""
+  local shared_proxy_token=""
   local legacy_gateway_core_url_key="AURAPANEL_""CORE_URL"
   local legacy_service_bind_key="AURAPANEL_""CORE_BIND_ADDR"
 
   if [ ! -f "${GATEWAY_ENV_FILE}" ]; then
-    local admin_pass jwt_secret
+    local admin_pass jwt_secret proxy_token
     admin_pass="$(generate_safe_password 24)"
     jwt_secret="$(openssl rand -hex 32 | tr -d '\n')"
+    proxy_token="$(openssl rand -hex 32 | tr -d '\n')"
     shared_jwt_secret="${jwt_secret}"
+    shared_proxy_token="${proxy_token}"
 
     cat <<EOF > "${GATEWAY_ENV_FILE}"
 AURAPANEL_ADMIN_EMAIL=admin@server.com
@@ -1535,6 +1538,7 @@ AURAPANEL_JWT_AUDIENCE=aurapanel-ui
 AURAPANEL_ALLOWED_ORIGINS=http://127.0.0.1:${PANEL_PORT_DEFAULT},http://localhost:${PANEL_PORT_DEFAULT}
 AURAPANEL_SERVICE_URL=http://127.0.0.1:8081
 AURAPANEL_GATEWAY_ONLY=1
+AURAPANEL_INTERNAL_PROXY_TOKEN=${proxy_token}
 AURAPANEL_GATEWAY_ADDR=:${PANEL_PORT_DEFAULT}
 AURAPANEL_PANEL_DIST=/opt/aurapanel/frontend/dist
 EOF
@@ -1544,6 +1548,12 @@ EOF
 
   if [ -z "${shared_jwt_secret}" ]; then
     shared_jwt_secret="$(read_env_value "${GATEWAY_ENV_FILE}" "AURAPANEL_JWT_SECRET")"
+  fi
+  if [ -z "${shared_proxy_token}" ]; then
+    shared_proxy_token="$(read_env_value "${GATEWAY_ENV_FILE}" "AURAPANEL_INTERNAL_PROXY_TOKEN")"
+  fi
+  if [ -z "${shared_proxy_token}" ]; then
+    shared_proxy_token="$(openssl rand -hex 32 | tr -d '\n')"
   fi
 
   if [ ! -f "${SERVICE_ENV_FILE}" ]; then
@@ -1559,7 +1569,10 @@ AURAPANEL_RUNTIME_MODE=production
 AURAPANEL_SECURITY_POLICY=fail-closed
 AURAPANEL_GATEWAY_ONLY=1
 AURAPANEL_JWT_SECRET=${shared_jwt_secret}
+AURAPANEL_INTERNAL_PROXY_TOKEN=${shared_proxy_token}
 AURAPANEL_SERVICE_ADDR=127.0.0.1:8081
+AURAPANEL_ALLOW_REMOTE_SERVICE=0
+AURAPANEL_TERMINAL_ENABLED=0
 AURAPANEL_FEDERATION_MODE=active-passive
 AURAPANEL_FEDERATION_PRIMARY=1
 AURAPANEL_BACKUP_TARGET=internal-minio
@@ -1588,6 +1601,7 @@ EOF
   upsert_env "${GATEWAY_ENV_FILE}" "AURAPANEL_GATEWAY_ADDR" ":${PANEL_PORT_DEFAULT}"
   upsert_env "${GATEWAY_ENV_FILE}" "AURAPANEL_PANEL_DIST" "${PROJECT_DIR}/frontend/dist"
   upsert_env "${GATEWAY_ENV_FILE}" "AURAPANEL_ALLOWED_ORIGINS" "http://127.0.0.1:${PANEL_PORT_DEFAULT},http://localhost:${PANEL_PORT_DEFAULT}"
+  upsert_env "${GATEWAY_ENV_FILE}" "AURAPANEL_INTERNAL_PROXY_TOKEN" "${shared_proxy_token}"
   delete_env "${GATEWAY_ENV_FILE}" "${legacy_gateway_core_url_key}"
 
   local shared_admin_email shared_admin_password shared_admin_hash
@@ -1613,7 +1627,10 @@ EOF
   if [ -n "${shared_jwt_secret}" ]; then
     upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_JWT_SECRET" "${shared_jwt_secret}"
   fi
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_INTERNAL_PROXY_TOKEN" "${shared_proxy_token}"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_SERVICE_ADDR" "127.0.0.1:8081"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_ALLOW_REMOTE_SERVICE" "0"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_TERMINAL_ENABLED" "0"
   delete_env "${SERVICE_ENV_FILE}" "${legacy_service_bind_key}"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_FEDERATION_MODE" "active-passive"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_FEDERATION_PRIMARY" "1"
