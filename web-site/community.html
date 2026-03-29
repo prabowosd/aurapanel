@@ -3,46 +3,104 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AuraPanel Community | Build Hosting Together</title>
-  <meta name="description" content="Join the AuraPanel community to share hosting practices, roadmap feedback, and production learnings.">
-  <link rel="icon" type="image/png" href="./favicon.png">
+  <title>AuraPanel Community | Hosting Operators, Resellers and Developers</title>
+  <meta name="description" content="Join the AuraPanel community to share hosting operations feedback, roadmap input, migration experience and security hardening insights.">
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
+  <meta name="theme-color" content="#2f6df6">
+  <link rel="canonical" href="https://www.aurapanel.info/community.html">
+  <link rel="alternate" href="https://www.aurapanel.info/community.html" hreflang="en">
+  <link rel="alternate" href="https://www.aurapanel.info/community.html" hreflang="x-default">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/favicon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="AuraPanel">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:title" content="AuraPanel Community">
+  <meta property="og:description" content="Collaborate with hosting operators and teams shaping AuraPanel workflows.">
+  <meta property="og:url" content="https://www.aurapanel.info/community.html">
+  <meta property="og:image" content="https://www.aurapanel.info/assets/logo.png">
+  <meta property="og:image:alt" content="AuraPanel community">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="AuraPanel Community">
+  <meta name="twitter:description" content="Join operators, resellers and developers building reliable hosting operations together.">
+  <meta name="twitter:image" content="https://www.aurapanel.info/assets/logo.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./assets/styles.css">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    "name": "AuraPanel Community",
+    "url": "https://www.aurapanel.info/community.html",
+    "description": "Community collaboration page for AuraPanel hosting operators and contributors."
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {
+        "@type": "ListItem",
+        "position": 1,
+        "name": "Home",
+        "item": "https://www.aurapanel.info/"
+      },
+      {
+        "@type": "ListItem",
+        "position": 2,
+        "name": "Community",
+        "item": "https://www.aurapanel.info/community.html"
+      }
+    ]
+  }
+  </script>
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
   <header class="site-header">
     <div class="container nav-wrap">
-      <a href="./index.html" class="brand" aria-label="AuraPanel home">
-        <img src="./assets/icon.png" alt="AuraPanel" class="brand-logo">
+      <a href="/" class="brand" aria-label="AuraPanel home">
+        <img src="/assets/icon.png" alt="AuraPanel icon" class="brand-logo" width="42" height="42" decoding="async">
         <span>AuraPanel</span>
       </a>
-      <nav class="main-nav" aria-label="Primary navigation">
-        <a href="./index.html#features">Features</a>
-        <a href="./index.html#reports">Reports</a>
-        <a href="./community.html" aria-current="page">Community</a>
+
+      <button class="menu-toggle" id="menuToggle" aria-expanded="false" aria-controls="siteNav" aria-label="Open navigation menu">
+        <span class="menu-icon" aria-hidden="true"></span>
+        <span class="menu-label">Menu</span>
+      </button>
+
+      <nav class="main-nav" id="siteNav" aria-label="Primary navigation">
+        <a href="/index.html#features">Features</a>
+        <a href="/index.html#reports">Reports</a>
+        <a href="/community.html" aria-current="page">Community</a>
+        <a href="#join">Join</a>
+        <a class="btn btn-primary nav-mobile-cta" href="#join">Send Request</a>
       </nav>
-      <a class="btn btn-secondary" href="./index.html">Back To Home</a>
+
+      <a class="btn btn-secondary nav-cta" href="/index.html">Back To Home</a>
     </div>
   </header>
 
-  <main>
-    <section class="hero section">
+  <main id="main-content">
+    <section class="hero section" aria-labelledby="community-title">
       <div class="container hero-grid">
         <div class="hero-copy reveal">
           <p class="eyebrow">AuraPanel Community</p>
-          <h1>Operator-led roadmap. Real infrastructure feedback.</h1>
+          <h1 id="community-title">Operator-led roadmap for modern hosting infrastructure.</h1>
           <p class="lead">
-            This is where hosting operators, resellers, and developers collaborate on features, testing loops,
-            and reliability priorities. If you run production workloads, your voice belongs here.
+            Join hosting operators, agencies, resellers and developers collaborating on feature priorities,
+            deployment patterns and production hardening feedback.
           </p>
           <div class="cta-row">
             <a class="btn btn-primary" href="#join">Join The Program</a>
             <a class="btn btn-secondary" href="#channels">Explore Channels</a>
           </div>
         </div>
-        <div class="hero-panel reveal">
+        <div class="hero-panel reveal" aria-label="Community metrics">
           <div class="panel-window">
             <div class="panel-head">
               <span class="dot red"></span>
@@ -60,7 +118,7 @@
                 <p class="kpi-value"><span data-count="118">0</span></p>
               </div>
               <div class="kpi-card">
-                <p class="kpi-label">Resolved Community Requests</p>
+                <p class="kpi-label">Resolved Requests</p>
                 <p class="kpi-value"><span data-count="76">0</span></p>
               </div>
               <div class="kpi-card">
@@ -73,74 +131,74 @@
       </div>
     </section>
 
-    <section id="channels" class="section soft-gradient">
+    <section id="channels" class="section soft-gradient" aria-labelledby="channels-title">
       <div class="container">
         <div class="section-head reveal">
-          <p class="eyebrow">Community Channels</p>
-          <h2>Pick your collaboration path.</h2>
+          <p class="eyebrow">Collaboration Channels</p>
+          <h2 id="channels-title">Choose the path that matches your hosting workflow.</h2>
         </div>
         <div class="card-grid">
           <article class="feature-card reveal">
             <h3>Operator Forum</h3>
-            <p>Discuss production patterns, migration strategies, and incident learnings with peers.</p>
+            <p>Share production patterns, migration practices and operational runbooks with peers.</p>
           </article>
           <article class="feature-card reveal">
             <h3>Release Feedback Calls</h3>
-            <p>Monthly sessions focused on roadmap priorities, acceptance criteria, and UX friction points.</p>
+            <p>Monthly sessions covering roadmap priorities, acceptance quality and deployment friction.</p>
           </article>
           <article class="feature-card reveal">
             <h3>Contributor Track</h3>
-            <p>Submit docs, issue reproductions, hardening notes, and test fixtures for faster iteration.</p>
+            <p>Submit issue reproductions, docs updates, security findings and regression checks.</p>
           </article>
           <article class="feature-card reveal">
             <h3>Partner Circle</h3>
-            <p>Agency and hosting partner lane for co-marketing, deployment templates, and onboarding playbooks.</p>
+            <p>Agency and hosting partner lane for onboarding templates and service delivery workflows.</p>
           </article>
         </div>
       </div>
     </section>
 
-    <section class="section">
+    <section class="section" aria-labelledby="contribution-title">
       <div class="container">
         <div class="section-head reveal">
           <p class="eyebrow">Contribution Model</p>
-          <h2>How we work together.</h2>
+          <h2 id="contribution-title">How we ship improvements together.</h2>
         </div>
         <div class="timeline">
           <article class="timeline-item reveal">
             <span class="step-index">01</span>
             <div>
               <h3>Share Context</h3>
-              <p>Tell us your stack, traffic shape, and operational pain points.</p>
+              <p>Describe your infrastructure setup, workload profile and top operational challenges.</p>
             </div>
           </article>
           <article class="timeline-item reveal">
             <span class="step-index">02</span>
             <div>
-              <h3>Test In Stages</h3>
-              <p>Run acceptance checks and report regressions with reproducible steps.</p>
+              <h3>Test in Stages</h3>
+              <p>Run acceptance checks and report reproducible issues with clear impact details.</p>
             </div>
           </article>
           <article class="timeline-item reveal">
             <span class="step-index">03</span>
             <div>
               <h3>Close The Loop</h3>
-              <p>Review fixes, update guidance, and improve shared operational playbooks.</p>
+              <p>Review fixes and improve shared implementation guidance for future deployments.</p>
             </div>
           </article>
         </div>
       </div>
     </section>
 
-    <section id="join" class="section soft-gradient">
+    <section id="join" class="section soft-gradient" aria-labelledby="join-title">
       <div class="container join-grid">
         <div class="reveal">
           <p class="eyebrow">Join Program</p>
-          <h2>Request community access.</h2>
-          <p>Submit your details and we will follow up with onboarding steps and channel invites.</p>
-          <p class="fine-print">Requests are submitted to our community intake database. We do not share your information with third parties.</p>
+          <h2 id="join-title">Request community access.</h2>
+          <p>Send your details to the community intake queue and we will follow up with onboarding steps.</p>
+          <p class="fine-print">Requests are stored in the community database and reviewed by the AuraPanel team.</p>
         </div>
-        <form id="joinForm" class="join-form reveal" data-endpoint="./api/community_join.php" novalidate>
+        <form id="joinForm" class="join-form reveal" data-endpoint="/api/community_join.php" novalidate>
           <label for="fullName">Full Name</label>
           <input id="fullName" name="fullName" type="text" autocomplete="name" required>
 
@@ -176,13 +234,13 @@
     <div class="container footer-wrap">
       <p>(c) <span id="year"></span> AuraPanel Community.</p>
       <div class="footer-links">
-        <a href="./index.html">Home</a>
-        <a href="./community.html">Community</a>
+        <a href="/">Home</a>
+        <a href="/community.html">Community</a>
       </div>
     </div>
   </footer>
 
-  <script src="./assets/app.js"></script>
-  <script src="./assets/community.js"></script>
+  <script src="/assets/app.js"></script>
+  <script src="/assets/community.js"></script>
 </body>
 </html>
