@@ -45,6 +45,10 @@ OWASP_CRS_VERSION="${AURAPANEL_OWASP_CRS_VERSION:-v4.2.0}"
 OWASP_CRS_ARCHIVE_URL="${AURAPANEL_OWASP_CRS_ARCHIVE_URL:-https://github.com/coreruleset/coreruleset/archive/refs/tags/${OWASP_CRS_VERSION}.zip}"
 PANEL_PORT_DEFAULT="8090"
 ONE_TIME_PASSWORD_NOTE="NOTE: Passwords are generated only once. Please save them now or change them immediately."
+PDNS_POLICY_RC_D_PATH="/usr/sbin/policy-rc.d"
+PDNS_POLICY_RC_D_BACKUP="/usr/sbin/policy-rc.d.aurapanel-backup"
+PDNS_POLICY_RC_D_MARKER="AURAPANEL_PDNS_AUTOSTART_GUARD"
+PDNS_POLICY_RC_D_INSTALLED="0"
 
 log() {
   echo -e "${BLUE}[$(date '+%H:%M:%S')]${NC} $*"
@@ -62,6 +66,22 @@ fail() {
   echo -e "${RED}$*${NC}"
   exit 1
 }
+
+cleanup_runtime_guards() {
+  if [ "${PDNS_POLICY_RC_D_INSTALLED}" != "1" ]; then
+    return 0
+  fi
+
+  if [ -f "${PDNS_POLICY_RC_D_BACKUP}" ]; then
+    mv -f "${PDNS_POLICY_RC_D_BACKUP}" "${PDNS_POLICY_RC_D_PATH}"
+  elif [ -f "${PDNS_POLICY_RC_D_PATH}" ] && grep -q "${PDNS_POLICY_RC_D_MARKER}" "${PDNS_POLICY_RC_D_PATH}" 2>/dev/null; then
+    rm -f "${PDNS_POLICY_RC_D_PATH}"
+  fi
+
+  PDNS_POLICY_RC_D_INSTALLED="0"
+}
+
+trap cleanup_runtime_guards EXIT
 
 package_manager_busy() {
   local lock
@@ -164,6 +184,73 @@ install_optional_packages() {
   done
 }
 
+install_pdns_policy_guard() {
+  if [ "${PKG_MGR}" != "apt" ]; then
+    return 0
+  fi
+
+  if [ -f "${PDNS_POLICY_RC_D_PATH}" ] && ! grep -q "${PDNS_POLICY_RC_D_MARKER}" "${PDNS_POLICY_RC_D_PATH}" 2>/dev/null; then
+    cp "${PDNS_POLICY_RC_D_PATH}" "${PDNS_POLICY_RC_D_BACKUP}"
+  fi
+
+  cat <<EOF > "${PDNS_POLICY_RC_D_PATH}"
+#!/usr/bin/env bash
+# ${PDNS_POLICY_RC_D_MARKER}
+if [ "\${1:-}" = "pdns" ] || [ "\${1:-}" = "pdns-server" ]; then
+  exit 101
+fi
+exit 0
+EOF
+  chmod 755 "${PDNS_POLICY_RC_D_PATH}"
+  PDNS_POLICY_RC_D_INSTALLED="1"
+}
+
+powerdns_primary_ip() {
+  local public_ip=""
+
+  public_ip="${AURAPANEL_PUBLIC_IP:-}"
+  if [ -z "${public_ip}" ]; then
+    public_ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}')"
+  fi
+  if [ -z "${public_ip}" ]; then
+    public_ip="$(hostname -I 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i !~ /^127\./) {print $i; exit}}')"
+  fi
+
+  printf '%s' "${public_ip}"
+}
+
+write_powerdns_runtime_config() {
+  local db_path="$1"
+  local public_ip="$2"
+  local main_conf="/etc/powerdns/pdns.conf"
+  local include_conf="/etc/powerdns/pdns.d/aurapanel-gsqlite3.conf"
+
+  mkdir -p /etc/powerdns/pdns.d /var/lib/powerdns
+
+  cat <<EOF > "${main_conf}"
+# Managed by AuraPanel installer.
+include-dir=/etc/powerdns/pdns.d
+setuid=pdns
+setgid=pdns
+launch=gsqlite3
+gsqlite3-database=${db_path}
+local-port=53
+local-address=${public_ip}
+api=no
+webserver=no
+security-poll-suffix=
+EOF
+
+  cat <<EOF > "${include_conf}"
+# Managed by AuraPanel installer.
+launch=gsqlite3
+gsqlite3-database=${db_path}
+api=no
+local-port=53
+local-address=${public_ip}
+EOF
+}
+
 setup_powerdns_repo() {
   if [ "${PKG_MGR}" != "apt" ]; then
     return 0
@@ -217,9 +304,8 @@ configure_powerdns() {
     return 0
   fi
 
-  local schema_file db_path backend_conf public_ip
+  local schema_file db_path public_ip
   db_path="/var/lib/powerdns/aurapanel.sqlite3"
-  backend_conf="/etc/powerdns/pdns.d/aurapanel-gsqlite3.conf"
 
   mkdir -p /etc/powerdns/pdns.d /var/lib/powerdns
   if [ ! -f "${db_path}" ]; then
@@ -244,22 +330,23 @@ configure_powerdns() {
     chmod 660 "${db_path}" >/dev/null 2>&1 || true
   fi
 
-  public_ip="$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')"
+  public_ip="$(powerdns_primary_ip)"
   if [ -z "${public_ip}" ]; then
-    public_ip="$(hostname -I 2>/dev/null | awk '{print $1; exit}')"
+    warn "Unable to determine a non-loopback IPv4 address for PowerDNS; DNS daemon bootstrap skipped."
+    return 0
   fi
 
-  cat <<EOF > "${backend_conf}"
-launch=gsqlite3
-gsqlite3-database=${db_path}
-api=no
-local-port=53
-local-address=${public_ip:-0.0.0.0}
-EOF
+  rm -f /etc/powerdns/pdns.d/bind.conf /etc/powerdns/pdns.d/gsqlite3.conf >/dev/null 2>&1 || true
+  write_powerdns_runtime_config "${db_path}" "${public_ip}"
 
   if systemctl list-unit-files | grep -q '^pdns\.service'; then
     systemctl enable pdns >/dev/null 2>&1 || true
-    systemctl restart pdns >/dev/null 2>&1 || true
+    if systemctl restart pdns >/dev/null 2>&1; then
+      ok "PowerDNS configured on ${public_ip}:53."
+    else
+      warn "PowerDNS restart failed after AuraPanel configuration."
+      journalctl -u pdns -n 20 --no-pager >/dev/null 2>&1 || true
+    fi
   fi
 }
 
@@ -1180,14 +1267,21 @@ ensure_ioncube_loader() {
 
   local lsphp_bin="/usr/local/lsws/lsphp83/bin/lsphp"
   local ioncube_url="https://downloads.ioncube.com/loader_downloads/ioncube_loaders_lin_x86-64.tar.gz"
-  local ext_dir ini_file tmpdir archive src_loader dst_loader
+  local ext_dir ini_file loaded_ini scan_dir tmpdir archive src_loader dst_loader
+
+  lsphp_ioncube_active() {
+    "${lsphp_bin}" -v 2>/dev/null | grep -qi "ionCube PHP Loader" && return 0
+    "${lsphp_bin}" -m 2>/dev/null | grep -qi '^ionCube Loader$' && return 0
+    "${lsphp_bin}" -i 2>/dev/null | grep -qi "ionCube PHP Loader" && return 0
+    return 1
+  }
 
   if [ ! -x "${lsphp_bin}" ]; then
     warn "lsphp83 binary not found; ionCube install skipped."
     return
   fi
 
-  if "${lsphp_bin}" -i 2>/dev/null | grep -qi "with the ionCube PHP Loader"; then
+  if lsphp_ioncube_active; then
     ok "ionCube loader already active for lsphp83."
     return
   fi
@@ -1199,6 +1293,8 @@ ensure_ioncube_loader() {
   fi
 
   ini_file="/usr/local/lsws/lsphp83/etc/php/8.3/mods-available/00-ioncube.ini"
+  loaded_ini="$({ "${lsphp_bin}" -i 2>/dev/null | awk -F'=> ' '/^Loaded Configuration File =>/{print $2; exit}' | awk '{print $1}'; } || true)"
+  scan_dir="$({ "${lsphp_bin}" -i 2>/dev/null | awk -F'=> ' '/^Scan this dir for additional \.ini files =>/{print $2; exit}' | awk '{print $1}'; } || true)"
   tmpdir="$(mktemp -d /tmp/ioncube.XXXXXX)"
   archive="${tmpdir}/ioncube_loaders_lin_x86-64.tar.gz"
   src_loader="${tmpdir}/ioncube/ioncube_loader_lin_8.3.so"
@@ -1230,8 +1326,21 @@ zend_extension=${dst_loader}
 EOF
   chmod 644 "${ini_file}"
 
+  if [ -n "${scan_dir}" ] && [ "${scan_dir}" != "(none)" ]; then
+    mkdir -p "${scan_dir}"
+    cat <<EOF > "${scan_dir}/00-ioncube.ini"
+; ionCube Loader
+zend_extension=${dst_loader}
+EOF
+    chmod 644 "${scan_dir}/00-ioncube.ini"
+  elif [ -n "${loaded_ini}" ] && [ "${loaded_ini}" != "(none)" ] && [ -f "${loaded_ini}" ]; then
+    if ! grep -q "ioncube_loader_lin_8\.3\.so" "${loaded_ini}" 2>/dev/null; then
+      printf '\n; AuraPanel ionCube Loader\nzend_extension=%s\n' "${dst_loader}" >> "${loaded_ini}"
+    fi
+  fi
+
   if systemctl restart lshttpd >/dev/null 2>&1; then
-    if "${lsphp_bin}" -i 2>/dev/null | grep -qi "with the ionCube PHP Loader"; then
+    if lsphp_ioncube_active; then
       ok "ionCube loader installed and activated for lsphp83."
     else
       warn "ionCube files installed, but loader activation could not be verified."
@@ -1774,7 +1883,9 @@ main() {
   fi
 
   setup_powerdns_repo
+  install_pdns_policy_guard
   install_optional_packages restic mariadb-server postgresql redis-server redis docker docker.io fail2ban inotify-tools sqlite3 pdns-server pdns-backend-sqlite3 pure-ftpd postfix dovecot-core dovecot-imapd dovecot-pop3d
+  cleanup_runtime_guards
 
   ensure_go
   ensure_node20
