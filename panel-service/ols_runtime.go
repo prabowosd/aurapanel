@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -18,7 +19,11 @@ const (
 	olsManagedVhostsEnd     = "# AURAPANEL VHOSTS END"
 	olsManagedListenerBegin = "    # AURAPANEL MAPS BEGIN"
 	olsManagedListenerEnd   = "    # AURAPANEL MAPS END"
+	olsReloadWaitTimeout    = 10 * time.Second
+	olsReloadPollInterval   = 250 * time.Millisecond
 )
+
+var olsSleep = time.Sleep
 
 type olsManagedSite struct {
 	Site    Website
@@ -534,16 +539,69 @@ func findMatchingBrace(content string, openIndex int) (int, error) {
 	return -1, fmt.Errorf("configuration brace matching failed")
 }
 
-func reloadOpenLiteSpeed() error {
-	_, err := commandOutputTrimmed(olsLSWSControlPath, "reload")
-	if err == nil {
+func currentOpenLiteSpeedPID() string {
+	for _, path := range []string{"/tmp/lshttpd/lshttpd.pid", "/run/openlitespeed.pid", "/var/run/openlitespeed.pid"} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		if pid := strings.TrimSpace(string(raw)); pid != "" {
+			return pid
+		}
+	}
+	return ""
+}
+
+func openLiteSpeedRunning() bool {
+	if state, ok := detectSystemdStatus("lshttpd.service", "lsws.service", "openlitespeed.service"); ok {
+		switch strings.ToLower(strings.TrimSpace(state)) {
+		case "active", "activating", "reloading":
+			return true
+		}
+	}
+	_, err := commandOutputTrimmed(olsLSWSControlPath, "status")
+	return err == nil
+}
+
+func waitForOpenLiteSpeedTransition(previousPID string, pidReader func() string, isRunning func() bool, sleep func(time.Duration), timeout, interval time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		currentPID := strings.TrimSpace(pidReader())
+		if currentPID != "" && currentPID != previousPID && isRunning() {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		sleep(interval)
+	}
+}
+
+func reloadOpenLiteSpeedWithHooks(runCommand func(string, ...string) (string, error), pidReader func() string, isRunning func() bool, sleep func(time.Duration)) error {
+	previousPID := strings.TrimSpace(pidReader())
+	_, reloadErr := runCommand(olsLSWSControlPath, "reload")
+	if reloadErr == nil {
 		return nil
 	}
-	_, restartErr := commandOutputTrimmed(olsLSWSControlPath, "restart")
+
+	if waitForOpenLiteSpeedTransition(previousPID, pidReader, isRunning, sleep, olsReloadWaitTimeout, olsReloadPollInterval) {
+		return nil
+	}
+
+	_, restartErr := runCommand(olsLSWSControlPath, "restart")
 	if restartErr == nil {
 		return nil
 	}
-	return fmt.Errorf("openlitespeed reload failed: %v", err)
+
+	if waitForOpenLiteSpeedTransition(previousPID, pidReader, isRunning, sleep, olsReloadWaitTimeout, olsReloadPollInterval) {
+		return nil
+	}
+
+	return fmt.Errorf("openlitespeed reload failed: %v (restart failed: %v)", reloadErr, restartErr)
+}
+
+func reloadOpenLiteSpeed() error {
+	return reloadOpenLiteSpeedWithHooks(commandOutputTrimmed, currentOpenLiteSpeedPID, openLiteSpeedRunning, olsSleep)
 }
 
 func backupOLSManagedVhostFiles() (map[string][]byte, error) {
