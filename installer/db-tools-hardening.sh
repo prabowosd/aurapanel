@@ -231,9 +231,16 @@ SecRule REQUEST_URI "@rx ^/(phpmyadmin|pgadmin4)(/|$)" \
   "id:1005100,phase:1,pass,nolog,ctl:ruleRemoveById=920350,initcol:ip=%{REMOTE_ADDR}"
 
 SecRule REQUEST_URI "@rx ^/(phpmyadmin|pgadmin4)(/|$)" \
-  "id:1005101,phase:1,deny,status:403,log,msg:'AuraPanel DB tools blocked by IP allowlist',chain"
-SecRule REMOTE_ADDR "!@ipMatch ${DBTOOLS_ALLOWED_IPS}" "chain"
-SecRule REMOTE_ADDR "!@ipMatchFromFile ${DBTOOLS_RUNTIME_ALLOWLIST_FILE}"
+  "id:1005101,phase:1,pass,nolog,setvar:tx.dbtools_allow=0"
+SecRule REQUEST_URI "@rx ^/(phpmyadmin|pgadmin4)(/|$)" \
+  "id:1005105,phase:1,pass,nolog,chain"
+SecRule REMOTE_ADDR "@ipMatch ${DBTOOLS_ALLOWED_IPS}" "setvar:tx.dbtools_allow=1"
+SecRule REQUEST_URI "@rx ^/(phpmyadmin|pgadmin4)(/|$)" \
+  "id:1005106,phase:1,pass,nolog,chain"
+SecRule REMOTE_ADDR "@ipMatchFromFile ${DBTOOLS_RUNTIME_ALLOWLIST_FILE}" "setvar:tx.dbtools_allow=1"
+SecRule REQUEST_URI "@rx ^/(phpmyadmin|pgadmin4)(/|$)" \
+  "id:1005107,phase:1,deny,status:403,log,msg:'AuraPanel DB tools blocked by IP allowlist',chain"
+SecRule TX:DBTOOLS_ALLOW "@eq 0"
 
 SecRule REQUEST_URI "@rx ^/(phpmyadmin|pgadmin4)(/|$)" \
   "id:1005102,phase:1,deny,status:405,log,msg:'AuraPanel DB tools method not allowed',chain"
