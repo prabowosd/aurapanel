@@ -67,6 +67,7 @@ replace_global_rewrite_block() {
               "  logLevel 0\n" \
               "  RewriteCond %{REMOTE_ADDR} !^127\\.0\\.0\\.1$\n" \
               "  RewriteCond %{REMOTE_ADDR} !^::1$\n" \
+              "  RewriteCond %{REQUEST_URI} !^/\\.well-known/acme-challenge/\n" \
               "  RewriteCond %{REQUEST_URI} !^/webmail/\n" \
               "  RewriteRule ^(.*)$ http://aurapanel_gateway/$1 [P,L]\n" \
               "}"
