@@ -117,6 +117,20 @@ ensure_dbtools_credentials() {
   printf '%s:%s\n' "${DBTOOLS_AUTH_USER}" "${hashed}" > "${DBTOOLS_USERDB}"
   printf 'dbtools: %s\n' "${DBTOOLS_AUTH_USER}" > "${DBTOOLS_GROUPDB}"
   chmod 640 "${DBTOOLS_USERDB}" "${DBTOOLS_GROUPDB}"
+
+  local realm_owner="root"
+  local realm_group="root"
+  if id -u lsadm >/dev/null 2>&1; then
+    realm_owner="lsadm"
+  fi
+  if getent group nogroup >/dev/null 2>&1; then
+    realm_group="nogroup"
+  elif getent group nobody >/dev/null 2>&1; then
+    realm_group="nobody"
+  elif id -gn "${realm_owner}" >/dev/null 2>&1; then
+    realm_group="$(id -gn "${realm_owner}")"
+  fi
+  chown "${realm_owner}:${realm_group}" "${DBTOOLS_USERDB}" "${DBTOOLS_GROUPDB}" >/dev/null 2>&1 || true
 }
 
 ensure_dbtools_placeholder_dirs() {
@@ -173,27 +187,19 @@ configure_ols_dbtools_context() {
 
 # AURAPANEL DB TOOLS BEGIN
 context /phpmyadmin/{
-  allowBrowse 0
+  allowBrowse 1
   location /usr/local/lsws/Example/html/phpmyadmin/
   authName AuraPanelDBTools
   realm AuraPanelDBTools
   required user ${DBTOOLS_AUTH_USER}
-  accessControl {
-    deny *
-    allow ${DBTOOLS_ALLOWED_IPS}
-  }
 }
 
 context /pgadmin4/{
-  allowBrowse 0
+  allowBrowse 1
   location /usr/local/lsws/Example/html/pgadmin4/
   authName AuraPanelDBTools
   realm AuraPanelDBTools
   required user ${DBTOOLS_AUTH_USER}
-  accessControl {
-    deny *
-    allow ${DBTOOLS_ALLOWED_IPS}
-  }
 }
 
 realm AuraPanelDBTools {
@@ -221,7 +227,8 @@ write_modsecurity_dbtools_rules() {
 
   cat <<EOF > "${MODSEC_CUSTOM}"
 # AuraPanel DB tools hardening rules
-SecAction "id:1005100,phase:1,pass,nolog,initcol:ip=%{REMOTE_ADDR}"
+SecRule REQUEST_URI "@rx ^/(phpmyadmin|pgadmin4)(/|$)" \
+  "id:1005100,phase:1,pass,nolog,ctl:ruleRemoveById=920350,initcol:ip=%{REMOTE_ADDR}"
 
 SecRule REQUEST_URI "@rx ^/(phpmyadmin|pgadmin4)(/|$)" \
   "id:1005101,phase:1,deny,status:403,log,msg:'AuraPanel DB tools blocked by IP allowlist',chain"
