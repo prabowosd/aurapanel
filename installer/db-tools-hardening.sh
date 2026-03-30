@@ -50,6 +50,14 @@ trim_csv_spaces() {
   printf '%s' "${value}"
 }
 
+dedupe_csv() {
+  local value="$1"
+  if [ -z "${value}" ]; then
+    return 0
+  fi
+  printf '%s' "${value}" | tr ',' '\n' | sed '/^$/d' | awk '!seen[$0]++' | paste -sd, -
+}
+
 merge_allowlist() {
   local base="$1"
   local extra="$2"
@@ -85,6 +93,7 @@ ensure_dbtools_credentials() {
   DBTOOLS_ALLOWED_IPS="$(trim_csv_spaces "${DBTOOLS_ALLOWED_IPS}")"
   DBTOOLS_ALLOWED_IPS="$(merge_allowlist "127.0.0.1,::1" "${DBTOOLS_ALLOWED_IPS}")"
   DBTOOLS_ALLOWED_IPS="$(trim_csv_spaces "${DBTOOLS_ALLOWED_IPS}")"
+  DBTOOLS_ALLOWED_IPS="$(dedupe_csv "${DBTOOLS_ALLOWED_IPS}")"
 
   DBTOOLS_RATE_LIMIT_PER_MIN="${AURAPANEL_DBTOOLS_RATE_LIMIT_PER_MIN:-${svc_rate:-120}}"
   if ! [[ "${DBTOOLS_RATE_LIMIT_PER_MIN}" =~ ^[0-9]+$ ]]; then
@@ -241,7 +250,7 @@ SecRule REQUEST_METHOD "!^(GET|POST|HEAD)$"
 SecRule REQUEST_URI "@rx ^/(phpmyadmin|pgadmin4)(/|$)" \
   "id:1005103,phase:1,pass,nolog,setvar:ip.dbtools_counter=+1,expirevar:ip.dbtools_counter=60"
 
-SecRule IP:DBTOOLS_COUNTER "@gt ${DBTOOLS_RATE_LIMIT_PER_MIN}" \
+SecRule IP:dbtools_counter "@gt ${DBTOOLS_RATE_LIMIT_PER_MIN}" \
   "id:1005104,phase:1,deny,status:429,log,msg:'AuraPanel DB tools rate limit exceeded'"
 EOF
   chmod 640 "${MODSEC_CUSTOM}"
