@@ -2392,28 +2392,59 @@ func (s *service) handlePanelPortSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.state.GatewayPort = payload.Port
+	s.mu.RLock()
+	currentPort := s.state.GatewayPort
+	s.mu.RUnlock()
 
-	firewallActions := []string{"Gateway restart requested"}
-	if payload.OpenFirewall {
-		if err := openFirewallPort(payload.Port); err == nil {
-			firewallActions = append([]string{fmt.Sprintf("Allow tcp/%d on firewall", payload.Port)}, firewallActions...)
+	if payload.Port == currentPort {
+		firewallActions := []string{}
+		warnings := []string{}
+		if payload.OpenFirewall {
+			if err := openFirewallPort(payload.Port); err != nil {
+				warnings = append(warnings, fmt.Sprintf("Firewall update failed for tcp/%d: %v", payload.Port, err))
+			} else {
+				firewallActions = append(firewallActions, fmt.Sprintf("Allow tcp/%d on firewall", payload.Port))
+			}
 		}
+		warnings = append(warnings, "Gateway already uses this port.")
+		writeJSON(w, http.StatusOK, apiResponse{
+			Status:  "success",
+			Message: "Gateway port unchanged.",
+			Data: map[string]interface{}{
+				"gateway_addr":      fmt.Sprintf(":%d", payload.Port),
+				"firewall_actions":  firewallActions,
+				"warnings":          warnings,
+				"restart_scheduled": false,
+				"restart_applied":   false,
+				"edge_synced":       false,
+			},
+		})
+		return
 	}
-	_ = writeEnvFileValues("/etc/aurapanel/aurapanel.env", map[string]string{
-		"AURAPANEL_GATEWAY_ADDR": fmt.Sprintf(":%d", payload.Port),
-	})
+
+	result, err := applyPanelPortChange(payload.Port, payload.OpenFirewall)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.mu.Lock()
+	s.state.GatewayPort = payload.Port
+	if err := s.saveRuntimeStateLocked(); err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Runtime state persistence failed: %v", err))
+	}
+	s.mu.Unlock()
 
 	writeJSON(w, http.StatusOK, apiResponse{
 		Status:  "success",
 		Message: "Gateway port updated.",
 		Data: map[string]interface{}{
 			"gateway_addr":      fmt.Sprintf(":%d", payload.Port),
-			"firewall_actions":  firewallActions,
-			"warnings":          []string{"Manual process supervisor reload is still required."},
-			"restart_scheduled": true,
+			"firewall_actions":  result.FirewallActions,
+			"warnings":          result.Warnings,
+			"restart_scheduled": result.RestartScheduled,
+			"restart_applied":   result.RestartApplied,
+			"edge_synced":       result.EdgeSynced,
 		},
 	})
 }
