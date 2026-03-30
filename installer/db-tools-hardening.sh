@@ -209,31 +209,11 @@ configure_ols_dbtools_context() {
 context /phpmyadmin/{
   allowBrowse 1
   location /usr/local/lsws/Example/html/phpmyadmin/
-  authName AuraPanelDBTools
-  realm AuraPanelDBTools
-  required user ${DBTOOLS_AUTH_USER}
 }
 
 context /pgadmin4/{
   allowBrowse 1
   location /usr/local/lsws/Example/html/pgadmin4/
-  authName AuraPanelDBTools
-  realm AuraPanelDBTools
-  required user ${DBTOOLS_AUTH_USER}
-}
-
-realm AuraPanelDBTools {
-  userDB {
-    cacheTimeout 60
-    maxCacheSize 200
-    location ${DBTOOLS_USERDB}
-  }
-
-  groupDB {
-    cacheTimeout 60
-    maxCacheSize 200
-    location ${DBTOOLS_GROUPDB}
-  }
 }
 # AURAPANEL DB TOOLS END
 EOF
