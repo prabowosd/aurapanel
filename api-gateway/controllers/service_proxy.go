@@ -58,6 +58,7 @@ func NewServiceProxy() (http.Handler, error) {
 	proxy.Director = func(req *http.Request) {
 		authUser, hasAuthUser := middleware.GetAuthUser(req.Context())
 		incomingHost := strings.TrimSpace(req.Host)
+		incomingRemoteIP := remoteAddrHost(req.RemoteAddr)
 		forwardedProto := firstForwardedValue(req.Header.Get("X-Forwarded-Proto"))
 		if forwardedProto == "" {
 			if req.TLS != nil {
@@ -66,12 +67,21 @@ func NewServiceProxy() (http.Handler, error) {
 				forwardedProto = "http"
 			}
 		}
+
+		// Drop any user-supplied forwarding headers before proxying.
+		req.Header.Del("X-Forwarded-For")
+		req.Header.Del("X-Forwarded-Host")
+		req.Header.Del("X-Forwarded-Proto")
+
 		originalDirector(req)
 		req.Host = target.Host
 		if incomingHost != "" {
 			req.Header.Set("X-Forwarded-Host", incomingHost)
 		}
 		req.Header.Set("X-Forwarded-Proto", forwardedProto)
+		if incomingRemoteIP != "" {
+			req.Header.Set("X-Forwarded-For", incomingRemoteIP)
+		}
 
 		req.Header.Del("X-Aura-Auth-Email")
 		req.Header.Del("X-Aura-Auth-Role")
@@ -127,6 +137,18 @@ func firstForwardedValue(value string) string {
 		value = value[:idx]
 	}
 	return strings.TrimSpace(value)
+}
+
+func remoteAddrHost(remoteAddr string) string {
+	value := strings.TrimSpace(remoteAddr)
+	if value == "" {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(value)
+	if err == nil {
+		return strings.TrimSpace(host)
+	}
+	return value
 }
 
 var ErrNonLoopbackServiceTarget = &serviceProxyPolicyError{msg: "gateway-only mode requires loopback AURAPANEL_SERVICE_URL"}

@@ -885,8 +885,8 @@ const toggleAllMenus = () => {
   setAllMenus(!allMenusExpanded.value)
 }
 
-const handleLogout = () => {
-  authStore.logout()
+const handleLogout = async () => {
+  await authStore.secureLogout()
   router.push('/login')
 }
 

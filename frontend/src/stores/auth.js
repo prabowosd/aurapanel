@@ -192,6 +192,20 @@ export const useAuthStore = defineStore('auth', {
         })
       }
     },
+    async secureLogout() {
+      if (this.token) {
+        try {
+          await api.post('/auth/logout', {}, {
+            headers: {
+              'X-Aura-Silent-Error': '1',
+            },
+          })
+        } catch (error) {
+          console.warn('Secure logout notify failed', error)
+        }
+      }
+      this.logout()
+    },
     updateUser(patch) {
       if (!this.user) return
       const nextUser = { ...this.user, ...patch }

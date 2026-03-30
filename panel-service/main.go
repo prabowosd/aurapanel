@@ -27,13 +27,14 @@ import (
 )
 
 const (
-	defaultServiceAddr  = "127.0.0.1:8081"
-	defaultGatewayPort  = 8090
-	currentPanelVersion = "Aura Panel V1"
-	updateCacheTTL      = 15 * time.Minute
-	defaultAdminEmail   = "admin@server.com"
-	defaultAdminPass    = "password123"
-	maxJSONBodyBytes    = 1 << 20
+	defaultServiceAddr   = "127.0.0.1:8081"
+	defaultGatewayPort   = 8090
+	currentPanelVersion  = "Aura Panel V1"
+	updateCacheTTL       = 15 * time.Minute
+	defaultAdminEmail    = "admin@server.com"
+	defaultAdminPass     = "password123"
+	maxJSONBodyBytes     = 1 << 20
+	defaultJWTSessionTTL = 12 * time.Hour
 
 	serviceMaxFailedAttempts = 5
 	serviceFailureWindow     = 10 * time.Minute
@@ -274,6 +275,8 @@ type service struct {
 	state     appState
 	modules   moduleState
 	update    updateStatusCache
+	dbAccess  map[string]dbToolSessionGrant
+	dbACLFile string
 }
 
 type jwtClaims struct {
@@ -334,6 +337,7 @@ func newService() *service {
 		log.Printf("runtime state load skipped: %v", err)
 	}
 	svc.bootstrapModules()
+	svc.initializeDBToolAccessRuntime()
 	return svc
 }
 
@@ -738,6 +742,7 @@ func (s *service) nonAdminRoutePolicy(w http.ResponseWriter, r *http.Request) bo
 
 	allowedWithoutDomain := []string{
 		"/api/v1/auth/me",
+		"/api/v1/auth/logout",
 		"/api/v1/status/metrics",
 		"/api/v1/status/services",
 		"/api/v1/status/update",
@@ -934,6 +939,8 @@ func (s *service) handleCompat(w http.ResponseWriter, r *http.Request) {
 		s.handleHealth(w)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/login":
 		s.handleAuthLogin(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/logout":
+		s.handleAuthLogout(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/vhost/list":
 		s.handleVhostList(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/vhost":
@@ -1278,26 +1285,32 @@ func (s *service) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	var matched *PanelUser
+	var (
+		matchedUser PanelUser
+		matchedOK   bool
+		totpSecret  string
+	)
 	for i := range s.state.Users {
-		user := &s.state.Users[i]
+		user := s.state.Users[i]
 		if strings.EqualFold(user.Email, email) || strings.EqualFold(user.Username, email) {
-			matched = user
+			matchedUser = user
+			totpSecret = s.state.TwoFASecrets[user.Username]
+			matchedOK = true
 			break
 		}
 	}
-	if matched == nil {
+	s.mu.RUnlock()
+
+	if !matchedOK {
 		serviceRecordLoginFailure(attemptKey)
 		writeError(w, http.StatusUnauthorized, "Invalid credentials.")
 		return
 	}
-	if !matched.Active {
+	if !matchedUser.Active {
 		writeError(w, http.StatusForbidden, "Account is inactive.")
 		return
 	}
-	if matched.TwoFAEnabled && !verifyStoredTOTPSecret(s.state.TwoFASecrets[matched.Username], strings.TrimSpace(payload.TOTPToken), time.Now().UTC()) {
+	if matchedUser.TwoFAEnabled && !verifyStoredTOTPSecret(totpSecret, strings.TrimSpace(payload.TOTPToken), time.Now().UTC()) {
 		writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 			"status":       "error",
 			"message":      "2FA code is required.",
@@ -1305,23 +1318,36 @@ func (s *service) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if bcrypt.CompareHashAndPassword([]byte(matched.PasswordHash), []byte(password)) != nil {
+	if bcrypt.CompareHashAndPassword([]byte(matchedUser.PasswordHash), []byte(password)) != nil {
 		serviceRecordLoginFailure(attemptKey)
 		writeError(w, http.StatusUnauthorized, "Invalid credentials.")
 		return
 	}
 	serviceClearLoginAttempts(attemptKey)
 
-	token, err := issueToken(*matched)
+	token, err := issueToken(matchedUser)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Token generation failed.")
 		return
 	}
+	s.registerDBToolAccess(matchedUser.Email, serviceClientIP(r), time.Now().UTC().Add(defaultJWTSessionTTL))
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status": "success",
 		"token":  token,
-		"user":   publicUser(*matched),
+		"user":   publicUser(matchedUser),
+	})
+}
+
+func (s *service) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
+	s.revokeDBToolAccess(principal.Email, serviceClientIP(r))
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status": "success",
 	})
 }
 
@@ -2919,7 +2945,7 @@ func issueToken(user PanelUser) (string, error) {
 			Audience:  jwt.ClaimStrings{envOr("AURAPANEL_JWT_AUDIENCE", "aurapanel-ui")},
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(12 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(defaultJWTSessionTTL)),
 		},
 	}
 	secret := jwtSecret()
