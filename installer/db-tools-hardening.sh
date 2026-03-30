@@ -315,15 +315,6 @@ restart_services() {
 }
 
 main() {
-  if [ -f "${SERVICE_ENV_FILE}" ]; then
-    # shellcheck disable=SC1090
-    source "${SERVICE_ENV_FILE}" || true
-  fi
-  if [ -f "${DBTOOLS_ENV_FILE}" ]; then
-    # shellcheck disable=SC1090
-    source "${DBTOOLS_ENV_FILE}" || true
-  fi
-
   ensure_dbtools_credentials
   ensure_dbtools_placeholder_dirs
   configure_ols_dbtools_context
