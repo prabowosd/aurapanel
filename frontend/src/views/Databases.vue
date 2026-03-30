@@ -8,15 +8,31 @@
         </h1>
         <p class="text-gray-400 mt-1">{{ t('database_manager.subtitle') }}</p>
       </div>
-      <button
-        @click="showCreateModal = true"
-        class="px-5 py-2.5 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-lg font-medium hover:from-orange-700 hover:to-amber-700 transition"
-      >
-        <span class="flex items-center gap-2">
-          <Plus class="w-5 h-5" />
-          {{ t('database_manager.create_button') }}
-        </span>
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          class="px-4 py-2.5 bg-panel-hover text-gray-200 rounded-lg text-sm font-medium hover:bg-gray-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="launchingTool === 'phpmyadmin'"
+          @click="launchDatabaseTool('phpmyadmin')"
+        >
+          {{ launchingTool === 'phpmyadmin' ? t('common.loading') : t('database_manager.actions.open_phpmyadmin') }}
+        </button>
+        <button
+          class="px-4 py-2.5 bg-panel-hover text-gray-200 rounded-lg text-sm font-medium hover:bg-gray-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="launchingTool === 'pgadmin'"
+          @click="launchDatabaseTool('pgadmin')"
+        >
+          {{ launchingTool === 'pgadmin' ? t('common.loading') : t('database_manager.actions.open_pgadmin') }}
+        </button>
+        <button
+          @click="showCreateModal = true"
+          class="px-5 py-2.5 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-lg font-medium hover:from-orange-700 hover:to-amber-700 transition"
+        >
+          <span class="flex items-center gap-2">
+            <Plus class="w-5 h-5" />
+            {{ t('database_manager.create_button') }}
+          </span>
+        </button>
+      </div>
     </div>
 
     <div class="border-b border-panel-border">
@@ -398,6 +414,7 @@ const engine = ref(normalizeMainEngine(route.query))
 const tuningEngine = ref(normalizeTuningEngine(route.query))
 const showCreateModal = ref(false)
 const notification = ref(null)
+const launchingTool = ref('')
 
 const tuningForm = ref({
   max_connections: '',
@@ -555,6 +572,30 @@ const showNotif = (message, type = 'success') => {
   setTimeout(() => {
     notification.value = null
   }, 3500)
+}
+
+const launchDatabaseTool = async (tool) => {
+  const normalizedTool = tool === 'phpmyadmin' ? 'phpmyadmin' : 'pgadmin'
+  launchingTool.value = normalizedTool
+  try {
+    const endpoint = normalizedTool === 'phpmyadmin'
+      ? '/db/tools/phpmyadmin/sso'
+      : '/db/tools/pgadmin/sso'
+    const response = await api.post(endpoint, { ttl_seconds: 120 })
+    const launchUrl = String(response?.data?.data?.url || '').trim()
+    if (!launchUrl) {
+      throw new Error(t('database_manager.notifications.tool_launch_failed'))
+    }
+
+    const openedWindow = window.open(launchUrl, '_blank', 'noopener,noreferrer')
+    if (!openedWindow) {
+      window.location.href = launchUrl
+    }
+  } catch (error) {
+    showNotif(apiErrorMessage(error, 'database_manager.notifications.tool_launch_failed'), 'error')
+  } finally {
+    launchingTool.value = ''
+  }
 }
 
 function syncRouteQuery() {

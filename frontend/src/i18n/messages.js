@@ -216,6 +216,8 @@ const baseEn = {
       delete: 'Delete',
       password: 'Password',
       remote_ip: 'Remote IP',
+      open_phpmyadmin: 'Open phpMyAdmin',
+      open_pgadmin: 'Open pgAdmin',
     },
     table: {
       database: 'Database',
@@ -275,6 +277,7 @@ const baseEn = {
       remote_required: 'MariaDB requires the current password to enable remote access.',
       remote_added: 'Remote access granted for "{user}".',
       remote_failed: 'Remote access rule could not be created.',
+      tool_launch_failed: 'Database tool launch link could not be generated.',
     },
   },
   email_manager: {
@@ -654,6 +657,8 @@ const baseTr = deepMerge(baseEn, {
       delete: 'Sil',
       password: 'Sifre',
       remote_ip: 'Uzak IP',
+      open_phpmyadmin: 'phpMyAdmin Ac',
+      open_pgadmin: 'pgAdmin Ac',
     },
     table: {
       database: 'Veritabani',
@@ -713,6 +718,7 @@ const baseTr = deepMerge(baseEn, {
       remote_required: 'MariaDB uzak erisim acmak icin mevcut sifreyi ister.',
       remote_added: '"{user}" icin uzak erisim verildi.',
       remote_failed: 'Uzak erisim kurali olusturulamadi.',
+      tool_launch_failed: 'Veritabani araci acilis baglantisi olusturulamadi.',
     },
   },
   email_manager: {

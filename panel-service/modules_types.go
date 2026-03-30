@@ -57,6 +57,7 @@ type moduleState struct {
 	CloudflareDNS      map[string][]CloudflareDNSRecord
 	CloudflareSettings map[string]cloudflareZoneConfig
 	WebmailTokens      map[string]WebmailToken
+	DBToolTokens       map[string]DBToolToken
 }
 
 type PHPVersionInfo struct {
@@ -480,6 +481,13 @@ type WebmailToken struct {
 	ExpiresAt time.Time
 }
 
+type DBToolToken struct {
+	Token     string
+	Tool      string
+	IssuedBy  string
+	ExpiresAt time.Time
+}
+
 func seedModuleState() moduleState {
 	return moduleState{
 		PHPIni:             map[string]string{},
@@ -499,6 +507,7 @@ func seedModuleState() moduleState {
 		CloudflareDNS:      map[string][]CloudflareDNSRecord{},
 		CloudflareSettings: map[string]cloudflareZoneConfig{},
 		WebmailTokens:      map[string]WebmailToken{},
+		DBToolTokens:       map[string]DBToolToken{},
 	}
 }
 
@@ -553,6 +562,9 @@ func (s *service) bootstrapModules() {
 	}
 	if s.modules.WebmailTokens == nil {
 		s.modules.WebmailTokens = map[string]WebmailToken{}
+	}
+	if s.modules.DBToolTokens == nil {
+		s.modules.DBToolTokens = map[string]DBToolToken{}
 	}
 
 	if len(s.modules.PHPVersions) == 0 {

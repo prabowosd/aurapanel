@@ -478,6 +478,10 @@ func servicePublicRoute(method, path string) bool {
 		return true
 	case path == "/api/v1/mail/webmail/sso/consume":
 		return true
+	case path == "/api/v1/db/tools/phpmyadmin/sso/consume":
+		return true
+	case path == "/api/v1/db/tools/pgadmin/sso/consume":
+		return true
 	default:
 		return false
 	}
@@ -777,6 +781,7 @@ func (s *service) nonAdminRoutePolicy(w http.ResponseWriter, r *http.Request) bo
 		"/api/v1/status/panel-port",
 		"/api/v1/backup/destinations",
 		"/api/v1/backup/schedules",
+		"/api/v1/db/tools",
 		"/api/v1/db/mariadb/tuning",
 		"/api/v1/db/postgresql/tuning",
 		"/api/v1/mail/tuning",

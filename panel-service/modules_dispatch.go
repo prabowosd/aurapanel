@@ -352,6 +352,18 @@ func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) b
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/db/backup/delete":
 		s.handleDBBackupDelete(w, r)
 		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/db/tools/phpmyadmin/sso":
+		s.handleDBToolSSO(w, r, "phpmyadmin")
+		return true
+	case r.URL.Path == "/api/v1/db/tools/phpmyadmin/sso/consume":
+		s.handleDBToolConsume(w, r, "phpmyadmin")
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/db/tools/pgadmin/sso":
+		s.handleDBToolSSO(w, r, "pgadmin")
+		return true
+	case r.URL.Path == "/api/v1/db/tools/pgadmin/sso/consume":
+		s.handleDBToolConsume(w, r, "pgadmin")
+		return true
 	case r.URL.Path == "/api/v1/db/mariadb/remote-access":
 		s.handleRemoteAccessCreate(w, r, "mariadb")
 		return true
