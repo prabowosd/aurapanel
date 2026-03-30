@@ -1223,7 +1223,7 @@ Object.assign(extraEn, {
       root_desc: 'Disabling root login enhances security.',
       save: 'Save & Restart SSH'
     },
-    overview: { active: 'Active', partial: 'Partial' },
+    overview: { active: 'Active', passive: 'Passive', partial: 'Partial' },
     firewall: {
       title: 'Firewall (nftables)',
       ip: 'IP Address',
@@ -1471,7 +1471,7 @@ Object.assign(extraTr, {
     subtitle: 'Zero-Trust guvenlik ozelliklerini plan bazli yonetin.',
     refresh: 'Yenile',
     tabs: { overview: 'Genel Bakis', firewall: 'Firewall', waf: 'ML-WAF', twofa: '2FA', ssh: 'SSH Keys', hardening: 'Hardening', kernel: 'Kernel Security' },
-    overview: { active: 'Aktif', partial: 'Kismi' },
+    overview: { active: 'Aktif', passive: 'Pasif', partial: 'Kismi' },
     firewall: {
       title: 'Firewall (nftables)',
       ip: 'IP Address',

@@ -27,7 +27,7 @@
         <div class="flex items-center justify-between">
           <h3 class="text-sm font-semibold text-gray-300">{{ item.label }}</h3>
           <span :class="item.value ? 'text-green-400' : 'text-yellow-400'">
-            {{ item.value ? t('security_center.overview.active') : t('security_center.overview.partial') }}
+            {{ item.value ? t('security_center.overview.active') : t('security_center.overview.passive') }}
           </span>
         </div>
       </div>
