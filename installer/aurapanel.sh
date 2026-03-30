@@ -872,6 +872,21 @@ EOF
   ok "OpenLiteSpeed webmail route ensured."
 }
 
+configure_db_tools_hardening() {
+  local hardening_script="${PROJECT_DIR}/installer/db-tools-hardening.sh"
+  if [ ! -f "${hardening_script}" ]; then
+    warn "DB tools hardening script not found: ${hardening_script}"
+    return 0
+  fi
+
+  chmod +x "${hardening_script}" >/dev/null 2>&1 || true
+  if "${hardening_script}"; then
+    ok "DB tools hardening policy applied."
+  else
+    warn "DB tools hardening script failed. Review logs and apply manually."
+  fi
+}
+
 configure_mail_stack_vmail() {
   local vmail_uid vmail_gid vmail_base
   vmail_uid="${AURAPANEL_MAIL_VMAIL_UID:-5000}"
@@ -1585,6 +1600,12 @@ AURAPANEL_MAIL_BACKEND=vmail
 AURAPANEL_MAIL_VMAIL_UID=5000
 AURAPANEL_MAIL_VMAIL_GID=5000
 AURAPANEL_MAIL_VMAIL_BASE=/var/mail/vhosts
+AURAPANEL_DBTOOLS_AUTH_USER=dbtools
+AURAPANEL_DBTOOLS_AUTH_PASS=
+AURAPANEL_DBTOOLS_ALLOWED_IPS=
+AURAPANEL_DBTOOLS_RATE_LIMIT_PER_MIN=120
+AURAPANEL_PHPMYADMIN_BASE_URL=/phpmyadmin/index.php
+AURAPANEL_PGADMIN_BASE_URL=/pgadmin4/
 AURAPANEL_CLOUDFLARE_EMAIL=
 AURAPANEL_CLOUDFLARE_API_KEY=
 AURAPANEL_CLOUDFLARE_API_TOKEN=
@@ -1637,10 +1658,28 @@ EOF
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_BACKUP_TARGET" "internal-minio"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_BACKUP_MINIO_ENDPOINT" "http://127.0.0.1:9000"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_BACKUP_MINIO_BUCKET" "aurapanel-backups"
+  local dbtools_auth_user dbtools_auth_pass dbtools_allowed_ips dbtools_rate pma_base pg_base
+  dbtools_auth_user="$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_DBTOOLS_AUTH_USER")"
+  dbtools_auth_pass="$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_DBTOOLS_AUTH_PASS")"
+  dbtools_allowed_ips="$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_DBTOOLS_ALLOWED_IPS")"
+  dbtools_rate="$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_DBTOOLS_RATE_LIMIT_PER_MIN")"
+  pma_base="$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_PHPMYADMIN_BASE_URL")"
+  pg_base="$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_PGADMIN_BASE_URL")"
+  [ -n "${dbtools_auth_user}" ] || dbtools_auth_user="dbtools"
+  [ -n "${dbtools_rate}" ] || dbtools_rate="120"
+  [ -n "${pma_base}" ] || pma_base="/phpmyadmin/index.php"
+  [ -n "${pg_base}" ] || pg_base="/pgadmin4/"
+
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_BACKEND" "vmail"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_UID" "5000"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_GID" "5000"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_BASE" "/var/mail/vhosts"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_DBTOOLS_AUTH_USER" "${dbtools_auth_user}"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_DBTOOLS_AUTH_PASS" "${dbtools_auth_pass}"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_DBTOOLS_ALLOWED_IPS" "${dbtools_allowed_ips}"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_DBTOOLS_RATE_LIMIT_PER_MIN" "${dbtools_rate}"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_PHPMYADMIN_BASE_URL" "${pma_base}"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_PGADMIN_BASE_URL" "${pg_base}"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_CLOUDFLARE_EMAIL" "$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_CLOUDFLARE_EMAIL")"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_CLOUDFLARE_API_KEY" "$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_CLOUDFLARE_API_KEY")"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_CLOUDFLARE_API_TOKEN" "$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_CLOUDFLARE_API_TOKEN")"
@@ -1972,6 +2011,7 @@ main() {
   configure_minio_service
   configure_roundcube
   configure_ols_webmail_route
+  configure_db_tools_hardening
   configure_mail_stack_vmail
   configure_htaccess_watcher
   build_components
