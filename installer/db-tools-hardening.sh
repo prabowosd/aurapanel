@@ -73,6 +73,13 @@ merge_allowlist() {
   printf '%s,%s' "${base}" "${extra}"
 }
 
+panel_edge_single_domain_enabled() {
+  case "$(printf '%s' "${DBTOOLS_PANEL_EDGE_SINGLE_DOMAIN:-0}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+  esac
+  return 1
+}
+
 ensure_dbtools_credentials() {
   local env_user env_pass
   local svc_user svc_pass svc_ips svc_rate svc_runtime_file svc_reload svc_panel_edge
@@ -210,12 +217,7 @@ configure_ols_dbtools_context() {
     !skip {print}
   ' "${VHOST_CONF}" > "${tmp_conf}"
 
-  local edge_enabled="0"
-  case "$(printf '%s' "${DBTOOLS_PANEL_EDGE_SINGLE_DOMAIN}" | tr '[:upper:]' '[:lower:]')" in
-    1|true|yes|on) edge_enabled="1" ;;
-  esac
-
-  if [ "${edge_enabled}" = "1" ] && grep -qiE '^[[:space:]]*extprocessor[[:space:]]+aurapanel_gateway[[:space:]]*\{' "${VHOST_CONF}"; then
+  if panel_edge_single_domain_enabled && grep -qiE '^[[:space:]]*extprocessor[[:space:]]+aurapanel_gateway[[:space:]]*\{' "${VHOST_CONF}"; then
     cat <<EOF >> "${tmp_conf}"
 
 # AURAPANEL DB TOOLS BEGIN
@@ -233,7 +235,7 @@ context /pgadmin4/{
 # AURAPANEL DB TOOLS END
 EOF
   else
-    if [ "${edge_enabled}" = "1" ]; then
+    if panel_edge_single_domain_enabled; then
       warn "AURAPANEL_PANEL_EDGE_SINGLE_DOMAIN enabled but aurapanel_gateway extprocessor not found; falling back to static DB tools contexts."
     fi
     cat <<EOF >> "${tmp_conf}"
@@ -258,6 +260,17 @@ EOF
 
 write_modsecurity_dbtools_rules() {
   mkdir -p "$(dirname "${MODSEC_CUSTOM}")"
+
+  if panel_edge_single_domain_enabled; then
+    cat <<EOF > "${MODSEC_CUSTOM}"
+# AuraPanel DB tools hardening rules (single-domain edge mode)
+# Access control is enforced by gateway token-gate on proxied routes.
+SecRule REQUEST_URI "@rx ^/(phpmyadmin|pgadmin4)(/|$)" \
+  "id:1005100,phase:1,pass,nolog,ctl:ruleRemoveById=920350"
+EOF
+    chmod 640 "${MODSEC_CUSTOM}"
+    return 0
+  fi
 
   cat <<EOF > "${MODSEC_CUSTOM}"
 # AuraPanel DB tools hardening rules
