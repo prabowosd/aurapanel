@@ -43,6 +43,12 @@ ROUNDCUBE_VERSION="${AURAPANEL_ROUNDCUBE_VERSION:-1.6.11}"
 ROUNDCUBE_ARCHIVE_URL="${AURAPANEL_ROUNDCUBE_ARCHIVE_URL:-https://github.com/roundcube/roundcubemail/releases/download/${ROUNDCUBE_VERSION}/roundcubemail-${ROUNDCUBE_VERSION}-complete.tar.gz}"
 OWASP_CRS_VERSION="${AURAPANEL_OWASP_CRS_VERSION:-v4.2.0}"
 OWASP_CRS_ARCHIVE_URL="${AURAPANEL_OWASP_CRS_ARCHIVE_URL:-https://github.com/coreruleset/coreruleset/archive/refs/tags/${OWASP_CRS_VERSION}.zip}"
+AURAPANEL_FFMPEG_INSTALL="${AURAPANEL_FFMPEG_INSTALL:-1}"
+AURAPANEL_FFMPEG_ACTIVE="${AURAPANEL_FFMPEG_ACTIVE:-1}"
+AURAPANEL_IMAGEMAGICK_INSTALL="${AURAPANEL_IMAGEMAGICK_INSTALL:-1}"
+AURAPANEL_IMAGEMAGICK_ACTIVE="${AURAPANEL_IMAGEMAGICK_ACTIVE:-1}"
+AURAPANEL_LIBREOFFICE_INSTALL="${AURAPANEL_LIBREOFFICE_INSTALL:-1}"
+AURAPANEL_LIBREOFFICE_ACTIVE="${AURAPANEL_LIBREOFFICE_ACTIVE:-1}"
 PANEL_PORT_DEFAULT="8090"
 ONE_TIME_PASSWORD_NOTE="NOTE: Passwords are generated only once. Please save them now or change them immediately."
 PDNS_POLICY_RC_D_PATH="/usr/sbin/policy-rc.d"
@@ -65,6 +71,39 @@ warn() {
 fail() {
   echo -e "${RED}$*${NC}"
   exit 1
+}
+
+normalize_yes_no() {
+  local value="${1:-}"
+  local fallback="${2:-0}"
+  case "${value,,}" in
+    1|y|yes|true|on) echo "1" ;;
+    0|n|no|false|off) echo "0" ;;
+    "") echo "${fallback}" ;;
+    *) echo "${fallback}" ;;
+  esac
+}
+
+prompt_yes_no() {
+  local prompt="$1"
+  local default_value="${2:-1}"
+  local default_label response normalized
+
+  default_value="$(normalize_yes_no "${default_value}" "1")"
+  if [ "${default_value}" = "1" ]; then
+    default_label="Yes"
+  else
+    default_label="No"
+  fi
+
+  if [ "${AURAPANEL_INTERACTIVE_PROMPTS:-1}" != "1" ] || [ ! -t 0 ]; then
+    echo "${default_value}"
+    return 0
+  fi
+
+  read -r -p "${prompt} (Yes/No) [${default_label}]: " response || true
+  normalized="$(normalize_yes_no "${response}" "${default_value}")"
+  echo "${normalized}"
 }
 
 cleanup_runtime_guards() {
@@ -205,6 +244,124 @@ install_optional_packages() {
 
   if [ "${#missing[@]}" -gt 0 ]; then
     log "Optional packages unavailable in current repositories, skipped: ${missing[*]}"
+  fi
+}
+
+configure_media_tool_preferences() {
+  AURAPANEL_FFMPEG_INSTALL="$(normalize_yes_no "${AURAPANEL_FFMPEG_INSTALL}" "1")"
+  AURAPANEL_FFMPEG_ACTIVE="$(normalize_yes_no "${AURAPANEL_FFMPEG_ACTIVE}" "${AURAPANEL_FFMPEG_INSTALL}")"
+  AURAPANEL_IMAGEMAGICK_INSTALL="$(normalize_yes_no "${AURAPANEL_IMAGEMAGICK_INSTALL}" "1")"
+  AURAPANEL_IMAGEMAGICK_ACTIVE="$(normalize_yes_no "${AURAPANEL_IMAGEMAGICK_ACTIVE}" "${AURAPANEL_IMAGEMAGICK_INSTALL}")"
+  AURAPANEL_LIBREOFFICE_INSTALL="$(normalize_yes_no "${AURAPANEL_LIBREOFFICE_INSTALL}" "1")"
+  AURAPANEL_LIBREOFFICE_ACTIVE="$(normalize_yes_no "${AURAPANEL_LIBREOFFICE_ACTIVE}" "${AURAPANEL_LIBREOFFICE_INSTALL}")"
+
+  AURAPANEL_FFMPEG_INSTALL="$(prompt_yes_no "FFmpeg yüklensin mi?" "${AURAPANEL_FFMPEG_INSTALL}")"
+  if [ "${AURAPANEL_FFMPEG_INSTALL}" = "1" ]; then
+    AURAPANEL_FFMPEG_ACTIVE="$(prompt_yes_no "FFmpeg aktif doğrulansın mı?" "${AURAPANEL_FFMPEG_ACTIVE}")"
+  else
+    AURAPANEL_FFMPEG_ACTIVE="0"
+  fi
+
+  AURAPANEL_IMAGEMAGICK_INSTALL="$(prompt_yes_no "ImageMagick yüklensin mi?" "${AURAPANEL_IMAGEMAGICK_INSTALL}")"
+  if [ "${AURAPANEL_IMAGEMAGICK_INSTALL}" = "1" ]; then
+    AURAPANEL_IMAGEMAGICK_ACTIVE="$(prompt_yes_no "ImageMagick aktif doğrulansın mı?" "${AURAPANEL_IMAGEMAGICK_ACTIVE}")"
+  else
+    AURAPANEL_IMAGEMAGICK_ACTIVE="0"
+  fi
+
+  AURAPANEL_LIBREOFFICE_INSTALL="$(prompt_yes_no "LibreOffice yüklensin mi?" "${AURAPANEL_LIBREOFFICE_INSTALL}")"
+  if [ "${AURAPANEL_LIBREOFFICE_INSTALL}" = "1" ]; then
+    AURAPANEL_LIBREOFFICE_ACTIVE="$(prompt_yes_no "LibreOffice aktif doğrulansın mı?" "${AURAPANEL_LIBREOFFICE_ACTIVE}")"
+  else
+    AURAPANEL_LIBREOFFICE_ACTIVE="0"
+  fi
+}
+
+ensure_magick_command() {
+  if command -v magick >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ! command -v convert >/dev/null 2>&1; then
+    return 1
+  fi
+
+  cat <<'EOF' > /usr/local/bin/magick
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$#" -gt 0 ]; then
+  subcmd="$1"
+  shift
+  case "${subcmd}" in
+    convert|identify|mogrify|composite|compare|montage|import|display|animate|stream|conjure)
+      if command -v "${subcmd}" >/dev/null 2>&1; then
+        exec "${subcmd}" "$@"
+      fi
+      ;;
+    *)
+      set -- "${subcmd}" "$@"
+      ;;
+  esac
+fi
+
+if command -v convert >/dev/null 2>&1; then
+  exec convert "$@"
+fi
+
+echo "ImageMagick command is unavailable." >&2
+exit 127
+EOF
+  chmod 755 /usr/local/bin/magick
+}
+
+install_media_tools() {
+  local -a im_packages=()
+
+  if [ "${AURAPANEL_FFMPEG_INSTALL}" = "1" ]; then
+    log "Installing FFmpeg..."
+    install_optional_packages ffmpeg
+    if [ "${AURAPANEL_FFMPEG_ACTIVE}" = "1" ]; then
+      command -v ffmpeg >/dev/null 2>&1 || fail "FFmpeg install requested but ffmpeg binary not found."
+      ffmpeg -version >/dev/null 2>&1 || fail "FFmpeg install requested but binary verification failed."
+      ok "FFmpeg is installed and active."
+    fi
+  else
+    warn "FFmpeg installation skipped by configuration."
+  fi
+
+  if [ "${AURAPANEL_IMAGEMAGICK_INSTALL}" = "1" ]; then
+    log "Installing ImageMagick..."
+    if [ "${PKG_MGR}" = "apt" ]; then
+      im_packages=(imagemagick)
+    else
+      im_packages=(ImageMagick imagemagick)
+    fi
+    install_optional_packages "${im_packages[@]}"
+    if [ "${AURAPANEL_IMAGEMAGICK_ACTIVE}" = "1" ]; then
+      ensure_magick_command || fail "ImageMagick install requested but neither magick nor convert command is available."
+      magick -version >/dev/null 2>&1 || fail "ImageMagick install requested but magick verification failed."
+      ok "ImageMagick is installed and active."
+    fi
+  else
+    warn "ImageMagick installation skipped by configuration."
+  fi
+
+  if [ "${AURAPANEL_LIBREOFFICE_INSTALL}" = "1" ]; then
+    log "Installing LibreOffice..."
+    install_optional_packages libreoffice
+    if [ "${AURAPANEL_LIBREOFFICE_ACTIVE}" = "1" ]; then
+      if command -v libreoffice >/dev/null 2>&1; then
+        libreoffice --version >/dev/null 2>&1 || fail "LibreOffice install requested but libreoffice verification failed."
+      elif command -v soffice >/dev/null 2>&1; then
+        soffice --version >/dev/null 2>&1 || fail "LibreOffice install requested but soffice verification failed."
+      else
+        fail "LibreOffice install requested but libreoffice/soffice binary not found."
+      fi
+      ok "LibreOffice is installed and active."
+    fi
+  else
+    warn "LibreOffice installation skipped by configuration."
   fi
 }
 
@@ -1600,6 +1757,12 @@ AURAPANEL_MAIL_BACKEND=vmail
 AURAPANEL_MAIL_VMAIL_UID=5000
 AURAPANEL_MAIL_VMAIL_GID=5000
 AURAPANEL_MAIL_VMAIL_BASE=/var/mail/vhosts
+AURAPANEL_FFMPEG_INSTALL=${AURAPANEL_FFMPEG_INSTALL}
+AURAPANEL_FFMPEG_ACTIVE=${AURAPANEL_FFMPEG_ACTIVE}
+AURAPANEL_IMAGEMAGICK_INSTALL=${AURAPANEL_IMAGEMAGICK_INSTALL}
+AURAPANEL_IMAGEMAGICK_ACTIVE=${AURAPANEL_IMAGEMAGICK_ACTIVE}
+AURAPANEL_LIBREOFFICE_INSTALL=${AURAPANEL_LIBREOFFICE_INSTALL}
+AURAPANEL_LIBREOFFICE_ACTIVE=${AURAPANEL_LIBREOFFICE_ACTIVE}
 AURAPANEL_DBTOOLS_AUTH_USER=dbtools
 AURAPANEL_DBTOOLS_AUTH_PASS=
 AURAPANEL_DBTOOLS_ALLOWED_IPS=
@@ -1674,6 +1837,12 @@ EOF
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_UID" "5000"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_GID" "5000"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_MAIL_VMAIL_BASE" "/var/mail/vhosts"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_FFMPEG_INSTALL" "$(normalize_yes_no "${AURAPANEL_FFMPEG_INSTALL}" "1")"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_FFMPEG_ACTIVE" "$(normalize_yes_no "${AURAPANEL_FFMPEG_ACTIVE}" "1")"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_IMAGEMAGICK_INSTALL" "$(normalize_yes_no "${AURAPANEL_IMAGEMAGICK_INSTALL}" "1")"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_IMAGEMAGICK_ACTIVE" "$(normalize_yes_no "${AURAPANEL_IMAGEMAGICK_ACTIVE}" "1")"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_LIBREOFFICE_INSTALL" "$(normalize_yes_no "${AURAPANEL_LIBREOFFICE_INSTALL}" "1")"
+  upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_LIBREOFFICE_ACTIVE" "$(normalize_yes_no "${AURAPANEL_LIBREOFFICE_ACTIVE}" "1")"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_DBTOOLS_AUTH_USER" "${dbtools_auth_user}"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_DBTOOLS_AUTH_PASS" "${dbtools_auth_pass}"
   upsert_env "${SERVICE_ENV_FILE}" "AURAPANEL_DBTOOLS_ALLOWED_IPS" "${dbtools_allowed_ips}"
@@ -1954,6 +2123,32 @@ smoke_check() {
     fi
   fi
 
+  local ffmpeg_install ffmpeg_active im_install im_active lo_install lo_active
+  ffmpeg_install="$(normalize_yes_no "$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_FFMPEG_INSTALL")" "1")"
+  ffmpeg_active="$(normalize_yes_no "$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_FFMPEG_ACTIVE")" "${ffmpeg_install}")"
+  im_install="$(normalize_yes_no "$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_IMAGEMAGICK_INSTALL")" "1")"
+  im_active="$(normalize_yes_no "$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_IMAGEMAGICK_ACTIVE")" "${im_install}")"
+  lo_install="$(normalize_yes_no "$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_LIBREOFFICE_INSTALL")" "1")"
+  lo_active="$(normalize_yes_no "$(read_env_value "${SERVICE_ENV_FILE}" "AURAPANEL_LIBREOFFICE_ACTIVE")" "${lo_install}")"
+
+  if [ "${ffmpeg_install}" = "1" ] && [ "${ffmpeg_active}" = "1" ]; then
+    command -v ffmpeg >/dev/null 2>&1 || fail "FFmpeg binary missing while marked active."
+    ffmpeg -version >/dev/null 2>&1 || fail "FFmpeg binary check failed."
+  fi
+  if [ "${im_install}" = "1" ] && [ "${im_active}" = "1" ]; then
+    ensure_magick_command || fail "ImageMagick binary missing while marked active."
+    magick -version >/dev/null 2>&1 || fail "ImageMagick binary check failed."
+  fi
+  if [ "${lo_install}" = "1" ] && [ "${lo_active}" = "1" ]; then
+    if command -v libreoffice >/dev/null 2>&1; then
+      libreoffice --version >/dev/null 2>&1 || fail "LibreOffice binary check failed."
+    elif command -v soffice >/dev/null 2>&1; then
+      soffice --version >/dev/null 2>&1 || fail "LibreOffice binary check failed."
+    else
+      fail "LibreOffice binary missing while marked active."
+    fi
+  fi
+
   local waf_status
   waf_status="$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1/?q=%22%3E%3Cscript%3Ealert(123)%3C/script%3E' || true)"
   if [ "${waf_status}" = "403" ]; then
@@ -1988,6 +2183,8 @@ main() {
   install_pdns_policy_guard
   install_optional_packages restic mariadb-server postgresql redis-server redis docker docker.io fail2ban inotify-tools sqlite3 pdns-server pdns-backend-sqlite3 pure-ftpd postfix dovecot-core dovecot-imapd dovecot-pop3d
   cleanup_runtime_guards
+  configure_media_tool_preferences
+  install_media_tools
 
   ensure_go
   ensure_node20
