@@ -609,6 +609,26 @@ Object.assign(extraTr, {
 })
 
 Object.assign(extraEn, {
+  layout: {
+    update_notice: {
+      check: 'Version Check',
+      checking: 'Checking...',
+      new_version: 'New Version Available',
+    },
+  },
+})
+
+Object.assign(extraTr, {
+  layout: {
+    update_notice: {
+      check: 'Surum Kontrol',
+      checking: 'Kontrol Ediliyor...',
+      new_version: 'Yeni Surum Var',
+    },
+  },
+})
+
+Object.assign(extraEn, {
   website_manage: {
     title: 'Website Manage',
     launcher_subtitle: 'Category-based tool buttons, just like a hosting panel launcher.',

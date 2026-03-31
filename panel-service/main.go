@@ -1285,9 +1285,7 @@ func fetchLatestReleaseStatus() UpdateStatus {
 		status.PublishedAt = strings.TrimSpace(payload.PublishedAt)
 		status.ReleaseNotes = summarizeReleaseNotes(payload.Body)
 
-		currentComparable := normalizeComparableVersion(status.CurrentVersion)
-		latestComparable := normalizeComparableVersion(status.LatestVersion)
-		status.UpdateAvailable = latestComparable != "" && latestComparable != currentComparable
+		status.UpdateAvailable = shouldMarkUpdateAvailable(status.CurrentVersion, status.LatestVersion, status.LatestTag)
 		return status
 	}
 
@@ -1324,6 +1322,121 @@ func normalizeComparableVersion(value string) string {
 		"-", "",
 	)
 	return replacer.Replace(normalized)
+}
+
+func shouldMarkUpdateAvailable(currentVersion, latestVersion, latestTag string) bool {
+	latest := strings.TrimSpace(firstNonEmpty(latestTag, latestVersion))
+	if latest == "" {
+		return false
+	}
+	current := strings.TrimSpace(currentVersion)
+	if current == "" {
+		return true
+	}
+	if matchesReleaseBase(current, latest) {
+		return false
+	}
+
+	currentSemver, currentSemverOK := extractSemverTriplet(current)
+	latestSemver, latestSemverOK := extractSemverTriplet(latest)
+	if currentSemverOK && latestSemverOK {
+		return compareSemverTriplet(latestSemver, currentSemver) > 0
+	}
+
+	currentComparable := normalizeComparableVersion(current)
+	latestComparable := normalizeComparableVersion(latest)
+	return latestComparable != "" && latestComparable != currentComparable
+}
+
+func matchesReleaseBase(currentVersion, latestVersion string) bool {
+	current := strings.ToLower(strings.TrimSpace(currentVersion))
+	if current == "" {
+		return false
+	}
+
+	for _, alias := range versionAliases(latestVersion) {
+		if alias == "" {
+			continue
+		}
+		if current == alias || strings.HasPrefix(current, alias+"-") {
+			return true
+		}
+	}
+	return false
+}
+
+func versionAliases(value string) []string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return nil
+	}
+
+	aliases := []string{normalized}
+	if strings.HasPrefix(normalized, "v") {
+		aliases = append(aliases, strings.TrimPrefix(normalized, "v"))
+	} else if normalized[0] >= '0' && normalized[0] <= '9' {
+		aliases = append(aliases, "v"+normalized)
+	}
+	return aliases
+}
+
+func extractSemverTriplet(value string) ([3]int, bool) {
+	var triplet [3]int
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return triplet, false
+	}
+
+	start := -1
+	for i := 0; i < len(normalized); i++ {
+		if normalized[i] >= '0' && normalized[i] <= '9' {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return triplet, false
+	}
+
+	end := start
+	for end < len(normalized) {
+		c := normalized[end]
+		if (c >= '0' && c <= '9') || c == '.' {
+			end++
+			continue
+		}
+		break
+	}
+
+	token := strings.Trim(normalized[start:end], ".")
+	if strings.Count(token, ".") < 2 {
+		return triplet, false
+	}
+
+	parts := strings.Split(token, ".")
+	if len(parts) < 3 {
+		return triplet, false
+	}
+	for i := 0; i < 3; i++ {
+		n, err := strconv.Atoi(parts[i])
+		if err != nil {
+			return triplet, false
+		}
+		triplet[i] = n
+	}
+	return triplet, true
+}
+
+func compareSemverTriplet(left, right [3]int) int {
+	for i := 0; i < 3; i++ {
+		if left[i] > right[i] {
+			return 1
+		}
+		if left[i] < right[i] {
+			return -1
+		}
+	}
+	return 0
 }
 
 func serviceClientIP(r *http.Request) string {

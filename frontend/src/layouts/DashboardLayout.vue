@@ -427,6 +427,24 @@
         
         <div class="flex items-center gap-4">
           <LanguageSwitcher />
+          <div v-if="canPanelUpdateAccess" class="flex items-center gap-2">
+            <button
+              class="inline-flex items-center gap-1.5 rounded-lg border border-panel-border bg-panel-card/70 px-3 py-1.5 text-xs font-semibold text-gray-200 transition hover:border-brand-400/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="releaseCheckLoading"
+              @click="checkHeaderUpdateStatus()"
+            >
+              <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': releaseCheckLoading }" />
+              <span>{{ releaseCheckLoading ? t('layout.update_notice.checking') : t('layout.update_notice.check') }}</span>
+            </button>
+            <button
+              v-if="headerUpdateAvailable"
+              class="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-1.5 text-xs font-semibold text-amber-200 transition hover:bg-amber-500/25"
+              @click="openPanelUpdatePage"
+            >
+              <ArrowUpCircle class="h-3.5 w-3.5" />
+              <span>{{ t('layout.update_notice.new_version') }}</span>
+            </button>
+          </div>
 
           <div class="relative">
             <button
@@ -553,6 +571,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationStore } from '../stores/notifications'
 import { canAccessPath } from '../security/rbac'
+import api from '../services/api'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
 import {
   Activity,
@@ -583,7 +602,9 @@ import {
   Lock,
   KeyRound,
   BookOpen,
-  DatabaseBackup
+  DatabaseBackup,
+  RefreshCw,
+  ArrowUpCircle
 } from 'lucide-vue-next'
 
 const { t, locale } = useI18n({ useScope: 'global' })
@@ -608,6 +629,12 @@ const logsMenuOpen = ref(false)
 const commandOpen = ref(false)
 const commandQuery = ref('')
 const notificationOpen = ref(false)
+const releaseCheckLoading = ref(false)
+const headerUpdateStatus = ref({
+  update_available: false,
+  latest_version: '',
+})
+let releaseStatusInterval = null
 
 const notifications = computed(() => notificationStore.orderedItems.slice(0, 50))
 const unreadCount = computed(() => notificationStore.unreadCount)
@@ -671,6 +698,8 @@ const avatarInitial = computed(() => {
 })
 
 const can = (path) => canAccessPath(path, authStore.role)
+const canPanelUpdateAccess = computed(() => can('/panel-update'))
+const headerUpdateAvailable = computed(() => canPanelUpdateAccess.value && !!headerUpdateStatus.value.update_available)
 const canHostingGroup = computed(() =>
   ['/websites', '/migration', '/packages', '/users', '/reseller'].some((path) => can(path)),
 )
@@ -930,6 +959,28 @@ const clearNotifications = () => {
   notificationOpen.value = false
 }
 
+const checkHeaderUpdateStatus = async ({ silent = false } = {}) => {
+  if (!canPanelUpdateAccess.value) return
+  if (!silent) releaseCheckLoading.value = true
+  try {
+    const res = await api.get('/status/update')
+    if (res.data?.status === 'success' && res.data?.data) {
+      headerUpdateStatus.value = {
+        ...headerUpdateStatus.value,
+        ...res.data.data,
+      }
+    }
+  } catch (err) {
+    // Header notice is best-effort; Panel Update page shows detailed errors.
+  } finally {
+    if (!silent) releaseCheckLoading.value = false
+  }
+}
+
+const openPanelUpdatePage = () => {
+  router.push('/panel-update')
+}
+
 const onKeydown = (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
@@ -958,10 +1009,20 @@ watch(() => route.fullPath, () => {
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
+  if (canPanelUpdateAccess.value) {
+    checkHeaderUpdateStatus({ silent: true })
+    releaseStatusInterval = window.setInterval(() => {
+      checkHeaderUpdateStatus({ silent: true })
+    }, 5 * 60 * 1000)
+  }
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  if (releaseStatusInterval) {
+    window.clearInterval(releaseStatusInterval)
+    releaseStatusInterval = null
+  }
 })
 </script>
 
