@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -636,12 +637,19 @@ func (s *service) handleSSHConfigGet(w http.ResponseWriter) {
 }
 
 func (s *service) handleSSHConfigSet(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		Port            string `json:"port"`
-		PermitRootLogin string `json:"permit_root_login"`
-	}
+	var payload map[string]interface{}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid SSH config payload.")
+		return
+	}
+	port, err := parseSSHConfigPort(payload["port"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	permitRootLogin, err := normalizePermitRootLogin(payload["permit_root_login"])
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -659,19 +667,19 @@ func (s *service) handleSSHConfigSet(w http.ResponseWriter, r *http.Request) {
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "Port ") {
-			lines[i] = fmt.Sprintf("Port %s", payload.Port)
+			lines[i] = fmt.Sprintf("Port %d", port)
 			portFound = true
 		} else if strings.HasPrefix(trimmed, "PermitRootLogin ") {
-			lines[i] = fmt.Sprintf("PermitRootLogin %s", payload.PermitRootLogin)
+			lines[i] = fmt.Sprintf("PermitRootLogin %s", permitRootLogin)
 			rootLoginFound = true
 		}
 	}
 
 	if !portFound {
-		lines = append(lines, fmt.Sprintf("Port %s", payload.Port))
+		lines = append(lines, fmt.Sprintf("Port %d", port))
 	}
 	if !rootLoginFound {
-		lines = append(lines, fmt.Sprintf("PermitRootLogin %s", payload.PermitRootLogin))
+		lines = append(lines, fmt.Sprintf("PermitRootLogin %s", permitRootLogin))
 	}
 
 	if err := os.WriteFile(configPath, []byte(strings.Join(lines, "\n")), 0644); err != nil {
@@ -688,6 +696,54 @@ func (s *service) handleSSHConfigSet(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "SSH configuration updated successfully."})
+}
+
+func parseSSHConfigPort(raw interface{}) (int, error) {
+	switch value := raw.(type) {
+	case float64:
+		port := int(value)
+		if float64(port) != value {
+			return 0, fmt.Errorf("SSH port must be an integer between 1 and 65535.")
+		}
+		if port < 1 || port > 65535 {
+			return 0, fmt.Errorf("SSH port must be between 1 and 65535.")
+		}
+		return port, nil
+	case int:
+		if value < 1 || value > 65535 {
+			return 0, fmt.Errorf("SSH port must be between 1 and 65535.")
+		}
+		return value, nil
+	case string:
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return 0, fmt.Errorf("SSH port is required.")
+		}
+		port, err := strconv.Atoi(trimmed)
+		if err != nil {
+			return 0, fmt.Errorf("SSH port must be numeric.")
+		}
+		if port < 1 || port > 65535 {
+			return 0, fmt.Errorf("SSH port must be between 1 and 65535.")
+		}
+		return port, nil
+	default:
+		return 0, fmt.Errorf("SSH port is required.")
+	}
+}
+
+func normalizePermitRootLogin(raw interface{}) (string, error) {
+	value, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("permit_root_login is required.")
+	}
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "yes", "no", "prohibit-password", "forced-commands-only":
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("permit_root_login must be one of: yes, no, prohibit-password, forced-commands-only.")
+	}
 }
 
 func (s *service) handleCloudflareDNSList(w http.ResponseWriter, r *http.Request) {

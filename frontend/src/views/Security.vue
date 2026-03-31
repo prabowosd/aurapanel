@@ -693,7 +693,11 @@ async function loadSshConfig() {
 async function saveSshConfig() {
   sshConfigSaving.value = true
   try {
-    await api.post('/security/ssh/config', sshConfig.value)
+    const port = Number(sshConfig.value.port)
+    await api.post('/security/ssh/config', {
+      port: Number.isFinite(port) ? port : String(sshConfig.value.port || '').trim(),
+      permit_root_login: String(sshConfig.value.permit_root_login || '').trim().toLowerCase(),
+    })
     alert('SSH ayarları başarıyla kaydedildi ve servis yeniden başlatıldı.')
   } catch (err) {
     alert('Hata: ' + (err.response?.data?.message || err.message))
