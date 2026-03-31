@@ -167,8 +167,12 @@ const baseEn = {
     },
   },
   panel_port: {
-    title: 'Change AuraPanel Port',
-    subtitle: 'Panel access port configuration. Default port is 8090.',
+    title: 'Panel Control',
+    subtitle: 'Manage panel port and reverse domain settings.',
+    tabs: {
+      port: 'Port Settings',
+      reverse_domain: 'Reverse Domain',
+    },
     notice_title: 'Important Notice',
     notice_body: 'After changing the port, reconnect using the new URL. Keep firewall access enabled for the selected port.',
     current_config: 'Current Configuration',
@@ -182,6 +186,27 @@ const baseEn = {
     reconnect_url: 'Reconnect URL',
     warnings: 'Warnings',
     firewall_actions: 'Firewall Actions',
+    reverse: {
+      title: 'Single-domain reverse gateway settings.',
+      subtitle: 'Configure reverse domain mode and keep OpenLiteSpeed upstream in sync with gateway port.',
+      enabled: 'Enable single-domain reverse mode',
+      domain: 'Reverse Domain',
+      domain_placeholder: 'panel.example.com',
+      vhost_conf_path: 'OLS Vhost Config Path',
+      vhost_conf_placeholder: '/usr/local/lsws/conf/vhosts/Example/vhconf.conf',
+      current_upstream: 'Current gateway upstream',
+      save: 'Save Reverse Domain',
+      saving: 'Saving...',
+      warnings: 'Reverse Domain Warnings',
+      messages: {
+        load_failed: 'Reverse domain settings could not be loaded.',
+        domain_required: 'Domain is required when reverse domain mode is enabled.',
+        invalid_domain: 'Please enter a valid domain name.',
+        update_failed: 'Reverse domain settings could not be updated.',
+        updated: 'Reverse domain settings updated.',
+        updated_synced: 'Reverse domain settings updated and OLS upstream synced.',
+      },
+    },
     messages: {
       load_failed: 'Panel port information could not be loaded.',
       invalid_port: 'Port must be in the 1-65535 range.',
@@ -189,6 +214,34 @@ const baseEn = {
       restart_scheduled: 'Gateway restart scheduled.',
       updated: 'Panel port updated to {port}.{restartNote}',
       network_reconnect: 'Connection was interrupted. The gateway may have restarted, reconnect on the new port: {url}',
+    },
+  },
+  panel_update: {
+    title: 'Panel Update',
+    subtitle: 'Check release status and apply updates to this server.',
+    channel: 'Release Channel',
+    check_now: 'Check Now',
+    checking: 'Checking...',
+    update_now: 'Update',
+    updating: 'Updating...',
+    current_version: 'Current Version',
+    latest_release: 'Latest Release',
+    source: 'Source',
+    not_checked: 'Not checked yet',
+    last_checked: 'Last checked',
+    up_to_date: 'This server is currently running the configured panel version.',
+    update_available: 'A newer GitHub release is available for this panel.',
+    view_release: 'View GitHub release',
+    warnings: 'Update Warnings',
+    steps: 'Update Steps',
+    badges: {
+      update_available: 'Update Available',
+      up_to_date: 'Up to Date',
+    },
+    messages: {
+      load_failed: 'Update status could not be loaded.',
+      apply_failed: 'Panel update could not be applied.',
+      applied: 'Panel update completed.',
     },
   },
   database_manager: {
@@ -460,9 +513,9 @@ const baseEn = {
   login: { title: 'Sign In to AuraPanel', subtitle: 'Use the administrator account created during installation.', email_label: 'Administrator email', email_placeholder: "admin{'@'}server.com", password_label: 'Administrator password', password_placeholder: 'Enter your password', twofa_label: 'Verification code', twofa_placeholder: '123456', remember_me: 'Remember this device', submit: 'Sign In', submitting: 'Signing in...', error_default: 'We could not complete the sign-in request.', hint: 'OpenLiteSpeed WebAdmin credentials are separate from AuraPanel panel credentials.', footer_tagline: 'Secure Hosting Control Plane', footer_credit: 'Built by Mkoyazilim' },
   auth_messages: { welcome_title: 'Welcome', welcome_message: 'Signed in as {email}', login_error: 'Sign in failed. Please verify your credentials.', signed_out_title: 'Signed Out', signed_out_message: 'Your session was closed securely.' },
   api_messages: { unknown_error: 'Unknown API error', session_expired: 'Session expired', session_ended_title: 'Session Ended', session_ended_message: 'Your session expired. Please sign in again.', network_error: 'Network Error', api_error_title: 'API Error - {status}' },
-  layout: { toggle_all_open: 'Open All', toggle_all_close: 'Close All', toggle_all_label: 'Menu Groups', groups: { hosting: 'Hosting', web_apps: 'Web & Apps', data_access: 'Data & Access', security_logs: 'Security & Logs', devops: 'Developer', system: 'System', ftp_sftp: 'FTP / SFTP', backups: 'Backups', logs: 'Logs' }, links: { reseller_acl: 'Reseller & ACL', ssl_manage: 'SSL Management', ssl_hostname: 'Hostname SSL', ssl_mail: 'Mail Server SSL', wordpress_manager: 'WordPress Manager', app_runtime: 'App Runtime', file_manager: 'File Manager', terminal: 'Web Terminal', file_backups: 'File Backups', overview: 'Overview', firewall: 'Firewall', ssh_keys: 'SSH Keys', activity_log: 'Activity Log', log_viewer: 'Log Viewer', image_manager: 'Image Management', container_manager: 'Container Management', create_container: 'Create Container', app_store: 'App Store', installed_apps: 'Installed Apps', docker_packages: 'Docker Packages', cron_jobs: 'Cron Jobs', panel_port: 'Panel Port', ml_waf: 'ML-WAF', totp: '2FA (TOTP)', hardening: 'Hardening' }, labels: { manager: 'Manager', apps: 'Apps' }, notifications: { title: 'Notifications', unread: '{count} unread', mark_all_read: 'Mark all as read', clear: 'Clear', empty: 'No notifications yet.', new: 'NEW' }, user_menu: { secure_logout: 'Secure Logout' }, footer: { zero_trust: 'Zero-Trust Active', server_load: 'Server Load' }, command_palette: { placeholder: 'Quick jump with Ctrl+K... (example: dns, security, logs)' } },
+  layout: { toggle_all_open: 'Open All', toggle_all_close: 'Close All', toggle_all_label: 'Menu Groups', groups: { hosting: 'Hosting', web_apps: 'Web & Apps', data_access: 'Data & Access', security_logs: 'Security & Logs', devops: 'Developer', system: 'System', ftp_sftp: 'FTP / SFTP', backups: 'Backups', logs: 'Logs' }, links: { reseller_acl: 'Reseller & ACL', ssl_manage: 'SSL Management', ssl_hostname: 'Hostname SSL', ssl_mail: 'Mail Server SSL', wordpress_manager: 'WordPress Manager', app_runtime: 'App Runtime', file_manager: 'File Manager', terminal: 'Web Terminal', file_backups: 'File Backups', overview: 'Overview', firewall: 'Firewall', ssh_keys: 'SSH Keys', activity_log: 'Activity Log', log_viewer: 'Log Viewer', image_manager: 'Image Management', container_manager: 'Container Management', create_container: 'Create Container', app_store: 'App Store', installed_apps: 'Installed Apps', docker_packages: 'Docker Packages', cron_jobs: 'Cron Jobs', panel_port: 'Panel Control', ml_waf: 'ML-WAF', totp: '2FA (TOTP)', hardening: 'Hardening' }, labels: { manager: 'Manager', apps: 'Apps' }, notifications: { title: 'Notifications', unread: '{count} unread', mark_all_read: 'Mark all as read', clear: 'Clear', empty: 'No notifications yet.', new: 'NEW' }, user_menu: { secure_logout: 'Secure Logout' }, footer: { zero_trust: 'Zero-Trust Active', server_load: 'Server Load' }, command_palette: { placeholder: 'Quick jump with Ctrl+K... (example: dns, security, logs)' } },
   notifications: { default_title: 'Notification' },
-  routes: { Dashboard: 'Dashboard', Websites: 'Websites', WebsiteManage: 'Website Manager', Packages: 'Packages', Users: 'Users', Databases: 'Databases', Emails: 'Emails', FTP: 'FTP', SFTP: 'SFTP', DNS: 'DNS', SSL: 'SSL', Security: 'Security', AppRuntime: 'App Runtime', WordPressManager: 'WordPress Manager', MinIO: 'MinIO', CronJobs: 'Cron Jobs', LogViewer: 'Log Viewer', Federated: 'Federated', FileManager: 'File Manager', Terminal: 'Web Terminal', PHP: 'PHP Management', ServerStatus: 'Server Status', PanelPort: 'Panel Port', Backups: 'Backups', OlsTuning: 'OLS Tuning', Reseller: 'Reseller & ACL', ActivityLog: 'Activity Log', DbBackup: 'DB Backup', 'Docker Images': 'Docker Images', 'Docker Containers': 'Docker Containers', 'Docker Create': 'Create Container', 'Docker App Store': 'Docker App Store', 'Docker Installed Apps': 'Installed Docker Apps', 'Docker Packages': 'Docker Packages', CloudFlare: 'CloudFlare' }
+  routes: { Dashboard: 'Dashboard', Websites: 'Websites', WebsiteManage: 'Website Manager', Packages: 'Packages', Users: 'Users', Databases: 'Databases', Emails: 'Emails', FTP: 'FTP', SFTP: 'SFTP', DNS: 'DNS', SSL: 'SSL', Security: 'Security', AppRuntime: 'App Runtime', WordPressManager: 'WordPress Manager', MinIO: 'MinIO', CronJobs: 'Cron Jobs', LogViewer: 'Log Viewer', Federated: 'Federated', FileManager: 'File Manager', Terminal: 'Web Terminal', PHP: 'PHP Management', ServerStatus: 'Server Status', PanelPort: 'Panel Control', Backups: 'Backups', OlsTuning: 'OLS Tuning', Reseller: 'Reseller & ACL', ActivityLog: 'Activity Log', DbBackup: 'DB Backup', 'Docker Images': 'Docker Images', 'Docker Containers': 'Docker Containers', 'Docker Create': 'Create Container', 'Docker App Store': 'Docker App Store', 'Docker Installed Apps': 'Installed Docker Apps', 'Docker Packages': 'Docker Packages', CloudFlare: 'CloudFlare' }
 }
 
 const baseTr = deepMerge(baseEn, {
@@ -604,8 +657,12 @@ const baseTr = deepMerge(baseEn, {
     },
   },
   panel_port: {
-    title: 'AuraPanel Portunu Degistir',
-    subtitle: 'Panel erisim portu ayarlari. Varsayilan port 8090\'dir.',
+    title: 'Panel Kontrol',
+    subtitle: 'Panel portu ve reverse domain ayarlarini yonetin.',
+    tabs: {
+      port: 'Port Ayari',
+      reverse_domain: 'Reverse Domain',
+    },
     notice_title: 'Onemli Not',
     notice_body: 'Portu degistirdikten sonra yeni URL ile tekrar baglanin. Secilen port icin firewall erisiminin acik kaldigindan emin olun.',
     current_config: 'Mevcut Yapilandirma',
@@ -619,6 +676,27 @@ const baseTr = deepMerge(baseEn, {
     reconnect_url: 'Tekrar baglanma URL\'si',
     warnings: 'Uyarilar',
     firewall_actions: 'Firewall Islemleri',
+    reverse: {
+      title: 'Tek-domain reverse gateway ayarlari.',
+      subtitle: 'Reverse domain modunu ayarlayin ve OpenLiteSpeed upstream ayarini gateway portu ile senkron tutun.',
+      enabled: 'Tek-domain reverse modunu etkinlestir',
+      domain: 'Reverse Domain',
+      domain_placeholder: 'panel.ornek.com',
+      vhost_conf_path: 'OLS Vhost Config Yolu',
+      vhost_conf_placeholder: '/usr/local/lsws/conf/vhosts/Example/vhconf.conf',
+      current_upstream: 'Mevcut gateway upstream',
+      save: 'Reverse Domain Kaydet',
+      saving: 'Kaydediliyor...',
+      warnings: 'Reverse Domain Uyarilari',
+      messages: {
+        load_failed: 'Reverse domain ayarlari alinamadi.',
+        domain_required: 'Reverse domain modu etkinse domain zorunludur.',
+        invalid_domain: 'Gecerli bir domain adi girin.',
+        update_failed: 'Reverse domain ayarlari guncellenemedi.',
+        updated: 'Reverse domain ayarlari guncellendi.',
+        updated_synced: 'Reverse domain ayarlari guncellendi ve OLS upstream senkronlandi.',
+      },
+    },
     messages: {
       load_failed: 'Panel port bilgisi alinamadi.',
       invalid_port: 'Port araligi 1-65535 olmali.',
@@ -628,9 +706,37 @@ const baseTr = deepMerge(baseEn, {
       network_reconnect: 'Baglanti kesildi. Gateway yeniden baslamis olabilir, yeni porttan tekrar baglan: {url}',
     },
   },
+  panel_update: {
+    title: 'Panel Guncelleme',
+    subtitle: 'Release durumunu kontrol edin ve bu sunucuya guncelleme uygulayin.',
+    channel: 'Release Kanali',
+    check_now: 'Simdi Kontrol Et',
+    checking: 'Kontrol ediliyor...',
+    update_now: 'Guncelle',
+    updating: 'Guncelleniyor...',
+    current_version: 'Mevcut Surum',
+    latest_release: 'Son Release',
+    source: 'Kaynak',
+    not_checked: 'Henuz kontrol edilmedi',
+    last_checked: 'Son kontrol',
+    up_to_date: 'Bu sunucu su an tanimli panel surumunu calistiriyor.',
+    update_available: 'Bu panel icin daha yeni bir GitHub release mevcut.',
+    view_release: 'GitHub release ac',
+    warnings: 'Guncelleme Uyarilari',
+    steps: 'Guncelleme Adimlari',
+    badges: {
+      update_available: 'Guncelleme Var',
+      up_to_date: 'Guncel',
+    },
+    messages: {
+      load_failed: 'Guncelleme durumu alinamadi.',
+      apply_failed: 'Panel guncellemesi uygulanamadi.',
+      applied: 'Panel guncellemesi tamamlandi.',
+    },
+  },
   php: { title: 'PHP Yonetimi', subtitle: 'PHP versiyonlari ve ayarlari', versions_tab: 'Versiyonlar', sites_tab: 'Site Atamalari', extensions_tab: 'Extensionlar', ini_tab: 'php.ini', installed: 'Kurulu', not_installed: 'Kurulu Degil', eol: 'EOL', install: 'Kur', remove: 'Kaldir', restart: 'Restart', install_success: 'PHP kuruldu', remove_success: 'PHP kaldirildi', save_ini_success: 'php.ini kaydedildi', supported: 'Destekleniyor', domain: 'Domain', current_php: 'Mevcut PHP', change_php: 'Degistir', site_not_found: 'Site bulunamadi', read_ini: 'Oku', messages: { load_failed: 'PHP verileri alinamadi.', installed: 'PHP {version} kuruldu.', install_failed: 'PHP kurulumu basarisiz.', removed: 'PHP {version} kaldirildi.', remove_failed: 'PHP kaldirma basarisiz.', restarted: 'PHP {version} restart edildi.', restart_failed: 'PHP restart basarisiz.', site_updated: '{domain} icin PHP guncellendi.', site_update_failed: 'Site PHP atamasi basarisiz.', ini_read_failed: 'php.ini okunamadi.', ini_save_failed: 'php.ini kaydedilemedi.' } },
   server_status: { title: 'Sunucu Durumu', subtitle: 'Sunucu metrikleri, servisler ve prosesler', cpu: 'CPU Kullanim', ram: 'RAM Kullanim', disk: 'Disk Kullanim', uptime: 'Uptime', services_tab: 'Servisler', processes_tab: 'Prosesler', network_tab: 'Ag', start: 'Baslat', stop: 'Durdur', restart: 'Restart', running: 'Calisiyor', stopped: 'Durdu', kill_process: 'Oldur', refresh: 'Yenile', user: 'Kullanici', command: 'Komut', action: 'Islem', load_avg: 'Load: {value}', messages: { service_done: '{name} {action} tamamlandi', service_failed: 'Servis aksiyonu basarisiz', process_killed: 'PID {pid} sonlandirildi', process_failed: 'Proses sonlandirma basarisiz', updated: 'Veriler guncellendi' } },
-  layout: { toggle_all_open: 'Tumunu Ac', toggle_all_close: 'Tumunu Kapat', toggle_all_label: 'Menu Gruplari', groups: { web_apps: 'Web ve Uygulamalar', data_access: 'Veri ve Erisim', security_logs: 'Guvenlik ve Kayitlar', devops: 'Gelistirici', system: 'Sistem', backups: 'Yedekler', logs: 'Kayitlar' }, links: { reseller_acl: 'Bayi ve ACL', ssl_manage: 'SSL Yonetimi', ssl_hostname: 'Hostname SSL', ssl_mail: 'Mail Sunucusu SSL', wordpress_manager: 'WordPress Yoneticisi', app_runtime: 'Uygulama Ortami', file_manager: 'Dosya Yoneticisi', terminal: 'Web Terminal', file_backups: 'Dosya Yedekleri', overview: 'Genel Bakis', firewall: 'Guvenlik Duvari', ssh_keys: 'SSH Anahtarlari', activity_log: 'Etkinlik Kayitlari', log_viewer: 'Log Goruntuleyici', image_manager: 'Imaj Yonetimi', container_manager: 'Konteyner Yonetimi', create_container: 'Konteyner Olustur', app_store: 'Uygulama Magazasi', installed_apps: 'Kurulu Uygulamalar', docker_packages: 'Docker Paketleri', cron_jobs: 'Cron Gorevleri', panel_port: 'Panel Portu', ml_waf: 'ML-WAF', totp: '2FA (TOTP)', hardening: 'Hardening' }, labels: { manager: 'Yonetim', apps: 'Uygulamalar' }, notifications: { title: 'Bildirimler', unread: '{count} okunmamis', mark_all_read: 'Tumunu okundu yap', clear: 'Temizle', empty: 'Henuz bildirim yok.', new: 'YENI' }, user_menu: { secure_logout: 'Guvenli Cikis' }, footer: { zero_trust: 'Zero-Trust Aktif', server_load: 'Sunucu Yuku' }, command_palette: { placeholder: 'Ctrl+K ile hizli gecis... (ornek: dns, guvenlik, log)' } },
+  layout: { toggle_all_open: 'Tumunu Ac', toggle_all_close: 'Tumunu Kapat', toggle_all_label: 'Menu Gruplari', groups: { web_apps: 'Web ve Uygulamalar', data_access: 'Veri ve Erisim', security_logs: 'Guvenlik ve Kayitlar', devops: 'Gelistirici', system: 'Sistem', backups: 'Yedekler', logs: 'Kayitlar' }, links: { reseller_acl: 'Bayi ve ACL', ssl_manage: 'SSL Yonetimi', ssl_hostname: 'Hostname SSL', ssl_mail: 'Mail Sunucusu SSL', wordpress_manager: 'WordPress Yoneticisi', app_runtime: 'Uygulama Ortami', file_manager: 'Dosya Yoneticisi', terminal: 'Web Terminal', file_backups: 'Dosya Yedekleri', overview: 'Genel Bakis', firewall: 'Guvenlik Duvari', ssh_keys: 'SSH Anahtarlari', activity_log: 'Etkinlik Kayitlari', log_viewer: 'Log Goruntuleyici', image_manager: 'Imaj Yonetimi', container_manager: 'Konteyner Yonetimi', create_container: 'Konteyner Olustur', app_store: 'Uygulama Magazasi', installed_apps: 'Kurulu Uygulamalar', docker_packages: 'Docker Paketleri', cron_jobs: 'Cron Gorevleri', panel_port: 'Panel Kontrol', ml_waf: 'ML-WAF', totp: '2FA (TOTP)', hardening: 'Hardening' }, labels: { manager: 'Yonetim', apps: 'Uygulamalar' }, notifications: { title: 'Bildirimler', unread: '{count} okunmamis', mark_all_read: 'Tumunu okundu yap', clear: 'Temizle', empty: 'Henuz bildirim yok.', new: 'YENI' }, user_menu: { secure_logout: 'Guvenli Cikis' }, footer: { zero_trust: 'Zero-Trust Aktif', server_load: 'Sunucu Yuku' }, command_palette: { placeholder: 'Ctrl+K ile hizli gecis... (ornek: dns, guvenlik, log)' } },
   notifications: { default_title: 'Bildirim' },
   database_manager: {
     title: 'Veritabani Yoneticisi',
@@ -897,7 +1003,7 @@ const baseTr = deepMerge(baseEn, {
       delete_failed: 'SFTP kullanicisi silinemedi.',
     },
   },
-  routes: { Dashboard: 'Ana Sayfa', Websites: 'Web Siteleri', WebsiteManage: 'Site Yonetimi', Packages: 'Paketler', Users: 'Kullanicilar', Databases: 'Veritabanlari', Emails: 'E-Posta', DNS: 'DNS', Security: 'Guvenlik', AppRuntime: 'Uygulama Ortami', WordPressManager: 'WordPress Yoneticisi', CronJobs: 'Cron Gorevleri', LogViewer: 'Log Goruntuleyici', FileManager: 'Dosya Yoneticisi', Terminal: 'Web Terminal', PHP: 'PHP Yonetimi', ServerStatus: 'Sunucu Durumu', PanelPort: 'Panel Portu', Backups: 'Yedekler', Reseller: 'Bayi ve ACL', ActivityLog: 'Etkinlik Kayitlari', DbBackup: 'DB Yedekleme', 'Docker Images': 'Docker Imajlari', 'Docker Containers': 'Docker Konteynerleri', 'Docker Create': 'Konteyner Olustur', 'Docker App Store': 'Docker Uygulama Magazasi', 'Docker Installed Apps': 'Kurulu Docker Uygulamalari', 'Docker Packages': 'Docker Paketleri' }
+  routes: { Dashboard: 'Ana Sayfa', Websites: 'Web Siteleri', WebsiteManage: 'Site Yonetimi', Packages: 'Paketler', Users: 'Kullanicilar', Databases: 'Veritabanlari', Emails: 'E-Posta', DNS: 'DNS', Security: 'Guvenlik', AppRuntime: 'Uygulama Ortami', WordPressManager: 'WordPress Yoneticisi', CronJobs: 'Cron Gorevleri', LogViewer: 'Log Goruntuleyici', FileManager: 'Dosya Yoneticisi', Terminal: 'Web Terminal', PHP: 'PHP Yonetimi', ServerStatus: 'Sunucu Durumu', PanelPort: 'Panel Kontrol', Backups: 'Yedekler', Reseller: 'Bayi ve ACL', ActivityLog: 'Etkinlik Kayitlari', DbBackup: 'DB Yedekleme', 'Docker Images': 'Docker Imajlari', 'Docker Containers': 'Docker Konteynerleri', 'Docker Create': 'Konteyner Olustur', 'Docker App Store': 'Docker Uygulama Magazasi', 'Docker Installed Apps': 'Kurulu Docker Uygulamalari', 'Docker Packages': 'Docker Paketleri' }
 })
 
 const en = deepMerge(deepMerge(baseEn, enJson), extraEn)

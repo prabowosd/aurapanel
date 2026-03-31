@@ -397,8 +397,11 @@
               <router-link v-if="can('/server-status')" to="/server-status" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('routes.ServerStatus') }}</span>
               </router-link>
-              <router-link v-if="can('/panel-port')" to="/panel-port" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+              <router-link v-if="can('/panel-control')" to="/panel-control" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('layout.links.panel_port') }}</span>
+              </router-link>
+              <router-link v-if="can('/panel-update')" to="/panel-update" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('panel_update.title') }}</span>
               </router-link>
             </div>
           </transition>
@@ -632,6 +635,7 @@ const routeTitleKeys = {
   PHP: 'routes.PHP',
   ServerStatus: 'routes.ServerStatus',
   PanelPort: 'routes.PanelPort',
+  PanelUpdate: 'panel_update.title',
   Backups: 'routes.Backups',
   OlsTuning: 'routes.OlsTuning',
   MailTuning: 'Mail Tuning',
@@ -686,7 +690,7 @@ const canDevopsGroup = computed(() =>
   ['/docker/images', '/docker/containers', '/docker/create', '/docker/apps', '/cron-jobs', '/federated', '/ops-center'].some((path) => can(path)),
 )
 const canSystemGroup = computed(() =>
-  ['/server-status', '/panel-port'].some((path) => can(path)),
+  ['/server-status', '/panel-control', '/panel-update'].some((path) => can(path)),
 )
 
 const commandItems = computed(() => [
@@ -722,7 +726,8 @@ const commandItems = computed(() => [
   { label: 'Mail Tuning', path: '/mail-tuning' },
   { label: t('layout.links.reseller_acl'), path: '/reseller' },
   { label: t('routes.ServerStatus'), path: '/server-status' },
-  { label: t('layout.links.panel_port'), path: '/panel-port' },
+  { label: t('layout.links.panel_port'), path: '/panel-control' },
+  { label: t('panel_update.title'), path: '/panel-update' },
   { label: t('routes.Docker Images'), path: '/docker/images' },
   { label: t('routes.Docker Containers'), path: '/docker/containers' },
   { label: t('routes.Docker App Store'), path: '/docker/apps' },
@@ -764,7 +769,7 @@ const isDevopsRoute = computed(() =>
   ['/docker', '/cron-jobs', '/federated', '/ops-center'].some(prefix => route.path.startsWith(prefix))
 )
 const isSystemRoute = computed(() =>
-  ['/server-status', '/panel-port'].some(prefix => route.path.startsWith(prefix))
+  ['/server-status', '/panel-control', '/panel-port', '/panel-update'].some(prefix => route.path.startsWith(prefix))
 )
 const topLevelMenus = {
   hosting: hostingMenuOpen,

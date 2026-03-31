@@ -177,9 +177,18 @@ const routes = [
         component: () => import('../views/ServerStatus.vue')
       },
       {
-        path: 'panel-port',
+        path: 'panel-control',
         name: 'PanelPort',
         component: () => import('../views/PanelPort.vue')
+      },
+      {
+        path: 'panel-update',
+        name: 'PanelUpdate',
+        component: () => import('../views/PanelUpdate.vue')
+      },
+      {
+        path: 'panel-port',
+        redirect: (to) => ({ path: '/panel-control', query: to.query, hash: to.hash })
       },
       {
         path: 'backups',

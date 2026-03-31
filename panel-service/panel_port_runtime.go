@@ -25,6 +25,17 @@ type panelPortChangeResult struct {
 	EdgeSynced       bool
 }
 
+type panelEdgeConfig struct {
+	Enabled         bool
+	Domain          string
+	VhostConfigPath string
+}
+
+type panelEdgeConfigApplyResult struct {
+	Warnings   []string
+	EdgeSynced bool
+}
+
 type fileRollbackBackup struct {
 	Path    string
 	Exists  bool
@@ -111,6 +122,14 @@ func panelEdgeSingleDomainEnabled() bool {
 	return envBoolEnabled(value)
 }
 
+func panelEdgeDomain() string {
+	value := strings.TrimSpace(os.Getenv("AURAPANEL_PANEL_EDGE_DOMAIN"))
+	if value == "" {
+		value = strings.TrimSpace(readEnvFileValue(adminServiceEnvPath(), "AURAPANEL_PANEL_EDGE_DOMAIN"))
+	}
+	return normalizeDomain(value)
+}
+
 func envBoolEnabled(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "1", "true", "yes", "on":
@@ -121,7 +140,82 @@ func envBoolEnabled(value string) bool {
 }
 
 func panelEdgeVhostConfigPath() string {
-	return firstNonEmpty(strings.TrimSpace(os.Getenv("AURAPANEL_PANEL_EDGE_VHOST_CONF")), defaultPanelEdgeVhostConfigPath)
+	value := strings.TrimSpace(os.Getenv("AURAPANEL_PANEL_EDGE_VHOST_CONF"))
+	if value == "" {
+		value = strings.TrimSpace(readEnvFileValue(adminServiceEnvPath(), "AURAPANEL_PANEL_EDGE_VHOST_CONF"))
+	}
+	return firstNonEmpty(value, defaultPanelEdgeVhostConfigPath)
+}
+
+func loadPanelEdgeConfig() panelEdgeConfig {
+	return panelEdgeConfig{
+		Enabled:         panelEdgeSingleDomainEnabled(),
+		Domain:          panelEdgeDomain(),
+		VhostConfigPath: panelEdgeVhostConfigPath(),
+	}
+}
+
+func boolToEnvValue(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
+}
+
+func applyPanelEdgeConfigChange(config panelEdgeConfig, gatewayPort int) (panelEdgeConfigApplyResult, error) {
+	result := panelEdgeConfigApplyResult{
+		Warnings:   []string{},
+		EdgeSynced: false,
+	}
+	config.Domain = normalizeDomain(config.Domain)
+	config.VhostConfigPath = firstNonEmpty(strings.TrimSpace(config.VhostConfigPath), defaultPanelEdgeVhostConfigPath)
+
+	serviceEnvPath := adminServiceEnvPath()
+	serviceEnvBackup, err := backupFileForRollback(serviceEnvPath)
+	if err != nil {
+		return result, fmt.Errorf("service env backup failed: %w", err)
+	}
+
+	edgeBackup := fileRollbackBackup{}
+	if config.Enabled {
+		edgeBackup, err = backupFileForRollback(config.VhostConfigPath)
+		if err != nil {
+			return result, fmt.Errorf("panel edge config backup failed: %w", err)
+		}
+	}
+
+	if err := writeEnvFileValues(serviceEnvPath, map[string]string{
+		"AURAPANEL_PANEL_EDGE_SINGLE_DOMAIN": boolToEnvValue(config.Enabled),
+		"AURAPANEL_PANEL_EDGE_DOMAIN":        config.Domain,
+		"AURAPANEL_PANEL_EDGE_VHOST_CONF":    config.VhostConfigPath,
+	}); err != nil {
+		return result, fmt.Errorf("service env update failed: %w", err)
+	}
+
+	rollback := func(reason error) error {
+		_ = restoreFileFromRollback(serviceEnvBackup)
+		if config.Enabled {
+			_ = restoreFileFromRollback(edgeBackup)
+			_ = reloadOpenLiteSpeed()
+		}
+		return reason
+	}
+
+	if config.Enabled {
+		if err := updatePanelEdgeGatewayUpstream(config.VhostConfigPath, gatewayPort); err != nil {
+			return result, rollback(fmt.Errorf("panel edge sync failed: %w", err))
+		}
+		if err := reloadOpenLiteSpeed(); err != nil {
+			return result, rollback(fmt.Errorf("openlitespeed reload failed after panel edge sync: %w", err))
+		}
+		result.EdgeSynced = true
+	}
+
+	_ = os.Setenv("AURAPANEL_PANEL_EDGE_SINGLE_DOMAIN", boolToEnvValue(config.Enabled))
+	_ = os.Setenv("AURAPANEL_PANEL_EDGE_DOMAIN", config.Domain)
+	_ = os.Setenv("AURAPANEL_PANEL_EDGE_VHOST_CONF", config.VhostConfigPath)
+
+	return result, nil
 }
 
 func updatePanelEdgeGatewayUpstream(path string, port int) error {

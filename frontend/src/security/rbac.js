@@ -7,6 +7,8 @@ const PATH_RULES = [
   { prefix: '/packages', roles: [ROLE_ADMIN] },
   { prefix: '/reseller', roles: [ROLE_ADMIN] },
   { prefix: '/activity-log', roles: [ROLE_ADMIN] },
+  { prefix: '/panel-control', roles: [ROLE_ADMIN] },
+  { prefix: '/panel-update', roles: [ROLE_ADMIN] },
   { prefix: '/panel-port', roles: [ROLE_ADMIN] },
   { prefix: '/ols-tuning', roles: [ROLE_ADMIN] },
   { prefix: '/mail-tuning', roles: [ROLE_ADMIN, ROLE_RESELLER] },

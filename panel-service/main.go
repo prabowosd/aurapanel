@@ -31,6 +31,7 @@ const (
 	defaultGatewayPort   = 8090
 	currentPanelVersion  = "Aura Panel V1"
 	updateCacheTTL       = 15 * time.Minute
+	updateErrorCacheTTL  = 2 * time.Minute
 	defaultAdminEmail    = "admin@server.com"
 	defaultAdminPass     = "password123"
 	maxJSONBodyBytes     = 1 << 20
@@ -40,6 +41,9 @@ const (
 	serviceMaxFailedAttempts = 5
 	serviceFailureWindow     = 10 * time.Minute
 	serviceLockDuration      = 15 * time.Minute
+
+	defaultGitHubReleaseTimeout = 12 * time.Second
+	defaultGitHubRetryAttempts  = 3
 )
 
 type apiResponse struct {
@@ -192,6 +196,7 @@ type FirewallRule struct {
 type UpdateStatus struct {
 	CurrentVersion  string `json:"current_version"`
 	LatestVersion   string `json:"latest_version,omitempty"`
+	LatestTag       string `json:"latest_tag,omitempty"`
 	UpdateAvailable bool   `json:"update_available"`
 	ReleaseName     string `json:"release_name,omitempty"`
 	ReleaseURL      string `json:"release_url,omitempty"`
@@ -788,6 +793,8 @@ func (s *service) nonAdminRoutePolicy(w http.ResponseWriter, r *http.Request) bo
 		"/api/v1/security/malware",
 		"/api/v1/status/service/control",
 		"/api/v1/status/panel-port",
+		"/api/v1/status/panel-reverse-domain",
+		"/api/v1/status/update/apply",
 		"/api/v1/backup/destinations",
 		"/api/v1/backup/schedules",
 		"/api/v1/db/tools",
@@ -1025,12 +1032,18 @@ func (s *service) handleCompat(w http.ResponseWriter, r *http.Request) {
 		s.handleProcesses(w)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/status/update":
 		s.handleUpdateStatus(w)
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/status/update/apply":
+		s.handleUpdateApply(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/status/service/control":
 		s.handleServiceControl(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/status/panel-port":
 		s.handlePanelPortGet(w)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/status/panel-port":
 		s.handlePanelPortSet(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/status/panel-reverse-domain":
+		s.handlePanelReverseDomainGet(w)
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/status/panel-reverse-domain":
+		s.handlePanelReverseDomainSet(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/security/status":
 		s.handleSecurityStatus(w)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/cloudflare/status":
@@ -1095,16 +1108,64 @@ func (s *service) handleUpdateStatus(w http.ResponseWriter) {
 	})
 }
 
+func (s *service) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok || principal.Role != "admin" {
+		writeError(w, http.StatusForbidden, "This endpoint is restricted to admin users.")
+		return
+	}
+
+	status := fetchLatestReleaseStatus()
+	target := firstNonEmpty(strings.TrimSpace(status.LatestTag), strings.TrimSpace(status.LatestVersion))
+	if target == "" {
+		if status.Error == "" {
+			status.Error = "No release target found."
+		}
+		writeError(w, http.StatusBadGateway, status.Error)
+		return
+	}
+
+	result, err := applyPanelUpdateToRelease(target)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Status:  "success",
+		Message: "Panel update completed.",
+		Data: map[string]interface{}{
+			"previous_version": result.PreviousVersion,
+			"current_version":  result.CurrentVersion,
+			"target_version":   result.TargetVersion,
+			"steps":            result.Steps,
+			"warnings":         result.Warnings,
+		},
+	})
+}
+
 func (s *service) getUpdateStatus() UpdateStatus {
 	s.mu.RLock()
 	cached := s.update
 	s.mu.RUnlock()
 
-	if !cached.CheckedAt.IsZero() && time.Since(cached.CheckedAt) < updateCacheTTL {
+	cacheTTL := updateCacheTTL
+	if strings.TrimSpace(cached.Data.Error) != "" {
+		cacheTTL = updateErrorCacheTTL
+	}
+	if !cached.CheckedAt.IsZero() && time.Since(cached.CheckedAt) < cacheTTL {
 		return cached.Data
 	}
 
 	status := fetchLatestReleaseStatus()
+	if status.Error != "" && !cached.CheckedAt.IsZero() {
+		previous := cached.Data
+		previous.CurrentVersion = status.CurrentVersion
+		previous.CheckedAt = status.CheckedAt
+		previous.Error = status.Error
+		previous.Source = status.Source
+		status = previous
+	}
 
 	s.mu.Lock()
 	s.update = updateStatusCache{
@@ -1118,35 +1179,23 @@ func (s *service) getUpdateStatus() UpdateStatus {
 
 func fetchLatestReleaseStatus() UpdateStatus {
 	status := UpdateStatus{
-		CurrentVersion: currentPanelVersion,
+		CurrentVersion: resolveCurrentPanelVersion(),
 		Source:         "GitHub Releases",
 		CheckedAt:      time.Now().UTC().Format(time.RFC3339),
 	}
 
 	owner := envOr("AURAPANEL_GH_OWNER", "mkoyazilim")
 	repo := envOr("AURAPANEL_GH_REPO", "aurapanel")
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
+	baseURL := strings.TrimRight(envOr("AURAPANEL_GH_API_BASE_URL", "https://api.github.com"), "/")
+	token := strings.TrimSpace(os.Getenv("AURAPANEL_GH_TOKEN"))
+	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", baseURL, owner, repo)
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		status.Error = err.Error()
-		return status
+	timeout := envDurationSeconds("AURAPANEL_GH_TIMEOUT_SECONDS", defaultGitHubReleaseTimeout)
+	attempts := envInt("AURAPANEL_GH_RETRY_ATTEMPTS", defaultGitHubRetryAttempts)
+	if attempts < 1 {
+		attempts = 1
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "aurapanel-panel-service")
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		status.Error = err.Error()
-		return status
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		status.Error = fmt.Sprintf("GitHub release check returned HTTP %d", resp.StatusCode)
-		return status
-	}
+	client := &http.Client{Timeout: timeout}
 
 	var payload struct {
 		TagName     string `json:"tag_name"`
@@ -1157,25 +1206,94 @@ func fetchLatestReleaseStatus() UpdateStatus {
 		Draft       bool   `json:"draft"`
 		PreRelease  bool   `json:"prerelease"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		status.Error = err.Error()
+	var lastErr error
+
+	for attempt := 1; attempt <= attempts; attempt++ {
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			status.Error = err.Error()
+			return status
+		}
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("User-Agent", "aurapanel-panel-service")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			if attempt < attempts {
+				time.Sleep(time.Duration(attempt*attempt) * 350 * time.Millisecond)
+				continue
+			}
+			break
+		}
+
+		rawBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		_ = resp.Body.Close()
+		if readErr != nil {
+			lastErr = readErr
+			if attempt < attempts {
+				time.Sleep(time.Duration(attempt*attempt) * 350 * time.Millisecond)
+				continue
+			}
+			break
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			message := fmt.Sprintf("GitHub release check returned HTTP %d", resp.StatusCode)
+			if (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests) && resp.Header.Get("X-RateLimit-Remaining") == "0" {
+				reset := strings.TrimSpace(resp.Header.Get("X-RateLimit-Reset"))
+				message = "GitHub API rate limit exceeded for release check"
+				if reset != "" {
+					message = fmt.Sprintf("%s (reset=%s)", message, reset)
+				}
+			}
+			if snippet := strings.TrimSpace(string(rawBody)); snippet != "" {
+				if len(snippet) > 180 {
+					snippet = snippet[:180] + "..."
+				}
+				message = fmt.Sprintf("%s: %s", message, snippet)
+			}
+			lastErr = fmt.Errorf(message)
+			if attempt < attempts {
+				time.Sleep(time.Duration(attempt*attempt) * 350 * time.Millisecond)
+				continue
+			}
+			break
+		}
+
+		if err := json.Unmarshal(rawBody, &payload); err != nil {
+			lastErr = err
+			if attempt < attempts {
+				time.Sleep(time.Duration(attempt*attempt) * 350 * time.Millisecond)
+				continue
+			}
+			break
+		}
+
+		if payload.Draft {
+			status.Error = "Latest GitHub release is still marked as draft."
+			return status
+		}
+
+		status.ReleaseName = strings.TrimSpace(payload.Name)
+		status.LatestTag = strings.TrimSpace(payload.TagName)
+		status.LatestVersion = firstNonEmpty(strings.TrimSpace(payload.TagName), strings.TrimSpace(payload.Name))
+		status.ReleaseURL = strings.TrimSpace(payload.HTMLURL)
+		status.PublishedAt = strings.TrimSpace(payload.PublishedAt)
+		status.ReleaseNotes = summarizeReleaseNotes(payload.Body)
+
+		currentComparable := normalizeComparableVersion(status.CurrentVersion)
+		latestComparable := normalizeComparableVersion(status.LatestVersion)
+		status.UpdateAvailable = latestComparable != "" && latestComparable != currentComparable
 		return status
 	}
 
-	if payload.Draft {
-		status.Error = "Latest GitHub release is still marked as draft."
-		return status
+	if lastErr != nil {
+		status.Error = lastErr.Error()
 	}
-
-	status.ReleaseName = strings.TrimSpace(payload.Name)
-	status.LatestVersion = firstNonEmpty(strings.TrimSpace(payload.Name), strings.TrimSpace(payload.TagName))
-	status.ReleaseURL = strings.TrimSpace(payload.HTMLURL)
-	status.PublishedAt = strings.TrimSpace(payload.PublishedAt)
-	status.ReleaseNotes = summarizeReleaseNotes(payload.Body)
-
-	currentComparable := normalizeComparableVersion(status.CurrentVersion)
-	latestComparable := normalizeComparableVersion(status.LatestVersion)
-	status.UpdateAvailable = latestComparable != "" && latestComparable != currentComparable
 	return status
 }
 
@@ -2449,6 +2567,79 @@ func (s *service) handlePanelPortSet(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *service) handlePanelReverseDomainGet(w http.ResponseWriter) {
+	s.mu.RLock()
+	gatewayPort := s.state.GatewayPort
+	s.mu.RUnlock()
+
+	config := loadPanelEdgeConfig()
+	writeJSON(w, http.StatusOK, apiResponse{
+		Status: "success",
+		Data: map[string]interface{}{
+			"enabled":          config.Enabled,
+			"domain":           config.Domain,
+			"vhost_conf_path":  config.VhostConfigPath,
+			"gateway_upstream": fmt.Sprintf("127.0.0.1:%d", gatewayPort),
+		},
+	})
+}
+
+func (s *service) handlePanelReverseDomainSet(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Enabled         bool   `json:"enabled"`
+		Domain          string `json:"domain"`
+		VhostConfigPath string `json:"vhost_conf_path"`
+	}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid panel reverse domain payload.")
+		return
+	}
+
+	domain := normalizeDomain(strings.TrimSpace(payload.Domain))
+	if payload.Enabled {
+		if domain == "" {
+			writeError(w, http.StatusBadRequest, "Domain is required when reverse domain mode is enabled.")
+			return
+		}
+		if !isValidDomainName(domain) {
+			writeError(w, http.StatusBadRequest, "A valid reverse domain is required.")
+			return
+		}
+	}
+
+	vhostConfigPath := strings.TrimSpace(payload.VhostConfigPath)
+	if vhostConfigPath == "" {
+		vhostConfigPath = defaultPanelEdgeVhostConfigPath
+	}
+
+	s.mu.RLock()
+	gatewayPort := s.state.GatewayPort
+	s.mu.RUnlock()
+
+	result, err := applyPanelEdgeConfigChange(panelEdgeConfig{
+		Enabled:         payload.Enabled,
+		Domain:          domain,
+		VhostConfigPath: vhostConfigPath,
+	}, gatewayPort)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Status:  "success",
+		Message: "Panel reverse domain settings updated.",
+		Data: map[string]interface{}{
+			"enabled":          payload.Enabled,
+			"domain":           domain,
+			"vhost_conf_path":  vhostConfigPath,
+			"gateway_upstream": fmt.Sprintf("127.0.0.1:%d", gatewayPort),
+			"edge_synced":      result.EdgeSynced,
+			"warnings":         result.Warnings,
+		},
+	})
+}
+
 func (s *service) handleSecurityStatus(w http.ResponseWriter) {
 	snapshot := collectSecuritySnapshot()
 	twoFAEnabled := false
@@ -3182,6 +3373,26 @@ func envOr(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func envInt(key string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envDurationSeconds(key string, fallback time.Duration) time.Duration {
+	seconds := envInt(key, 0)
+	if seconds <= 0 {
+		return fallback
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func readEnvFileValue(path, key string) string {

@@ -14,5 +14,6 @@ describe('router smoke', () => {
     expect(names).toContain('SSL')
     expect(names).toContain('MinIO')
     expect(names).toContain('PanelPort')
+    expect(names).toContain('PanelUpdate')
   })
 })
