@@ -11,7 +11,7 @@
         </button>
         <button
           class="btn-primary"
-          :disabled="loading || updating || !updateStatus.update_available"
+          :disabled="loading || updating"
           @click="applyUpdate"
         >
           {{ updating ? t('panel_update.updating') : t('panel_update.update_now') }}
@@ -174,4 +174,3 @@ async function applyUpdate() {
 
 onMounted(loadUpdateStatus)
 </script>
-

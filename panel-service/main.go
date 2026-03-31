@@ -1121,25 +1121,20 @@ func (s *service) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status := fetchLatestReleaseStatus()
-	target := firstNonEmpty(strings.TrimSpace(status.LatestTag), strings.TrimSpace(status.LatestVersion))
-	if target == "" {
-		if status.Error == "" {
-			status.Error = "No release target found."
-		}
-		writeError(w, http.StatusBadGateway, status.Error)
-		return
-	}
-
-	result, err := applyPanelUpdateToRelease(target)
+	result, err := applyPanelUpdateFromDeployScript()
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
+	// Force next "check update" request to refresh live git status immediately.
+	s.mu.Lock()
+	s.update = updateStatusCache{}
+	s.mu.Unlock()
+
 	writeJSON(w, http.StatusOK, apiResponse{
 		Status:  "success",
-		Message: "Panel update completed.",
+		Message: "Panel deploy completed.",
 		Data: map[string]interface{}{
 			"previous_version": result.PreviousVersion,
 			"current_version":  result.CurrentVersion,
@@ -1163,7 +1158,7 @@ func (s *service) getUpdateStatus() UpdateStatus {
 		return cached.Data
 	}
 
-	status := fetchLatestReleaseStatus()
+	status := fetchGitDeployUpdateStatus()
 	if status.Error != "" && !cached.CheckedAt.IsZero() {
 		previous := cached.Data
 		previous.CurrentVersion = status.CurrentVersion

@@ -5,10 +5,16 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"time"
 )
 
-const defaultPanelRepoPath = "/opt/aurapanel"
+const (
+	defaultPanelRepoPath     = "/opt/aurapanel"
+	defaultPanelDeployRemote = "origin"
+	defaultPanelDeployBranch = "main"
+)
 
 type panelUpdateResult struct {
 	PreviousVersion string
@@ -20,6 +26,22 @@ type panelUpdateResult struct {
 
 func panelRepoPath() string {
 	return firstNonEmpty(strings.TrimSpace(os.Getenv("AURAPANEL_REPO_PATH")), defaultPanelRepoPath)
+}
+
+func panelDeployRemote() string {
+	return firstNonEmpty(strings.TrimSpace(os.Getenv("AURAPANEL_DEPLOY_REMOTE")), defaultPanelDeployRemote)
+}
+
+func panelDeployBranch() string {
+	return firstNonEmpty(strings.TrimSpace(os.Getenv("AURAPANEL_DEPLOY_BRANCH")), defaultPanelDeployBranch)
+}
+
+func panelDeployRef() string {
+	return fmt.Sprintf("%s/%s", panelDeployRemote(), panelDeployBranch())
+}
+
+func panelDeployScriptPath(repoPath string) string {
+	return filepath.Join(repoPath, "scripts", "deploy-main.sh")
 }
 
 func resolveCurrentPanelVersion() string {
@@ -44,6 +66,145 @@ func currentPanelVersionFromRepo(repoPath string) string {
 		return strings.TrimSpace(out)
 	}
 	return currentPanelVersion
+}
+
+func shortCommitSHA(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) > 8 {
+		return trimmed[:8]
+	}
+	return trimmed
+}
+
+func parseGitAheadBehind(raw string) (int, int, error) {
+	fields := strings.Fields(strings.TrimSpace(raw))
+	if len(fields) != 2 {
+		return 0, 0, fmt.Errorf("invalid ahead/behind payload: %q", raw)
+	}
+	ahead, err := strconv.Atoi(fields[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid ahead value: %w", err)
+	}
+	behind, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid behind value: %w", err)
+	}
+	return ahead, behind, nil
+}
+
+func gitAheadBehind(repoPath, remoteRef string) (int, int, error) {
+	out, err := commandOutputTrimmed("git", "-C", repoPath, "rev-list", "--left-right", "--count", "HEAD..."+remoteRef)
+	if err != nil {
+		return 0, 0, err
+	}
+	return parseGitAheadBehind(out)
+}
+
+func normalizeGitRemoteURL(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	if strings.HasPrefix(value, "git@github.com:") {
+		value = "https://github.com/" + strings.TrimPrefix(value, "git@github.com:")
+	}
+	if strings.HasPrefix(value, "http://github.com/") {
+		value = "https://github.com/" + strings.TrimPrefix(value, "http://github.com/")
+	}
+	value = strings.TrimSuffix(value, ".git")
+	if strings.HasPrefix(value, "https://github.com/") {
+		return value
+	}
+	return ""
+}
+
+func fetchGitDeployUpdateStatus() UpdateStatus {
+	repoPath := panelRepoPath()
+	remote := panelDeployRemote()
+	branch := panelDeployBranch()
+	remoteRef := panelDeployRef()
+	status := UpdateStatus{
+		CurrentVersion: resolveCurrentPanelVersion(),
+		Source:         fmt.Sprintf("Git %s/%s", remote, branch),
+		CheckedAt:      time.Now().UTC().Format(time.RFC3339),
+	}
+
+	if !fileExists(filepath.Join(repoPath, ".git")) {
+		status.Error = fmt.Sprintf("repository path is not a git checkout: %s", repoPath)
+		return status
+	}
+
+	if _, err := commandOutputTrimmed("git", "-C", repoPath, "fetch", remote, branch); err != nil {
+		status.Error = fmt.Sprintf("git fetch failed for %s: %v", remoteRef, err)
+		return status
+	}
+
+	localHead, err := commandOutputTrimmed("git", "-C", repoPath, "rev-parse", "HEAD")
+	if err != nil {
+		status.Error = fmt.Sprintf("local commit check failed: %v", err)
+		return status
+	}
+	remoteHead, err := commandOutputTrimmed("git", "-C", repoPath, "rev-parse", remoteRef)
+	if err != nil {
+		status.Error = fmt.Sprintf("remote commit check failed: %v", err)
+		return status
+	}
+	ahead, behind, err := gitAheadBehind(repoPath, remoteRef)
+	if err != nil {
+		status.Error = fmt.Sprintf("git divergence check failed: %v", err)
+		return status
+	}
+
+	status.UpdateAvailable = behind > 0
+	status.LatestTag = shortCommitSHA(remoteHead)
+	status.LatestVersion = fmt.Sprintf("%s/%s @ %s", remote, branch, status.LatestTag)
+	status.ReleaseName = status.LatestVersion
+	status.ReleaseNotes = fmt.Sprintf("sync state: ahead=%d, behind=%d", ahead, behind)
+	if !status.UpdateAvailable {
+		status.ReleaseNotes = fmt.Sprintf("sync state: up-to-date (%s)", shortCommitSHA(localHead))
+	}
+
+	if remoteURL, urlErr := commandOutputTrimmed("git", "-C", repoPath, "remote", "get-url", remote); urlErr == nil {
+		normalized := normalizeGitRemoteURL(remoteURL)
+		if normalized != "" {
+			status.ReleaseURL = normalized + "/tree/" + branch
+		}
+	}
+
+	return status
+}
+
+func applyPanelUpdateFromDeployScript() (panelUpdateResult, error) {
+	result := panelUpdateResult{
+		PreviousVersion: resolveCurrentPanelVersion(),
+		TargetVersion:   panelDeployRef(),
+		Steps:           []string{},
+		Warnings:        []string{},
+	}
+
+	if runtime.GOOS != "linux" {
+		return result, fmt.Errorf("panel update can only be applied on linux hosts")
+	}
+
+	repoPath := panelRepoPath()
+	if !fileExists(filepath.Join(repoPath, ".git")) {
+		return result, fmt.Errorf("repository path is not a git checkout: %s", repoPath)
+	}
+
+	scriptPath := panelDeployScriptPath(repoPath)
+	if !fileExists(scriptPath) {
+		return result, fmt.Errorf("deploy script not found: %s", scriptPath)
+	}
+
+	if err := runPanelUpdateStep(&result, "Run deploy pipeline (git pull + build + restart)", "bash", scriptPath); err != nil {
+		return result, err
+	}
+
+	result.CurrentVersion = resolveCurrentPanelVersion()
+	if strings.TrimSpace(result.CurrentVersion) == strings.TrimSpace(result.PreviousVersion) {
+		result.Warnings = append(result.Warnings, "No version change detected after deploy. The server may already be up to date.")
+	}
+	return result, nil
 }
 
 func applyPanelUpdateToRelease(target string) (panelUpdateResult, error) {
