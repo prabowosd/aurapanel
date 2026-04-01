@@ -31,3 +31,9 @@ ENDPOINT_AUDIT.md
 
 # Website source (kept local, not tracked)
 web-site/
+
+# Local workspace/runtime artifacts
+.codex-runtime/
+.vscode/
+AuraClient/
+patch.diff
