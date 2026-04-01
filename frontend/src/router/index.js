@@ -89,6 +89,11 @@ const routes = [
         component: () => import('../views/WordPressManager.vue')
       },
       {
+        path: 'plugins',
+        name: 'PluginSDK',
+        component: () => import('../views/PluginSDK.vue')
+      },
+      {
         path: 'minio',
         name: 'MinIO',
         component: () => import('../views/MinIO.vue')

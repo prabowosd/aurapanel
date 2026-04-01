@@ -80,6 +80,9 @@
               <router-link v-if="can('/wordpress')" to="/wordpress" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('layout.links.wordpress_manager') }}</span>
               </router-link>
+              <router-link v-if="can('/plugins')" to="/plugins" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>{{ t('layout.links.plugin_sdk') }}</span>
+              </router-link>
               <router-link v-if="can('/app-runtime')" to="/app-runtime" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('layout.links.app_runtime') }}</span>
               </router-link>
@@ -657,6 +660,7 @@ const routeTitleKeys = {
   Security: 'routes.Security',
   AppRuntime: 'routes.AppRuntime',
   WordPressManager: 'routes.WordPressManager',
+  PluginSDK: 'routes.PluginSDK',
   MinIO: 'routes.MinIO',
   CronJobs: 'routes.CronJobs',
   LogViewer: 'routes.LogViewer',
@@ -708,7 +712,7 @@ const canHostingGroup = computed(() =>
   ['/websites', '/migration', '/packages', '/users', '/reseller'].some((path) => can(path)),
 )
 const canWebAppsGroup = computed(() =>
-  ['/dns', '/cloudflare', '/wordpress', '/app-runtime', '/php', '/filemanager', '/terminal'].some((path) => can(path)),
+  ['/dns', '/cloudflare', '/wordpress', '/plugins', '/app-runtime', '/php', '/filemanager', '/terminal'].some((path) => can(path)),
 )
 const canDataAccessGroup = computed(() =>
   ['/databases', '/emails', '/minio', '/ftp', '/sftp', '/backups', '/db-backup'].some((path) => can(path)),
@@ -744,6 +748,7 @@ const commandItems = computed(() => [
   { label: t('routes.Security'), path: '/security' },
   { label: t('routes.AppRuntime'), path: '/app-runtime' },
   { label: t('routes.WordPressManager'), path: '/wordpress' },
+  { label: t('routes.PluginSDK'), path: '/plugins' },
   { label: t('routes.MinIO'), path: '/minio' },
   { label: t('routes.CronJobs'), path: '/cron-jobs' },
   { label: t('routes.LogViewer'), path: '/log-viewer' },
@@ -781,7 +786,7 @@ const isBackupsRoute = computed(() => route.path === '/backups' || route.path ==
 const isLogsRoute = computed(() => route.path === '/activity-log' || route.path === '/log-viewer')
 const isHostingRoute = computed(() => ['/websites', '/migration', '/packages', '/users', '/reseller'].some(prefix => route.path.startsWith(prefix)))
 const isWebAppsRoute = computed(() =>
-  ['/dns', '/cloudflare', '/wordpress', '/app-runtime', '/php', '/filemanager', '/terminal'].some(prefix => route.path.startsWith(prefix))
+  ['/dns', '/cloudflare', '/wordpress', '/plugins', '/app-runtime', '/php', '/filemanager', '/terminal'].some(prefix => route.path.startsWith(prefix))
     && !isPhpTuningRoute.value
 )
 const isDataAccessRoute = computed(() =>

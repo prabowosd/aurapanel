@@ -17,6 +17,7 @@ const PATH_RULES = [
   { prefix: '/federated', roles: [ROLE_ADMIN] },
   { prefix: '/ops-center', roles: [ROLE_ADMIN] },
   { prefix: '/cloudflare', roles: [ROLE_ADMIN] },
+  { prefix: '/plugins', roles: [ROLE_ADMIN] },
   { prefix: '/migration', roles: [ROLE_ADMIN, ROLE_RESELLER] },
   { prefix: '/cron-jobs', roles: [ROLE_ADMIN, ROLE_RESELLER] },
   { prefix: '/db-backup', roles: [ROLE_ADMIN, ROLE_RESELLER] },

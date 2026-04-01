@@ -7,59 +7,62 @@ import (
 )
 
 type moduleState struct {
-	PHPVersions        []PHPVersionInfo
-	PHPIni             map[string]string
-	DockerContainers   []DockerContainer
-	DockerImages       []DockerImage
-	DockerTemplates    []DockerAppTemplate
-	DockerInstalled    []DockerInstalledApp
-	DockerPackages     []DockerPackage
-	Mailboxes          []Mailbox
-	MailForwards       []MailForward
-	MailCatchAll       map[string]MailCatchAll
-	MailRouting        []MailRoutingRule
-	MailDKIM           map[string]DKIMRecord
-	DNSZones           []DNSZone
-	DNSRecords         map[string][]DNSRecord
-	DefaultNameservers DefaultNameservers
-	FTPUsers           []TransferAccount
-	SFTPUsers          []TransferAccount
-	CronJobs           []CronJob
-	OLSConfig          OLSTuningConfig
-	OLSTuningPending   bool
-	RedisIsolations    map[string]RedisIsolation
-	MinIOBuckets       []string
-	MinIOCredentials   map[string]MinIOCredential
-	FederatedMode      FederatedMode
-	FederatedNodes     []FederatedNode
-	RuntimeApps        []RuntimeApp
-	WordPressSites     []WordPressSite
-	WordPressPlugins   map[string][]WordPressPlugin
-	WordPressThemes    map[string][]WordPressTheme
-	WordPressBackups   map[string][]WordPressBackup
-	WordPressStaging   map[string][]WordPressStaging
-	BackupDestinations []BackupDestination
-	BackupSchedules    []BackupSchedule
-	BackupSnapshots    []BackupSnapshot
-	DBBackups          []DBBackupRecord
-	ActivityLogs       []ActivityLogEntry
-	ResellerQuotas     []ResellerQuota
-	WhiteLabels        []WhiteLabel
-	ACLPolicies        []ACLPolicy
-	ACLAssignments     []ACLAssignment
-	VirtualFiles       map[string]*virtualFile
-	UploadedArchives   map[string]string
-	MigrationAnalyses  map[string]MigrationAnalysis
-	MigrationJobs      []MigrationJob
-	SSLBindings        SSLBindings
-	SSLCertificates    map[string]SSLCertificateDetail
-	CloudflareZones    []CloudflareZone
-	CloudflareDNS      map[string][]CloudflareDNSRecord
-	CloudflareSettings map[string]cloudflareZoneConfig
-	CloudLinuxActions  []cloudLinuxActionAuditEntry
-	CloudLinuxRollouts []cloudLinuxRolloutAuditEntry
-	WebmailTokens      map[string]WebmailToken
-	DBToolTokens       map[string]DBToolToken
+	PHPVersions         []PHPVersionInfo
+	PHPIni              map[string]string
+	DockerContainers    []DockerContainer
+	DockerImages        []DockerImage
+	DockerTemplates     []DockerAppTemplate
+	DockerInstalled     []DockerInstalledApp
+	DockerPackages      []DockerPackage
+	Mailboxes           []Mailbox
+	MailForwards        []MailForward
+	MailCatchAll        map[string]MailCatchAll
+	MailRouting         []MailRoutingRule
+	MailDKIM            map[string]DKIMRecord
+	MailAuthRecords     map[string]MailAuthRecord
+	DNSZones            []DNSZone
+	DNSRecords          map[string][]DNSRecord
+	DefaultNameservers  DefaultNameservers
+	FTPUsers            []TransferAccount
+	SFTPUsers           []TransferAccount
+	CronJobs            []CronJob
+	OLSConfig           OLSTuningConfig
+	OLSTuningPending    bool
+	RedisIsolations     map[string]RedisIsolation
+	MinIOBuckets        []string
+	MinIOCredentials    map[string]MinIOCredential
+	FederatedMode       FederatedMode
+	FederatedNodes      []FederatedNode
+	RuntimeApps         []RuntimeApp
+	WordPressSites      []WordPressSite
+	WordPressPlugins    map[string][]WordPressPlugin
+	WordPressThemes     map[string][]WordPressTheme
+	WordPressBackups    map[string][]WordPressBackup
+	WordPressStaging    map[string][]WordPressStaging
+	PanelPlugins        []PanelPlugin
+	BackupDestinations  []BackupDestination
+	BackupSchedules     []BackupSchedule
+	BackupSnapshots     []BackupSnapshot
+	BackupRestoreDrills []BackupRestoreDrill
+	DBBackups           []DBBackupRecord
+	ActivityLogs        []ActivityLogEntry
+	ResellerQuotas      []ResellerQuota
+	WhiteLabels         []WhiteLabel
+	ACLPolicies         []ACLPolicy
+	ACLAssignments      []ACLAssignment
+	VirtualFiles        map[string]*virtualFile
+	UploadedArchives    map[string]string
+	MigrationAnalyses   map[string]MigrationAnalysis
+	MigrationJobs       []MigrationJob
+	SSLBindings         SSLBindings
+	SSLCertificates     map[string]SSLCertificateDetail
+	CloudflareZones     []CloudflareZone
+	CloudflareDNS       map[string][]CloudflareDNSRecord
+	CloudflareSettings  map[string]cloudflareZoneConfig
+	CloudLinuxActions   []cloudLinuxActionAuditEntry
+	CloudLinuxRollouts  []cloudLinuxRolloutAuditEntry
+	WebmailTokens       map[string]WebmailToken
+	DBToolTokens        map[string]DBToolToken
 }
 
 type PHPVersionInfo struct {
@@ -161,6 +164,19 @@ type DKIMRecord struct {
 	Domain    string `json:"domain"`
 	Selector  string `json:"selector"`
 	PublicKey string `json:"public_key"`
+}
+
+type MailAuthRecord struct {
+	Domain      string `json:"domain"`
+	SPFHost     string `json:"spf_host"`
+	SPFValue    string `json:"spf_value"`
+	DMARCHost   string `json:"dmarc_host"`
+	DMARCValue  string `json:"dmarc_value"`
+	Policy      string `json:"policy"`
+	RUA         string `json:"rua,omitempty"`
+	RUF         string `json:"ruf,omitempty"`
+	GeneratedAt int64  `json:"generated_at"`
+	UpdatedAt   int64  `json:"updated_at"`
 }
 
 type DNSZone struct {
@@ -286,6 +302,21 @@ type WordPressStaging struct {
 	Status        string `json:"status"`
 }
 
+type PanelPlugin struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Version      string   `json:"version"`
+	Description  string   `json:"description"`
+	Entrypoint   string   `json:"entrypoint"`
+	Hooks        []string `json:"hooks,omitempty"`
+	Permissions  []string `json:"permissions,omitempty"`
+	ConfigSchema string   `json:"config_schema,omitempty"`
+	Enabled      bool     `json:"enabled"`
+	Author       string   `json:"author,omitempty"`
+	CreatedAt    int64    `json:"created_at"`
+	UpdatedAt    int64    `json:"updated_at"`
+}
+
 type BackupDestination struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
@@ -319,6 +350,20 @@ type BackupSnapshot struct {
 	RetentionKeep int      `json:"retention_keep,omitempty"`
 	SizeBytes     int64    `json:"size_bytes,omitempty"`
 	BackupPath    string   `json:"backup_path"`
+}
+
+type BackupRestoreDrill struct {
+	ID              string `json:"id"`
+	Domain          string `json:"domain"`
+	TargetDomain    string `json:"target_domain"`
+	SnapshotID      string `json:"snapshot_id"`
+	SnapshotShortID string `json:"snapshot_short_id"`
+	Status          string `json:"status"`
+	Message         string `json:"message"`
+	EntryCount      int    `json:"entry_count"`
+	SizeBytes       int64  `json:"size_bytes"`
+	CheckedAt       int64  `json:"checked_at"`
+	DurationMs      int64  `json:"duration_ms"`
 }
 
 type DBBackupRecord struct {
@@ -502,6 +547,7 @@ func seedModuleState() moduleState {
 		PHPIni:             map[string]string{},
 		MailCatchAll:       map[string]MailCatchAll{},
 		MailDKIM:           map[string]DKIMRecord{},
+		MailAuthRecords:    map[string]MailAuthRecord{},
 		DNSRecords:         map[string][]DNSRecord{},
 		RedisIsolations:    map[string]RedisIsolation{},
 		MinIOCredentials:   map[string]MinIOCredential{},
@@ -529,6 +575,9 @@ func (s *service) bootstrapModules() {
 	}
 	if s.modules.MailDKIM == nil {
 		s.modules.MailDKIM = map[string]DKIMRecord{}
+	}
+	if s.modules.MailAuthRecords == nil {
+		s.modules.MailAuthRecords = map[string]MailAuthRecord{}
 	}
 	if s.modules.DNSRecords == nil {
 		s.modules.DNSRecords = map[string][]DNSRecord{}

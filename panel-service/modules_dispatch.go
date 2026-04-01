@@ -166,6 +166,15 @@ func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) b
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/mail/dkim/rotate":
 		s.handleMailDKIMRotate(w, r)
 		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mail/auth":
+		s.handleMailAuthGet(w, r)
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/mail/auth/bootstrap":
+		s.handleMailAuthBootstrap(w, r)
+		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mail/deliverability":
+		s.handleMailDeliverability(w, r)
+		return true
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/mail/webmail/sso":
 		s.handleMailWebmailSSO(w, r)
 		return true
@@ -174,6 +183,18 @@ func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) b
 		return true
 	case r.URL.Path == "/api/v1/mail/webmail/sso/verify":
 		s.handleMailWebmailVerify(w, r)
+		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mail/webmail/ops/status":
+		s.handleMailWebmailOpsStatus(w, r)
+		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mail/webmail/ops/tokens":
+		s.handleMailWebmailOpsTokens(w, r)
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/mail/webmail/ops/cleanup":
+		s.handleMailWebmailOpsCleanup(w, r)
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/mail/webmail/ops/revoke":
+		s.handleMailWebmailOpsRevoke(w, r)
 		return true
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mail/tuning":
 		s.handleMailTuningGet(w)
@@ -343,6 +364,21 @@ func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) b
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/wordpress/staging":
 		s.handleWordPressStagingCreate(w, r)
 		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/plugins/list":
+		s.handlePanelPluginsList(w)
+		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/plugins/sdk/info":
+		s.handlePanelPluginSDKInfo(w)
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/plugins/save":
+		s.handlePanelPluginSave(w, r)
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/plugins/toggle":
+		s.handlePanelPluginToggle(w, r)
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/plugins/delete":
+		s.handlePanelPluginDelete(w, r)
+		return true
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/backup/destinations":
 		s.handleBackupDestinationsGet(w)
 		return true
@@ -369,6 +405,15 @@ func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) b
 		return true
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/backup/restore":
 		s.handleBackupRestore(w, r)
+		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/backup/sla/report":
+		s.handleBackupSLAReport(w, r)
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/backup/restore-drill":
+		s.handleBackupRestoreDrill(w, r)
+		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/backup/restore-drill/history":
+		s.handleBackupRestoreDrillHistory(w, r)
 		return true
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/db/backup/list":
 		s.handleDBBackupsList(w)

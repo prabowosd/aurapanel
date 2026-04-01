@@ -249,6 +249,107 @@
         </table>
       </div>
     </div>
+
+    <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div class="aura-card space-y-4">
+        <div>
+          <h2 class="font-semibold text-white">{{ t('backup_center.sla.title') }}</h2>
+          <p class="text-sm text-gray-400">{{ t('backup_center.sla.subtitle') }}</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3 text-sm">
+          <div class="rounded-lg border border-panel-border bg-panel-dark/40 p-3">
+            <p class="text-gray-400">{{ t('backup_center.sla.total_domains') }}</p>
+            <p class="mt-1 text-xl font-semibold text-white">{{ slaSummary.total_domains || 0 }}</p>
+          </div>
+          <div class="rounded-lg border border-panel-border bg-panel-dark/40 p-3">
+            <p class="text-gray-400">{{ t('backup_center.sla.coverage') }}</p>
+            <p class="mt-1 text-xl font-semibold text-white">{{ slaSummary.coverage_percent || 0 }}%</p>
+          </div>
+          <div class="rounded-lg border border-panel-border bg-panel-dark/40 p-3">
+            <p class="text-gray-400">{{ t('backup_center.sla.backup_healthy') }}</p>
+            <p class="mt-1 text-xl font-semibold text-white">{{ slaSummary.backup_healthy_domains || 0 }}</p>
+          </div>
+          <div class="rounded-lg border border-panel-border bg-panel-dark/40 p-3">
+            <p class="text-gray-400">{{ t('backup_center.sla.drill_healthy') }}</p>
+            <p class="mt-1 text-xl font-semibold text-white">{{ slaSummary.drill_healthy_domains || 0 }}</p>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-panel-border text-gray-400">
+                <th class="px-2 py-2 text-left">{{ t('backup_center.table.domain') }}</th>
+                <th class="px-2 py-2 text-left">{{ t('backup_center.sla.latest_age') }}</th>
+                <th class="px-2 py-2 text-left">{{ t('backup_center.sla.last_drill') }}</th>
+                <th class="px-2 py-2 text-left">{{ t('backup_center.sla.score') }}</th>
+                <th class="px-2 py-2 text-left">{{ t('backup_center.sla.status') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in slaDomains" :key="`sla-${item.domain}`" class="border-b border-panel-border/40">
+                <td class="px-2 py-2 text-white">{{ item.domain }}</td>
+                <td class="px-2 py-2 text-gray-300">{{ item.latest_snapshot_age_minutes >= 0 ? `${item.latest_snapshot_age_minutes}m` : '-' }}</td>
+                <td class="px-2 py-2 text-gray-300">
+                  <span v-if="item.last_drill_at">{{ formatDateTime(item.last_drill_at) }}</span>
+                  <span v-else>-</span>
+                </td>
+                <td class="px-2 py-2 text-gray-300">{{ item.score }}</td>
+                <td class="px-2 py-2">
+                  <span :class="slaStatusClass(item.status)">{{ item.status }}</span>
+                </td>
+              </tr>
+              <tr v-if="slaDomains.length === 0">
+                <td colspan="5" class="py-6 text-center text-gray-500">{{ t('backup_center.sla.empty') }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="aura-card space-y-4">
+        <div>
+          <h2 class="font-semibold text-white">{{ t('backup_center.drill.title') }}</h2>
+          <p class="text-sm text-gray-400">{{ t('backup_center.drill.subtitle') }}</p>
+        </div>
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <select v-model="drillForm.domain" class="aura-input">
+            <option disabled value="">{{ t('backup_center.select_domain') }}</option>
+            <option v-for="domainName in domains" :key="`drill-domain-${domainName}`" :value="domainName">{{ domainName }}</option>
+          </select>
+          <input v-model="drillForm.snapshot_id" class="aura-input" :placeholder="t('backup_center.snapshot_placeholder')" />
+          <input v-model="drillForm.target_domain" class="aura-input md:col-span-2" :placeholder="t('backup_center.drill.target_domain')" />
+        </div>
+        <div class="flex gap-2">
+          <button class="btn-primary" :disabled="drillLoading" @click="runRestoreDrill">{{ t('backup_center.drill.run') }}</button>
+          <button class="btn-secondary" @click="loadDrillHistory">{{ t('backup_center.drill.load_history') }}</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-panel-border text-gray-400">
+                <th class="px-2 py-2 text-left">{{ t('backup_center.table.time') }}</th>
+                <th class="px-2 py-2 text-left">{{ t('backup_center.table.domain') }}</th>
+                <th class="px-2 py-2 text-left">{{ t('backup_center.table.id') }}</th>
+                <th class="px-2 py-2 text-left">{{ t('backup_center.sla.status') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in drillHistory" :key="item.id" class="border-b border-panel-border/40">
+                <td class="px-2 py-2 text-gray-300">{{ formatDateTime(item.checked_at) }}</td>
+                <td class="px-2 py-2 text-white">{{ item.domain }}</td>
+                <td class="px-2 py-2 font-mono text-xs text-gray-300">{{ item.snapshot_short_id || item.snapshot_id }}</td>
+                <td class="px-2 py-2">
+                  <span :class="slaStatusClass(item.status)">{{ item.status }}</span>
+                </td>
+              </tr>
+              <tr v-if="drillHistory.length === 0">
+                <td colspan="4" class="py-6 text-center text-gray-500">{{ t('backup_center.drill.empty') }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -265,6 +366,10 @@ const sites = ref([])
 const destinations = ref([])
 const schedules = ref([])
 const snapshots = ref([])
+const slaSummary = ref({})
+const slaDomains = ref([])
+const drillHistory = ref([])
+const drillLoading = ref(false)
 
 const destinationForm = ref({
   id: '',
@@ -300,6 +405,12 @@ const restoreForm = ref({
   backup_path: '',
   snapshot_id: '',
   dry_run: true,
+})
+
+const drillForm = ref({
+  domain: '',
+  snapshot_id: '',
+  target_domain: '',
 })
 
 const domains = computed(() => (sites.value || []).map(site => site.domain).filter(Boolean))
@@ -346,6 +457,19 @@ function formatSize(value) {
   return `${size} B`
 }
 
+function formatDateTime(value) {
+  const ts = Number(value || 0)
+  if (!ts) return '-'
+  return new Date(ts).toLocaleString()
+}
+
+function slaStatusClass(status) {
+  const key = String(status || '').toLowerCase()
+  if (key === 'healthy' || key === 'success') return 'text-green-400'
+  if (key === 'warning') return 'text-yellow-400'
+  return 'text-red-400'
+}
+
 async function loadSites() {
   const res = await api.get('/vhost/list')
   sites.value = res.data?.data || []
@@ -373,15 +497,32 @@ async function loadAll() {
       restoreForm.value.backup_path = '/var/backups/aurapanel/sites'
       scheduleForm.value.domain = domains.value[0]
       scheduleForm.value.backup_path = '/var/backups/aurapanel/sites'
+      drillForm.value.domain = domains.value[0]
+      drillForm.value.target_domain = domains.value[0]
     }
     if (!runForm.value.destination_id && destinations.value.length > 0) {
       runForm.value.destination_id = destinations.value[0].id
       restoreForm.value.destination_id = destinations.value[0].id
       scheduleForm.value.destination_id = destinations.value[0].id
     }
+    await Promise.all([loadSLAReport(), loadDrillHistory()])
   } catch (err) {
     error.value = apiErrorMessage(err, 'backup_center.messages.load_failed')
   }
+}
+
+async function loadSLAReport() {
+  const params = runForm.value.domain ? { domain: runForm.value.domain } : undefined
+  const res = await api.get('/backup/sla/report', { params })
+  const payload = res.data?.data || {}
+  slaSummary.value = payload.summary || {}
+  slaDomains.value = Array.isArray(payload.domains) ? payload.domains : []
+}
+
+async function loadDrillHistory() {
+  const params = drillForm.value.domain ? { domain: drillForm.value.domain, limit: 30 } : { limit: 30 }
+  const res = await api.get('/backup/restore-drill/history', { params })
+  drillHistory.value = Array.isArray(res.data?.data) ? res.data.data : []
 }
 
 async function saveDestination() {
@@ -481,8 +622,9 @@ async function runBackup() {
     success.value = res.data?.message || t('backup_center.messages.backup_started')
     if (res.data?.snapshot_id) {
       restoreForm.value.snapshot_id = res.data.snapshot_id
+      drillForm.value.snapshot_id = res.data.snapshot_id
     }
-    await loadSnapshots()
+    await Promise.all([loadSnapshots(), loadSLAReport(), loadDrillHistory()])
   } catch (err) {
     error.value = apiErrorMessage(err, 'backup_center.messages.backup_failed')
   }
@@ -520,6 +662,29 @@ async function restoreBackup() {
     success.value = res.data?.message || t('backup_center.messages.restore_started')
   } catch (err) {
     error.value = apiErrorMessage(err, 'backup_center.messages.restore_failed')
+  }
+}
+
+async function runRestoreDrill() {
+  if (!drillForm.value.domain) {
+    error.value = t('backup_center.messages.drill_domain_required')
+    return
+  }
+  error.value = ''
+  success.value = ''
+  drillLoading.value = true
+  try {
+    const res = await api.post('/backup/restore-drill', {
+      domain: drillForm.value.domain,
+      snapshot_id: drillForm.value.snapshot_id || undefined,
+      target_domain: drillForm.value.target_domain || undefined,
+    })
+    success.value = res.data?.message || t('backup_center.messages.drill_done')
+    await Promise.all([loadSLAReport(), loadDrillHistory()])
+  } catch (err) {
+    error.value = apiErrorMessage(err, 'backup_center.messages.drill_failed')
+  } finally {
+    drillLoading.value = false
   }
 }
 

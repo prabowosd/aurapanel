@@ -15,6 +15,7 @@
         <button @click="tab='routing'" :class="tabClass('routing')">{{ t('email_manager.tabs.routing') }}</button>
         <button @click="tab='dkim'" :class="tabClass('dkim')">{{ t('email_manager.tabs.dkim') }}</button>
         <button @click="tab='tuning'" :class="tabClass('tuning')">Tuning & Config</button>
+        <button @click="tab='premium'" :class="tabClass('premium')">{{ t('email_manager.tabs.premium') }}</button>
       </nav>
     </div>
 
@@ -53,6 +54,125 @@
           <button class="btn-primary" @click="saveTuning" :disabled="tuningSaving">
             {{ tuningSaving ? t('email_manager.tuning.saving') : t('email_manager.tuning.save') }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="tab === 'premium'" class="space-y-6">
+      <div class="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div class="aura-card space-y-4 xl:col-span-2">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <h2 class="text-lg font-semibold text-white">{{ t('email_manager.premium.auth.title') }}</h2>
+              <p class="text-sm text-gray-400">{{ t('email_manager.premium.auth.subtitle') }}</p>
+            </div>
+            <button class="btn-secondary" @click="loadMailAuth">{{ t('common.refresh') }}</button>
+          </div>
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <select v-model="premiumForm.domain" class="aura-input">
+              <option disabled value="">{{ t('email_manager.forwards.domain_placeholder') }}</option>
+              <option v-for="d in domains" :key="`auth-domain-${d}`" :value="d">{{ d }}</option>
+            </select>
+            <select v-model="premiumForm.policy" class="aura-input">
+              <option value="none">none</option>
+              <option value="quarantine">quarantine</option>
+              <option value="reject">reject</option>
+            </select>
+            <input v-model="premiumForm.rua" class="aura-input" :placeholder="t('email_manager.premium.auth.rua')" />
+            <input v-model="premiumForm.ruf" class="aura-input" :placeholder="t('email_manager.premium.auth.ruf')" />
+          </div>
+          <div class="flex gap-2">
+            <button class="btn-primary" @click="bootstrapAuth">{{ t('email_manager.premium.auth.bootstrap') }}</button>
+          </div>
+          <div v-if="mailAuthRecord" class="rounded-xl border border-panel-border p-3 space-y-3">
+            <div>
+              <p class="text-xs uppercase tracking-wide text-gray-500">SPF</p>
+              <p class="text-sm text-gray-300">{{ mailAuthRecord.spf_host }}</p>
+              <textarea class="aura-input w-full font-mono text-xs mt-1" rows="2" :value="mailAuthRecord.spf_value" readonly />
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wide text-gray-500">DMARC</p>
+              <p class="text-sm text-gray-300">{{ mailAuthRecord.dmarc_host }}</p>
+              <textarea class="aura-input w-full font-mono text-xs mt-1" rows="3" :value="mailAuthRecord.dmarc_value" readonly />
+            </div>
+          </div>
+        </div>
+
+        <div class="aura-card space-y-3">
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="text-lg font-semibold text-white">{{ t('email_manager.premium.deliverability.title') }}</h2>
+            <button class="btn-secondary" @click="loadDeliverability">{{ t('common.refresh') }}</button>
+          </div>
+          <div class="rounded-xl border border-panel-border bg-panel-dark/40 p-3">
+            <p class="text-xs text-gray-500">{{ t('email_manager.premium.deliverability.score') }}</p>
+            <p class="mt-1 text-3xl font-bold text-white">{{ deliverability.score ?? '-' }}</p>
+            <p class="text-sm mt-1" :class="deliverabilityRiskClass(deliverability.risk)">{{ deliverability.risk || '-' }}</p>
+          </div>
+          <div class="space-y-2 text-sm">
+            <p class="text-gray-300">DKIM: <span :class="deliverabilityCheckClass(deliverability?.checks?.dkim)">{{ yesNo(deliverability?.checks?.dkim) }}</span></p>
+            <p class="text-gray-300">SPF/DMARC: <span :class="deliverabilityCheckClass(deliverability?.checks?.spf_dmarc)">{{ yesNo(deliverability?.checks?.spf_dmarc) }}</span></p>
+            <p class="text-gray-300">{{ t('email_manager.premium.deliverability.mailboxes') }}: <span class="text-white">{{ deliverability?.observability?.mailboxes ?? 0 }}</span></p>
+            <p class="text-gray-300">{{ t('email_manager.premium.deliverability.catch_all') }}: <span :class="deliverabilityCheckClass(!(deliverability?.observability?.catch_all_enabled))">{{ deliverability?.observability?.catch_all_enabled ? t('common.active') : t('common.inactive') }}</span></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="aura-card space-y-4">
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <h2 class="text-lg font-semibold text-white">{{ t('email_manager.premium.webmail_ops.title') }}</h2>
+            <p class="text-sm text-gray-400">{{ t('email_manager.premium.webmail_ops.subtitle') }}</p>
+          </div>
+          <button class="btn-secondary" @click="loadWebmailOps">{{ t('common.refresh') }}</button>
+        </div>
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div class="rounded-lg border border-panel-border bg-panel-dark/40 p-3">
+            <p class="text-xs text-gray-500">{{ t('email_manager.premium.webmail_ops.tokens_total') }}</p>
+            <p class="text-xl font-semibold text-white">{{ webmailStatus.tokens_total ?? 0 }}</p>
+          </div>
+          <div class="rounded-lg border border-panel-border bg-panel-dark/40 p-3">
+            <p class="text-xs text-gray-500">{{ t('email_manager.premium.webmail_ops.tokens_active') }}</p>
+            <p class="text-xl font-semibold text-white">{{ webmailStatus.tokens_active ?? 0 }}</p>
+          </div>
+          <div class="rounded-lg border border-panel-border bg-panel-dark/40 p-3">
+            <p class="text-xs text-gray-500">{{ t('email_manager.premium.webmail_ops.tokens_expired') }}</p>
+            <p class="text-xl font-semibold text-white">{{ webmailStatus.tokens_expired ?? 0 }}</p>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
+          <input v-model="webmailOpsForm.address" class="aura-input md:col-span-2" :placeholder="t('email_manager.premium.webmail_ops.address_placeholder')" />
+          <input v-model="webmailOpsForm.token" class="aura-input" :placeholder="t('email_manager.premium.webmail_ops.token_placeholder')" />
+          <button class="btn-secondary" @click="revokeWebmailTokens">{{ t('email_manager.premium.webmail_ops.revoke') }}</button>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn-secondary" @click="cleanupExpiredTokens">{{ t('email_manager.premium.webmail_ops.cleanup_expired') }}</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-panel-border text-gray-400">
+                <th class="text-left py-2 px-2">{{ t('email_manager.premium.webmail_ops.table.token') }}</th>
+                <th class="text-left py-2 px-2">{{ t('email_manager.premium.webmail_ops.table.address') }}</th>
+                <th class="text-left py-2 px-2">{{ t('email_manager.premium.webmail_ops.table.expires') }}</th>
+                <th class="text-left py-2 px-2">{{ t('email_manager.premium.webmail_ops.table.status') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="token in webmailTokens" :key="`webmail-token-${token.token_preview}-${token.expires_at}`" class="border-b border-panel-border/40">
+                <td class="py-2 px-2 font-mono text-xs text-gray-200">{{ token.token_preview }}</td>
+                <td class="py-2 px-2 text-gray-200">{{ token.address }}</td>
+                <td class="py-2 px-2 text-gray-300">{{ formatDateTime(token.expires_at) }}</td>
+                <td class="py-2 px-2">
+                  <span :class="token.expired ? 'text-yellow-400' : 'text-green-400'">
+                    {{ token.expired ? t('email_manager.premium.webmail_ops.expired') : t('email_manager.premium.webmail_ops.active') }}
+                  </span>
+                </td>
+              </tr>
+              <tr v-if="webmailTokens.length === 0">
+                <td colspan="4" class="py-6 text-center text-gray-500">{{ t('email_manager.premium.webmail_ops.empty') }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -228,7 +348,7 @@ const { t } = useI18n({ useScope: 'global' })
 const route = useRoute()
 
 function normalizeTab(value) {
-  const allowedTabs = ['mailboxes', 'forwards', 'routing', 'dkim', 'tuning']
+  const allowedTabs = ['mailboxes', 'forwards', 'routing', 'dkim', 'tuning', 'premium']
   const normalized = String(value || '').trim().toLowerCase()
   return allowedTabs.includes(normalized) ? normalized : 'mailboxes'
 }
@@ -244,6 +364,20 @@ const tuningForm = ref({
   smtpd_client_connection_count_limit: ''
 })
 const tuningSaving = ref(false)
+const premiumForm = ref({
+  domain: '',
+  policy: 'quarantine',
+  rua: '',
+  ruf: '',
+})
+const mailAuthRecord = ref(null)
+const deliverability = ref({})
+const webmailStatus = ref({})
+const webmailTokens = ref([])
+const webmailOpsForm = ref({
+  address: '',
+  token: '',
+})
 
 async function loadTuning() {
   try {
@@ -271,6 +405,9 @@ async function saveTuning() {
 watch(tab, (newVal) => {
   if (newVal === 'tuning') {
     loadTuning()
+  }
+  if (newVal === 'premium') {
+    loadPremiumData()
   }
 })
 
@@ -355,6 +492,27 @@ function tabClass(key) {
     'pb-3 text-sm font-medium transition',
     tab.value === key ? 'text-brand-400 border-b-2 border-brand-400' : 'text-gray-400 hover:text-white',
   ]
+}
+
+function formatDateTime(value) {
+  const ts = Number(value || 0)
+  if (!ts) return '-'
+  return new Date(ts).toLocaleString()
+}
+
+function yesNo(value) {
+  return value ? t('common.active') : t('common.inactive')
+}
+
+function deliverabilityCheckClass(value) {
+  return value ? 'text-green-400' : 'text-yellow-400'
+}
+
+function deliverabilityRiskClass(value) {
+  const key = String(value || '').toLowerCase()
+  if (key === 'low') return 'text-green-400'
+  if (key === 'medium') return 'text-yellow-400'
+  return 'text-red-400'
 }
 
 function apiErrorMessage(e, fallbackKey) {
@@ -542,6 +700,97 @@ async function generateWebmailSso(address) {
   }
 }
 
+async function loadMailAuth() {
+  if (!premiumForm.value.domain) return
+  try {
+    const res = await api.get('/mail/auth', { params: { domain: premiumForm.value.domain } })
+    mailAuthRecord.value = res.data?.data || null
+    if (mailAuthRecord.value) {
+      premiumForm.value.policy = mailAuthRecord.value.policy || premiumForm.value.policy
+      premiumForm.value.rua = mailAuthRecord.value.rua || premiumForm.value.rua
+      premiumForm.value.ruf = mailAuthRecord.value.ruf || premiumForm.value.ruf
+    }
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'email_manager.messages.auth_load_failed')
+  }
+}
+
+async function bootstrapAuth() {
+  if (!premiumForm.value.domain) return
+  try {
+    const res = await api.post('/mail/auth/bootstrap', {
+      domain: premiumForm.value.domain,
+      policy: premiumForm.value.policy,
+      rua: premiumForm.value.rua,
+      ruf: premiumForm.value.ruf,
+    })
+    mailAuthRecord.value = res.data?.data || null
+    await loadDeliverability()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'email_manager.messages.auth_bootstrap_failed')
+  }
+}
+
+async function loadDeliverability() {
+  if (!premiumForm.value.domain) return
+  try {
+    const res = await api.get('/mail/deliverability', { params: { domain: premiumForm.value.domain } })
+    deliverability.value = res.data?.data || {}
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'email_manager.messages.deliverability_failed')
+  }
+}
+
+async function loadWebmailOps() {
+  try {
+    const domain = premiumForm.value.domain || ''
+    const statusRes = await api.get('/mail/webmail/ops/status', { params: { domain } })
+    webmailStatus.value = statusRes.data?.data || {}
+    const tokenRes = await api.get('/mail/webmail/ops/tokens', { params: { domain, limit: 50 } })
+    webmailTokens.value = Array.isArray(tokenRes.data?.data) ? tokenRes.data.data : []
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'email_manager.messages.webmail_ops_failed')
+  }
+}
+
+async function cleanupExpiredTokens() {
+  try {
+    await api.post('/mail/webmail/ops/cleanup', {
+      domain: premiumForm.value.domain || undefined,
+    })
+    await loadWebmailOps()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'email_manager.messages.webmail_ops_failed')
+  }
+}
+
+async function revokeWebmailTokens() {
+  if (!webmailOpsForm.value.token && !webmailOpsForm.value.address && !premiumForm.value.domain) {
+    error.value = t('email_manager.messages.webmail_revoke_required')
+    return
+  }
+  try {
+    await api.post('/mail/webmail/ops/revoke', {
+      token: webmailOpsForm.value.token || undefined,
+      address: webmailOpsForm.value.address || undefined,
+      domain: premiumForm.value.domain || undefined,
+      revoke_expired: !webmailOpsForm.value.token && !webmailOpsForm.value.address,
+    })
+    webmailOpsForm.value.token = ''
+    webmailOpsForm.value.address = ''
+    await loadWebmailOps()
+  } catch (e) {
+    error.value = apiErrorMessage(e, 'email_manager.messages.webmail_ops_failed')
+  }
+}
+
+async function loadPremiumData() {
+  if (!premiumForm.value.domain && domains.value.length > 0) {
+    premiumForm.value.domain = domains.value[0]
+  }
+  await Promise.all([loadMailAuth(), loadDeliverability(), loadWebmailOps()])
+}
+
 watch(
   () => route.query,
   (query) => {
@@ -561,7 +810,12 @@ onMounted(async () => {
     catchAllForm.value.domain = domains.value[0]
     routingForm.value.domain = domains.value[0]
     dkimDomain.value = domains.value[0]
+    premiumForm.value.domain = domains.value[0]
+    premiumForm.value.rua = `mailto:postmaster@${domains.value[0]}`
   }
   applyRouteQuery(route.query)
+  if (tab.value === 'premium') {
+    await loadPremiumData()
+  }
 })
 </script>
