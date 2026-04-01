@@ -44,7 +44,10 @@
         <div class="flex items-center gap-2 w-full sm:w-auto">
           <span :class="user.active ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-gray-500/10 text-gray-400 border-gray-500/20'"
             class="px-2 py-1 rounded text-xs border">{{ user.active ? t('common.active') : t('common.inactive') }}</span>
-          <button class="btn-secondary p-2" title="Sifre Degistir" @click="openPasswordModal(user)">
+          <button class="btn-secondary p-2" :title="t('users.edit_user')" @click="openEditModal(user)">
+            <Pencil class="w-4 h-4" />
+          </button>
+          <button class="btn-secondary p-2" :title="t('users.change_password')" @click="openPasswordModal(user)">
             <KeyRound class="w-4 h-4" />
           </button>
           <button class="btn-danger p-2" :title="t('common.delete')" @click="deleteUser(user)">
@@ -84,7 +87,7 @@
             <div>
               <label class="block text-sm text-gray-400 mb-1">{{ t('users.package') }}</label>
               <select v-model="form.package" class="aura-input w-full">
-                <option v-for="pkg in packageOptions" :key="`user-package-${pkg}`" :value="pkg">{{ pkg }}</option>
+                <option v-for="pkg in addPackageOptions" :key="`user-package-${pkg}`" :value="pkg">{{ pkg }}</option>
               </select>
               <p class="mt-1 text-xs text-gray-500">Rol ile uyumlu paketler listelenir.</p>
             </div>
@@ -100,23 +103,71 @@
       </div>
     </Teleport>
 
+    <!-- Edit User Modal -->
+    <Teleport to="body">
+      <div v-if="showEditModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+        <div class="bg-panel-card border border-panel-border rounded-2xl p-8 w-full max-w-md shadow-2xl">
+          <h2 class="text-xl font-bold text-white mb-6">{{ t('users.edit_modal_title') }}</h2>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">{{ t('users.username') }}</label>
+              <input v-model="editForm.username" type="text" class="aura-input w-full opacity-70" readonly />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">{{ t('users.display_name') }}</label>
+              <input v-model="editForm.name" type="text" class="aura-input w-full" />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">{{ t('users.email') }}</label>
+              <input v-model="editForm.email" type="email" class="aura-input w-full" />
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">{{ t('users.role') }}</label>
+              <select v-model="editForm.role" class="aura-input w-full">
+                <option value="user">{{ t('users.role_user') }}</option>
+                <option value="reseller">{{ t('users.role_reseller') }}</option>
+                <option value="admin">{{ t('users.role_admin') }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm text-gray-400 mb-1">{{ t('users.package') }}</label>
+              <select v-model="editForm.package" class="aura-input w-full">
+                <option v-for="pkg in editPackageOptions" :key="`edit-user-package-${pkg}`" :value="pkg">{{ pkg }}</option>
+              </select>
+            </div>
+            <label class="inline-flex items-center gap-2 text-sm text-gray-300">
+              <input v-model="editForm.active" type="checkbox" class="h-4 w-4" />
+              {{ t('users.active_account') }}
+            </label>
+          </div>
+          <div class="flex gap-3 mt-8">
+            <button class="btn-secondary flex-1" @click="closeEditModal">{{ t('common.cancel') }}</button>
+            <button class="btn-primary flex-1" :disabled="editLoading" @click="updateUser">
+              <Loader2 v-if="editLoading" class="w-4 h-4 animate-spin mr-2 inline" />
+              {{ t('users.save_changes') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <!-- Change Password Modal -->
     <Teleport to="body">
       <div v-if="showPasswordModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
         <div class="bg-panel-card border border-panel-border rounded-2xl p-8 w-full max-w-md shadow-2xl">
-          <h2 class="text-xl font-bold text-white mb-2">Kullanici Sifresi Degistir</h2>
+          <h2 class="text-xl font-bold text-white mb-2">{{ t('users.password_modal_title') }}</h2>
           <p class="text-sm text-gray-400 mb-6">
-            Kullanici: <span class="text-white font-mono">{{ passwordForm.username }}</span>
+            {{ t('users.password_modal_user') }}: <span class="text-white font-mono">{{ passwordForm.username }}</span>
           </p>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Yeni Sifre</label>
-            <input v-model="passwordForm.new_password" type="password" class="aura-input w-full" placeholder="En az 8 karakter" />
+            <label class="block text-sm text-gray-400 mb-1">{{ t('users.password_modal_new') }}</label>
+            <input v-model="passwordForm.new_password" type="password" class="aura-input w-full" :placeholder="t('users.password_modal_placeholder')" />
           </div>
           <div class="flex gap-3 mt-8">
             <button class="btn-secondary flex-1" @click="closePasswordModal">{{ t('common.cancel') }}</button>
             <button class="btn-primary flex-1" :disabled="passwordLoading" @click="changePassword">
               <Loader2 v-if="passwordLoading" class="w-4 h-4 animate-spin mr-2 inline" />
-              Kaydet
+              {{ t('users.password_modal_save') }}
             </button>
           </div>
         </div>
@@ -128,7 +179,7 @@
 <script setup>
 import { computed, ref, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { UserPlus, UserMinus, Globe, Loader2, KeyRound } from 'lucide-vue-next'
+import { UserPlus, UserMinus, Globe, Loader2, KeyRound, Pencil } from 'lucide-vue-next'
 import api from '../services/api'
 
 const { t } = useI18n()
@@ -137,15 +188,18 @@ const loading = ref(true)
 const error = ref(null)
 const showAddModal = ref(false)
 const addLoading = ref(false)
+const showEditModal = ref(false)
+const editLoading = ref(false)
 const showPasswordModal = ref(false)
 const passwordLoading = ref(false)
 const passwordForm = ref({ username: '', new_password: '' })
 const hostingPackages = ref([])
 const form = ref({ username: '', email: '', password: '', role: 'user', package: 'default' })
+const editForm = ref({ username: '', name: '', email: '', role: 'user', package: 'default', active: true })
 
-const packageOptions = computed(() => {
+function packageOptionsForRole(role) {
   const names = new Set(['default'])
-  const wantsResellerPackage = form.value.role === 'reseller'
+  const wantsResellerPackage = role === 'reseller'
 
   for (const pkg of hostingPackages.value || []) {
     const name = String(pkg?.name || '').trim()
@@ -159,7 +213,10 @@ const packageOptions = computed(() => {
   const ordered = Array.from(names).filter(Boolean)
   const tail = ordered.filter(name => name !== 'default').sort((a, b) => a.localeCompare(b))
   return ['default', ...tail]
-})
+}
+
+const addPackageOptions = computed(() => packageOptionsForRole(form.value.role))
+const editPackageOptions = computed(() => packageOptionsForRole(editForm.value.role))
 
 async function loadUsers() {
   loading.value = true
@@ -189,7 +246,7 @@ async function addUser() {
   try {
     await api.post('/users/create', form.value)
     showAddModal.value = false
-    form.value = { username: '', email: '', password: '', role: 'user', package: packageOptions.value[0] || 'default' }
+    form.value = { username: '', email: '', password: '', role: 'user', package: addPackageOptions.value[0] || 'default' }
     await loadUsers()
   } catch (e) {
     error.value = t('common.error')
@@ -205,6 +262,44 @@ async function deleteUser(user) {
     await loadUsers()
   } catch (e) {
     error.value = t('common.error')
+  }
+}
+
+function openEditModal(user) {
+  editForm.value = {
+    username: user.username || '',
+    name: user.name || '',
+    email: user.email || '',
+    role: user.role || 'user',
+    package: user.package || 'default',
+    active: !!user.active,
+  }
+  showEditModal.value = true
+}
+
+function closeEditModal() {
+  showEditModal.value = false
+  editForm.value = { username: '', name: '', email: '', role: 'user', package: 'default', active: true }
+}
+
+async function updateUser() {
+  if (!editForm.value.username || !editForm.value.email) return
+  editLoading.value = true
+  try {
+    await api.post('/users/update', {
+      username: editForm.value.username,
+      name: editForm.value.name,
+      email: editForm.value.email,
+      role: editForm.value.role,
+      package: editForm.value.package,
+      active: !!editForm.value.active,
+    })
+    closeEditModal()
+    await loadUsers()
+  } catch (e) {
+    error.value = e?.response?.data?.message || t('common.error')
+  } finally {
+    editLoading.value = false
   }
 }
 
@@ -237,10 +332,17 @@ async function changePassword() {
   }
 }
 
-watch(packageOptions, (options) => {
+watch(addPackageOptions, (options) => {
   if (!options.length) return
   if (!options.includes(form.value.package)) {
     form.value.package = options[0]
+  }
+}, { immediate: true })
+
+watch(editPackageOptions, (options) => {
+  if (!options.length) return
+  if (!options.includes(editForm.value.package)) {
+    editForm.value.package = options[0]
   }
 }, { immediate: true })
 

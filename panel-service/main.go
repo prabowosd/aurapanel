@@ -986,6 +986,8 @@ func (s *service) handleCompat(w http.ResponseWriter, r *http.Request) {
 		s.handleUsersList(w)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/users/create":
 		s.handleUsersCreate(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/users/update":
+		s.handleUsersUpdate(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/users/delete":
 		s.handleUsersDelete(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/users/change-password":
@@ -2030,6 +2032,125 @@ func (s *service) handleUsersCreate(w http.ResponseWriter, r *http.Request) {
 	s.state.Users = append(s.state.Users, user)
 
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "User created.", Data: publicUser(user)})
+}
+
+func (s *service) handleUsersUpdate(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Username string `json:"username"`
+		Name     string `json:"name"`
+		Email    string `json:"email"`
+		Role     string `json:"role"`
+		Package  string `json:"package"`
+		Active   *bool  `json:"active"`
+	}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid user update payload.")
+		return
+	}
+
+	key := sanitizeName(payload.Username)
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "Username is required.")
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	index := s.findUserIndexLocked(key)
+	if index < 0 {
+		writeError(w, http.StatusNotFound, "User not found.")
+		return
+	}
+
+	current := s.state.Users[index]
+	updated := current
+
+	if name := strings.TrimSpace(payload.Name); name != "" {
+		updated.Name = name
+	}
+	if email := strings.TrimSpace(payload.Email); email != "" {
+		updated.Email = email
+	}
+	if updated.Email == "" {
+		writeError(w, http.StatusBadRequest, "Email is required.")
+		return
+	}
+	if role := strings.TrimSpace(payload.Role); role != "" {
+		updated.Role = normalizeRole(role)
+	}
+	if pkg := strings.TrimSpace(payload.Package); pkg != "" {
+		updated.Package = pkg
+	}
+	if updated.Package == "" {
+		updated.Package = "default"
+	}
+	if payload.Active != nil {
+		updated.Active = *payload.Active
+	}
+
+	for i := range s.state.Users {
+		if i == index {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(s.state.Users[i].Email), updated.Email) {
+			writeError(w, http.StatusConflict, "Email is already in use by another user.")
+			return
+		}
+	}
+
+	remainingActiveAdmins := 0
+	for i, user := range s.state.Users {
+		if i == index {
+			user = updated
+		}
+		if user.Role == "admin" && user.Active {
+			remainingActiveAdmins++
+		}
+	}
+	if remainingActiveAdmins == 0 {
+		writeError(w, http.StatusForbidden, "At least one active admin user is required.")
+		return
+	}
+
+	adminEmail, _ := loadAdminSeedCredentials()
+	oldEmail := strings.TrimSpace(current.Email)
+	newEmail := strings.TrimSpace(updated.Email)
+	shouldSyncAdminArtifacts := isSeedAdminUser(current, adminEmail) && !strings.EqualFold(oldEmail, newEmail)
+	rollbackEnv := func() {}
+	if shouldSyncAdminArtifacts {
+		oldEnvEmail := firstNonEmpty(
+			readEnvFileValue(adminGatewayEnvPath(), "AURAPANEL_ADMIN_EMAIL"),
+			oldEmail,
+			defaultAdminEmail,
+		)
+		oldEnvPassword := firstNonEmpty(
+			readEnvFileValue(adminGatewayEnvPath(), "AURAPANEL_ADMIN_PASSWORD"),
+			readTrimmedFile(adminInitialPasswordPath()),
+		)
+		oldEnvHash := firstNonEmpty(
+			readEnvFileValue(adminGatewayEnvPath(), "AURAPANEL_ADMIN_PASSWORD_BCRYPT"),
+			strings.TrimSpace(current.PasswordHash),
+		)
+		rollbackEnv = func() {
+			_ = syncAdminCredentialArtifacts(oldEnvEmail, oldEnvPassword, oldEnvHash)
+		}
+		if err := syncAdminCredentialArtifacts(newEmail, oldEnvPassword, strings.TrimSpace(current.PasswordHash)); err != nil {
+			writeError(w, http.StatusInternalServerError, "Admin credential artifacts could not be synchronized.")
+			return
+		}
+	}
+
+	s.state.Users[index] = updated
+	s.recountSitesLocked()
+	if err := s.saveRuntimeStateLocked(); err != nil {
+		s.state.Users[index] = current
+		rollbackEnv()
+		writeError(w, http.StatusInternalServerError, "User update could not be persisted.")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "User updated.", Data: publicUser(updated)})
 }
 
 func (s *service) handleUsersDelete(w http.ResponseWriter, r *http.Request) {
