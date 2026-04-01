@@ -275,18 +275,20 @@
               <th class="text-left py-3 px-2">Engine</th>
               <th class="text-left py-3 px-2">DB Name</th>
               <th class="text-left py-3 px-2">DB User</th>
+              <th class="text-left py-3 px-2">DB Host</th>
               <th class="text-left py-3 px-2">Baglanti Zamani</th>
               <th class="text-right py-3 px-2">Islem</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="l in dbLinks" :key="`${l.domain}-${l.engine}-${l.db_name}`" class="border-b border-panel-border/40 hover:bg-white/[0.02]">
+            <tr v-for="l in dbLinks" :key="`${l.domain}-${l.engine}-${l.db_name}-${l.db_user}-${l.db_host || 'localhost'}`" class="border-b border-panel-border/40 hover:bg-white/[0.02]">
               <td class="py-3 px-2 text-white font-medium">{{ l.domain }}</td>
               <td class="py-3 px-2">
                 <span :class="l.engine === 'mariadb' ? 'text-orange-400' : 'text-blue-400'">{{ l.engine }}</span>
               </td>
               <td class="py-3 px-2 text-gray-300">{{ l.db_name }}</td>
               <td class="py-3 px-2 text-gray-300">{{ l.db_user }}</td>
+              <td class="py-3 px-2 text-gray-300">{{ l.db_host || 'localhost' }}</td>
               <td class="py-3 px-2 text-gray-400">{{ formatUnix(l.linked_at) }}</td>
               <td class="py-3 px-2 text-right">
                 <div class="flex justify-end gap-2">
@@ -297,7 +299,7 @@
               </td>
             </tr>
             <tr v-if="dbLinks.length === 0">
-              <td colspan="6" class="text-center py-10 text-gray-500">Henuz website-db baglantisi yok.</td>
+              <td colspan="7" class="text-center py-10 text-gray-500">Henuz website-db baglantisi yok.</td>
             </tr>
           </tbody>
         </table>
@@ -557,10 +559,11 @@
             </div>
             <div>
               <label class="block text-sm text-gray-400 mb-1">DB User</label>
-              <select v-model="dbLinkForm.db_user" class="aura-input w-full">
+              <select v-model="dbLinkForm.db_user_identity" class="aura-input w-full">
                 <option disabled value="">Kullanici secin</option>
-                <option v-for="u in currentDbUsers" :key="u" :value="u">{{ u }}</option>
+                <option v-for="u in currentDbUserOptions" :key="u.identity" :value="u.identity">{{ u.label }}</option>
               </select>
+              <p class="mt-2 text-xs text-gray-500">Secilen host: {{ dbLinkForm.db_host || 'localhost' }}</p>
             </div>
           </div>
           <div class="flex gap-3 mt-8">
@@ -602,6 +605,7 @@ const mariadbDatabases = ref([])
 const postgresDatabases = ref([])
 const mariadbUsers = ref([])
 const postgresUsers = ref([])
+const mariadbSystemUsers = new Set(['root', 'mysql', 'mariadb.sys'])
 
 const search = ref('')
 const phpFilter = ref('')
@@ -638,7 +642,7 @@ const editSiteForm = ref({
   email: '',
 })
 const subdomainForm = ref({ parent_domain: '', subdomain: '', php_version: '8.3' })
-const dbLinkForm = ref({ domain: '', engine: 'mariadb', db_name: '', db_user: '' })
+const dbLinkForm = ref({ domain: '', engine: 'mariadb', db_name: '', db_user: '', db_host: 'localhost', db_user_identity: '' })
 const aliases = ref([])
 const advancedDomain = ref('')
 const advancedConfig = ref({
@@ -698,9 +702,29 @@ const currentDbNames = computed(() => {
   return source.map(x => x.name).filter(Boolean)
 })
 
-const currentDbUsers = computed(() => {
+const currentDbUserOptions = computed(() => {
   const source = dbLinkForm.value.engine === 'mariadb' ? mariadbUsers.value : postgresUsers.value
-  return source.map(x => x.username).filter(Boolean)
+  const dedupe = new Set()
+  const options = []
+  for (const item of source || []) {
+    const username = String(item?.username || '').trim()
+    if (!username) continue
+    if (dbLinkForm.value.engine === 'mariadb' && mariadbSystemUsers.has(username.toLowerCase())) {
+      continue
+    }
+    const host = String(item?.host || 'localhost').trim() || 'localhost'
+    const identity = `${username}@${host}`
+    const key = identity.toLowerCase()
+    if (dedupe.has(key)) continue
+    dedupe.add(key)
+    options.push({
+      identity,
+      username,
+      host,
+      label: identity,
+    })
+  }
+  return options
 })
 
 const domainAliases = computed(() =>
@@ -709,7 +733,14 @@ const domainAliases = computed(() =>
 
 watch(() => dbLinkForm.value.engine, () => {
   dbLinkForm.value.db_name = currentDbNames.value[0] || ''
-  dbLinkForm.value.db_user = currentDbUsers.value[0] || ''
+  selectDbUserOption()
+})
+
+watch(() => dbLinkForm.value.db_user_identity, (identity) => {
+  const selected = currentDbUserOptions.value.find(item => item.identity === identity)
+  if (!selected) return
+  dbLinkForm.value.db_user = selected.username
+  dbLinkForm.value.db_host = selected.host
 })
 
 watch(showSubdomainModal, (open) => {
@@ -722,12 +753,18 @@ watch(showDbLinkModal, (open) => {
   if (!open) return
   if (!dbLinkForm.value.domain) dbLinkForm.value.domain = parentDomains.value[0] || ''
   if (!dbLinkForm.value.db_name) dbLinkForm.value.db_name = currentDbNames.value[0] || ''
-  if (!dbLinkForm.value.db_user) dbLinkForm.value.db_user = currentDbUsers.value[0] || ''
+  selectDbUserOption(dbLinkForm.value.db_user)
 })
 
 watch(parentDomains, (domains) => {
   if (!domains.includes(advancedDomain.value)) {
     advancedDomain.value = domains[0] || ''
+  }
+})
+
+watch(currentDbUserOptions, () => {
+  if (showDbLinkModal.value) {
+    selectDbUserOption(dbLinkForm.value.db_user)
   }
 })
 
@@ -758,6 +795,28 @@ function formatUnix(ts) {
   } catch {
     return String(ts)
   }
+}
+
+function selectDbUserOption(preferredUsername = '') {
+  const options = currentDbUserOptions.value
+  if (options.length === 0) {
+    dbLinkForm.value.db_user_identity = ''
+    dbLinkForm.value.db_user = ''
+    dbLinkForm.value.db_host = 'localhost'
+    return
+  }
+
+  const preferred = String(preferredUsername || '').trim()
+  let selected = options.find(item => item.identity === dbLinkForm.value.db_user_identity)
+  if (preferred) {
+    selected = options.find(item => item.username === preferred) || selected
+  }
+  if (!selected) {
+    selected = options[0]
+  }
+  dbLinkForm.value.db_user_identity = selected.identity
+  dbLinkForm.value.db_user = selected.username
+  dbLinkForm.value.db_host = selected.host
 }
 
 function isSuspended(site) {
@@ -817,7 +876,11 @@ async function loadSubdomains() {
 async function loadDbLinks() {
   try {
     const res = await api.get('/websites/db-links')
-    dbLinks.value = res.data?.data || []
+    const items = Array.isArray(res.data?.data) ? res.data.data : []
+    dbLinks.value = items.map(item => ({
+      ...item,
+      db_host: item?.db_host || 'localhost',
+    }))
   } catch {
     dbLinks.value = []
   }
@@ -1284,6 +1347,7 @@ async function attachDbLink() {
       engine: dbLinkForm.value.engine,
       db_name: dbLinkForm.value.db_name,
       db_user: dbLinkForm.value.db_user,
+      db_host: dbLinkForm.value.db_host || 'localhost',
     })
     showDbLinkModal.value = false
     await loadDbLinks()
@@ -1303,6 +1367,8 @@ async function detachDbLink(link) {
         domain: link.domain,
         engine: link.engine,
         db_name: link.db_name,
+        db_user: link.db_user,
+        db_host: link.db_host || 'localhost',
       },
     })
     await loadDbLinks()

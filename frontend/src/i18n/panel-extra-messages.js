@@ -926,6 +926,7 @@ Object.assign(extraTr, {
 
 Object.assign(extraEn, {
   layout: {
+    ...(extraEn.layout || {}),
     update_notice: {
       check: 'Version Check',
       checking: 'Checking...',
@@ -936,11 +937,26 @@ Object.assign(extraEn, {
 
 Object.assign(extraTr, {
   layout: {
+    ...(extraTr.layout || {}),
     update_notice: {
       check: 'Surum Kontrol',
       checking: 'Kontrol Ediliyor...',
       new_version: 'Yeni Surum Var',
     },
+  },
+})
+
+Object.assign(extraEn, {
+  common: {
+    ...(extraEn.common || {}),
+    confirm_action: 'Confirm Action',
+  },
+})
+
+Object.assign(extraTr, {
+  common: {
+    ...(extraTr.common || {}),
+    confirm_action: 'Islemi Onayla',
   },
 })
 
@@ -1862,7 +1878,7 @@ Object.assign(extraTr, {
     title: 'Security Center',
     subtitle: 'Zero-Trust guvenlik ozelliklerini plan bazli yonetin.',
     refresh: 'Yenile',
-    tabs: { overview: 'Genel Bakis', firewall: 'Firewall', waf: 'ML-WAF', twofa: '2FA', ssh: 'SSH Keys', hardening: 'Hardening', kernel: 'Kernel Security' },
+    tabs: { overview: 'Genel Bakis', firewall: 'Firewall', waf: 'ML-WAF', twofa: '2FA', ssh: 'SSH Keys', ssh_config: 'SSH Config', hardening: 'Hardening', kernel: 'Kernel Security' },
     overview: { active: 'Aktif', passive: 'Pasif', partial: 'Kismi' },
     firewall: {
       title: 'Firewall (nftables)',

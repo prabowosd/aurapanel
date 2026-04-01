@@ -138,6 +138,7 @@ type WebsiteDBLink struct {
 	Engine   string `json:"engine"`
 	DBName   string `json:"db_name"`
 	DBUser   string `json:"db_user"`
+	DBHost   string `json:"db_host,omitempty"`
 	LinkedAt int64  `json:"linked_at"`
 }
 
@@ -2439,6 +2440,7 @@ func (s *service) handleDatabaseCreate(w http.ResponseWriter, r *http.Request, e
 			Engine:   engine,
 			DBName:   db.Name,
 			DBUser:   user.Username,
+			DBHost:   normalizeDBHost(user.Host),
 			LinkedAt: time.Now().UTC().Unix(),
 		})
 	}
@@ -2617,6 +2619,9 @@ func (s *service) handleDBLinksCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload.Domain = normalizeDomain(payload.Domain)
+	payload.DBName = sanitizeDBName(payload.DBName)
+	payload.DBUser = sanitizeName(payload.DBUser)
+	payload.DBHost = normalizeDBHost(payload.DBHost)
 	if payload.Domain == "" || payload.DBName == "" || payload.DBUser == "" {
 		writeError(w, http.StatusBadRequest, "Domain, db name and db user are required.")
 		return
@@ -2626,7 +2631,18 @@ func (s *service) handleDBLinksCreate(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 	payload.Engine = normalizeEngine(payload.Engine)
 	payload.LinkedAt = time.Now().UTC().Unix()
-	s.state.DBLinks = append(s.state.DBLinks, payload)
+	filtered := s.state.DBLinks[:0]
+	for _, item := range s.state.DBLinks {
+		if item.Domain == payload.Domain &&
+			normalizeEngine(item.Engine) == payload.Engine &&
+			item.DBName == payload.DBName &&
+			item.DBUser == payload.DBUser &&
+			normalizeDBHost(item.DBHost) == payload.DBHost {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	s.state.DBLinks = append(filtered, payload)
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "DB link created.", Data: payload})
 }
 
@@ -2634,6 +2650,12 @@ func (s *service) handleDBLinksDelete(w http.ResponseWriter, r *http.Request) {
 	domain := normalizeDomain(r.URL.Query().Get("domain"))
 	engine := normalizeEngine(r.URL.Query().Get("engine"))
 	dbName := sanitizeDBName(r.URL.Query().Get("db_name"))
+	dbUser := sanitizeName(r.URL.Query().Get("db_user"))
+	dbHostRaw := strings.TrimSpace(r.URL.Query().Get("db_host"))
+	dbHost := ""
+	if dbHostRaw != "" {
+		dbHost = normalizeDBHost(dbHostRaw)
+	}
 	if domain == "" || dbName == "" {
 		writeError(w, http.StatusBadRequest, "Domain and database name are required.")
 		return
@@ -2646,7 +2668,9 @@ func (s *service) handleDBLinksDelete(w http.ResponseWriter, r *http.Request) {
 	removed := false
 	for _, item := range s.state.DBLinks {
 		sameEngine := engine == "" || normalizeEngine(item.Engine) == engine
-		if !removed && item.Domain == domain && item.DBName == dbName && sameEngine {
+		sameUser := dbUser == "" || sanitizeName(item.DBUser) == dbUser
+		sameHost := dbHost == "" || normalizeDBHost(item.DBHost) == dbHost
+		if !removed && item.Domain == domain && item.DBName == dbName && sameEngine && sameUser && sameHost {
 			removed = true
 			continue
 		}
@@ -3688,6 +3712,14 @@ func sanitizeDBName(value string) string {
 	}, cleaned)
 	cleaned = strings.Trim(cleaned, "_")
 	return firstNonEmpty(cleaned, "database")
+}
+
+func normalizeDBHost(value string) string {
+	host := strings.ToLower(strings.TrimSpace(value))
+	if host == "" {
+		return "localhost"
+	}
+	return host
 }
 
 func envOr(key, fallback string) string {
