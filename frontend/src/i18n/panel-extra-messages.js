@@ -620,15 +620,20 @@ Object.assign(extraTr, {
 
 Object.assign(extraEn, {
   routes: {
+    ...(extraEn.routes || {}),
     PluginSDK: 'Plugin SDK',
   },
   layout: {
+    ...(extraEn.layout || {}),
     links: {
+      ...(extraEn.layout?.links || {}),
       plugin_sdk: 'Plugin SDK',
     },
   },
   backup_center: {
+    ...(extraEn.backup_center || {}),
     sla: {
+      ...(extraEn.backup_center?.sla || {}),
       title: 'SLA & Backup Health',
       subtitle: 'RPO compliance and restore drill freshness by domain.',
       total_domains: 'Total Domains',
@@ -642,6 +647,7 @@ Object.assign(extraEn, {
       empty: 'No SLA records found.',
     },
     drill: {
+      ...(extraEn.backup_center?.drill || {}),
       title: 'Restore Drill',
       subtitle: 'Run restore preflight drills and keep readiness history.',
       target_domain: 'Target domain (optional)',
@@ -650,17 +656,22 @@ Object.assign(extraEn, {
       empty: 'No restore drill history yet.',
     },
     messages: {
+      ...(extraEn.backup_center?.messages || {}),
       drill_domain_required: 'Select a domain for restore drill.',
       drill_done: 'Restore drill completed.',
       drill_failed: 'Restore drill failed.',
     },
   },
   email_manager: {
+    ...(extraEn.email_manager || {}),
     tabs: {
+      ...(extraEn.email_manager?.tabs || {}),
       premium: 'Premium',
     },
     premium: {
+      ...(extraEn.email_manager?.premium || {}),
       auth: {
+        ...(extraEn.email_manager?.premium?.auth || {}),
         title: 'SPF / DMARC Bootstrap',
         subtitle: 'Generate ready DNS records for sender policy.',
         rua: 'RUA (mailto:...)',
@@ -668,18 +679,20 @@ Object.assign(extraEn, {
         bootstrap: 'Bootstrap Auth',
       },
       deliverability: {
+        ...(extraEn.email_manager?.premium?.deliverability || {}),
         title: 'Deliverability',
         score: 'Score',
         mailboxes: 'Mailboxes',
         catch_all: 'Catch-all',
       },
       webmail_ops: {
+        ...(extraEn.email_manager?.premium?.webmail_ops || {}),
         title: 'Webmail Ops',
         subtitle: 'Admin-level token visibility and cleanup actions.',
         tokens_total: 'Tokens Total',
         tokens_active: 'Tokens Active',
         tokens_expired: 'Tokens Expired',
-        address_placeholder: 'mailbox@example.com',
+        address_placeholder: "mailbox{'@'}example.com",
         token_placeholder: 'raw token (optional)',
         revoke: 'Revoke',
         cleanup_expired: 'Cleanup Expired',
@@ -687,6 +700,7 @@ Object.assign(extraEn, {
         expired: 'expired',
         empty: 'No webmail tokens found.',
         table: {
+          ...(extraEn.email_manager?.premium?.webmail_ops?.table || {}),
           token: 'Token',
           address: 'Address',
           expires: 'Expires',
@@ -695,6 +709,7 @@ Object.assign(extraEn, {
       },
     },
     messages: {
+      ...(extraEn.email_manager?.messages || {}),
       auth_load_failed: 'Mail auth settings could not be loaded.',
       auth_bootstrap_failed: 'SPF/DMARC bootstrap failed.',
       deliverability_failed: 'Deliverability status could not be loaded.',
@@ -703,10 +718,12 @@ Object.assign(extraEn, {
     },
   },
   plugin_sdk: {
+    ...(extraEn.plugin_sdk || {}),
     title: 'Plugin SDK Holder',
     subtitle: 'Manage panel plugin manifests and lifecycle toggles.',
     refresh: 'Refresh',
     form: {
+      ...(extraEn.plugin_sdk?.form || {}),
       title: 'Plugin Manifest',
       id: 'Plugin id (unique)',
       name: 'Plugin name',
@@ -722,12 +739,14 @@ Object.assign(extraEn, {
       reset: 'Reset',
     },
     sdk_info: {
+      ...(extraEn.plugin_sdk?.sdk_info || {}),
       title: 'SDK Contract',
       version: 'Manifest Version',
       required_fields: 'Required Fields',
       supported_hooks: 'Supported Hooks',
     },
     list: {
+      ...(extraEn.plugin_sdk?.list || {}),
       title: 'Registered Plugins',
       name: 'Plugin',
       entrypoint: 'Entrypoint',
@@ -739,6 +758,7 @@ Object.assign(extraEn, {
       empty: 'No plugins registered.',
     },
     messages: {
+      ...(extraEn.plugin_sdk?.messages || {}),
       load_failed: 'Plugin data could not be loaded.',
       saved: 'Plugin saved.',
       save_failed: 'Plugin could not be saved.',
@@ -753,15 +773,20 @@ Object.assign(extraEn, {
 
 Object.assign(extraTr, {
   routes: {
+    ...(extraTr.routes || {}),
     PluginSDK: 'Plugin SDK',
   },
   layout: {
+    ...(extraTr.layout || {}),
     links: {
+      ...(extraTr.layout?.links || {}),
       plugin_sdk: 'Plugin SDK',
     },
   },
   backup_center: {
+    ...(extraTr.backup_center || {}),
     sla: {
+      ...(extraTr.backup_center?.sla || {}),
       title: 'SLA ve Backup Sagligi',
       subtitle: 'Domain bazli RPO uyumu ve restore drill tazeligi.',
       total_domains: 'Toplam Domain',
@@ -775,6 +800,7 @@ Object.assign(extraTr, {
       empty: 'SLA kaydi yok.',
     },
     drill: {
+      ...(extraTr.backup_center?.drill || {}),
       title: 'Restore Drill',
       subtitle: 'Restore preflight calistir ve hazirlik gecmisini tut.',
       target_domain: 'Hedef domain (opsiyonel)',
@@ -783,17 +809,22 @@ Object.assign(extraTr, {
       empty: 'Restore drill gecmisi yok.',
     },
     messages: {
+      ...(extraTr.backup_center?.messages || {}),
       drill_domain_required: 'Restore drill icin domain secin.',
       drill_done: 'Restore drill tamamlandi.',
       drill_failed: 'Restore drill basarisiz.',
     },
   },
   email_manager: {
+    ...(extraTr.email_manager || {}),
     tabs: {
+      ...(extraTr.email_manager?.tabs || {}),
       premium: 'Premium',
     },
     premium: {
+      ...(extraTr.email_manager?.premium || {}),
       auth: {
+        ...(extraTr.email_manager?.premium?.auth || {}),
         title: 'SPF / DMARC Bootstrap',
         subtitle: 'Gonderici policy icin hazir DNS kayitlarini uret.',
         rua: 'RUA (mailto:...)',
@@ -801,18 +832,20 @@ Object.assign(extraTr, {
         bootstrap: 'Auth Bootstrap',
       },
       deliverability: {
+        ...(extraTr.email_manager?.premium?.deliverability || {}),
         title: 'Deliverability',
         score: 'Skor',
         mailboxes: 'Mailbox',
         catch_all: 'Catch-all',
       },
       webmail_ops: {
+        ...(extraTr.email_manager?.premium?.webmail_ops || {}),
         title: 'Webmail Ops',
         subtitle: 'Admin seviye token gorunurlugu ve temizlik islemleri.',
         tokens_total: 'Toplam Token',
         tokens_active: 'Aktif Token',
         tokens_expired: 'Suresi Dolan Token',
-        address_placeholder: 'mailbox@example.com',
+        address_placeholder: "mailbox{'@'}example.com",
         token_placeholder: 'ham token (opsiyonel)',
         revoke: 'Iptal Et',
         cleanup_expired: 'Suresi Dolanlari Temizle',
@@ -820,6 +853,7 @@ Object.assign(extraTr, {
         expired: 'suresi doldu',
         empty: 'Webmail token bulunamadi.',
         table: {
+          ...(extraTr.email_manager?.premium?.webmail_ops?.table || {}),
           token: 'Token',
           address: 'Adres',
           expires: 'Bitis',
@@ -828,6 +862,7 @@ Object.assign(extraTr, {
       },
     },
     messages: {
+      ...(extraTr.email_manager?.messages || {}),
       auth_load_failed: 'Mail auth ayarlari yuklenemedi.',
       auth_bootstrap_failed: 'SPF/DMARC bootstrap basarisiz.',
       deliverability_failed: 'Deliverability durumu yuklenemedi.',
@@ -836,10 +871,12 @@ Object.assign(extraTr, {
     },
   },
   plugin_sdk: {
+    ...(extraTr.plugin_sdk || {}),
     title: 'Plugin SDK Holder',
     subtitle: 'Panel plugin manifestlerini ve lifecycle durumunu yonetin.',
     refresh: 'Yenile',
     form: {
+      ...(extraTr.plugin_sdk?.form || {}),
       title: 'Plugin Manifest',
       id: 'Plugin id (benzersiz)',
       name: 'Plugin adi',
@@ -855,12 +892,14 @@ Object.assign(extraTr, {
       reset: 'Temizle',
     },
     sdk_info: {
+      ...(extraTr.plugin_sdk?.sdk_info || {}),
       title: 'SDK Sozlesmesi',
       version: 'Manifest Versiyonu',
       required_fields: 'Zorunlu Alanlar',
       supported_hooks: 'Desteklenen Hooklar',
     },
     list: {
+      ...(extraTr.plugin_sdk?.list || {}),
       title: 'Kayitli Pluginler',
       name: 'Plugin',
       entrypoint: 'Entrypoint',
@@ -872,6 +911,7 @@ Object.assign(extraTr, {
       empty: 'Kayitli plugin yok.',
     },
     messages: {
+      ...(extraTr.plugin_sdk?.messages || {}),
       load_failed: 'Plugin verisi yuklenemedi.',
       saved: 'Plugin kaydedildi.',
       save_failed: 'Plugin kaydedilemedi.',
