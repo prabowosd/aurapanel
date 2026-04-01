@@ -778,6 +778,8 @@ func (s *service) nonAdminRoutePolicy(w http.ResponseWriter, r *http.Request) bo
 	adminOnlyPrefixes := []string{
 		"/api/v1/users",
 		"/api/v1/packages",
+		"/api/v1/platform/capabilities",
+		"/api/v1/cloudlinux",
 		"/api/v1/files",
 		"/api/v1/php",
 		"/api/v1/vhost/discover",
@@ -2815,6 +2817,9 @@ func (s *service) handleSecurityStatus(w http.ResponseWriter) {
 			"mail_domain_available":    snapshot.MailDomainAvailable,
 			"detected_mail_stack":      snapshot.DetectedMailStack,
 			"detected_web_stack":       snapshot.DetectedWebStack,
+			"cloudlinux_available":     snapshot.CloudLinuxAvailable,
+			"cloudlinux_enabled":       snapshot.CloudLinuxEnabled,
+			"detected_cloudlinux":      snapshot.DetectedCloudLinux,
 			"server_ip":                snapshot.ServerIP,
 		},
 	})

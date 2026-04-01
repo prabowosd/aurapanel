@@ -8,8 +8,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+)
+
+const (
+	backupRetentionDefaultKeep = 14
+	backupRetentionMinKeep     = 1
+	backupRetentionMaxKeep     = 365
 )
 
 func dbBackupDir() string {
@@ -22,6 +29,160 @@ func siteBackupDir() string {
 
 func ensureBackupDirectory(path string) error {
 	return os.MkdirAll(path, 0o755)
+}
+
+func normalizeBackupRetentionKeep(value int) int {
+	if value <= 0 {
+		return backupRetentionDefaultKeep
+	}
+	if value < backupRetentionMinKeep {
+		return backupRetentionMinKeep
+	}
+	if value > backupRetentionMaxKeep {
+		return backupRetentionMaxKeep
+	}
+	return value
+}
+
+func backupRetentionKeepFromEnv() int {
+	raw := strings.TrimSpace(os.Getenv("AURAPANEL_BACKUP_RETENTION_KEEP"))
+	if raw == "" {
+		return backupRetentionDefaultKeep
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return backupRetentionDefaultKeep
+	}
+	return normalizeBackupRetentionKeep(value)
+}
+
+func pathWithinRoot(target, root string) bool {
+	target = filepath.Clean(strings.TrimSpace(target))
+	root = filepath.Clean(strings.TrimSpace(root))
+	if target == "" || root == "" || root == "." {
+		return false
+	}
+	return target == root || strings.HasPrefix(target, root+string(os.PathSeparator))
+}
+
+func backupAllowedRootsForDomain(domain string) []string {
+	roots := []string{
+		siteBackupDir(),
+		"/var/backups/aurapanel",
+		"/home/backups",
+	}
+
+	normalizedDomain := normalizeDomain(domain)
+	if normalizedDomain != "" {
+		roots = append(roots, filepath.Join("/home", normalizedDomain))
+	}
+
+	if raw := strings.TrimSpace(os.Getenv("AURAPANEL_SITE_BACKUP_ALLOWED_ROOTS")); raw != "" {
+		for _, item := range strings.Split(raw, ",") {
+			candidate := strings.TrimSpace(item)
+			if candidate == "" {
+				continue
+			}
+			roots = append(roots, candidate)
+		}
+	}
+
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(roots))
+	for _, root := range roots {
+		cleaned := filepath.Clean(strings.TrimSpace(root))
+		if cleaned == "" || cleaned == "." {
+			continue
+		}
+		if _, ok := seen[cleaned]; ok {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		out = append(out, cleaned)
+	}
+	return out
+}
+
+func isSiteBackupPathAllowed(path, domain string) bool {
+	for _, root := range backupAllowedRootsForDomain(domain) {
+		if pathWithinRoot(path, root) {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveSiteBackupTargetDir(domain, backupPath string) (string, error) {
+	targetDir := strings.TrimSpace(backupPath)
+	if targetDir == "" {
+		targetDir = siteBackupDir()
+	}
+	if !filepath.IsAbs(targetDir) {
+		targetDir = filepath.Join(siteBackupDir(), targetDir)
+	}
+	targetDir = filepath.Clean(targetDir)
+	if !isSiteBackupPathAllowed(targetDir, domain) {
+		return "", fmt.Errorf("backup path is outside allowed roots: %s", targetDir)
+	}
+	return targetDir, nil
+}
+
+func inspectBackupArchive(path string) (int, error) {
+	out, err := commandOutputTrimmed("tar", "-tzf", path)
+	if err != nil {
+		return 0, fmt.Errorf("archive integrity check failed: %w", err)
+	}
+	count := 0
+	for _, line := range strings.Split(out, "\n") {
+		entry := strings.TrimSpace(line)
+		if entry == "" {
+			continue
+		}
+		normalized := strings.ReplaceAll(entry, "\\", "/")
+		cleaned := strings.ReplaceAll(filepath.Clean(normalized), "\\", "/")
+		if strings.HasPrefix(cleaned, "/") || cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../") {
+			return 0, fmt.Errorf("archive contains unsafe entry: %s", entry)
+		}
+		count++
+	}
+	return count, nil
+}
+
+func previewRuntimeSiteRestore(snapshot BackupSnapshot, domain string) (map[string]interface{}, error) {
+	targetDomain := normalizeDomain(firstNonEmpty(domain, snapshot.Domain))
+	if targetDomain == "" {
+		return nil, fmt.Errorf("domain is required")
+	}
+	archivePath := filepath.Clean(strings.TrimSpace(snapshot.BackupPath))
+	if archivePath == "" || !fileExists(archivePath) {
+		return nil, fmt.Errorf("backup snapshot not found")
+	}
+	if !isSiteBackupPathAllowed(archivePath, targetDomain) {
+		return nil, fmt.Errorf("backup snapshot is outside allowed roots")
+	}
+	entryCount, err := inspectBackupArchive(archivePath)
+	if err != nil {
+		return nil, err
+	}
+
+	docroot := domainDocroot(targetDomain)
+	parentDir := filepath.Dir(docroot)
+	parentExists := fileExists(parentDir)
+
+	var sizeBytes int64
+	if info, statErr := os.Stat(archivePath); statErr == nil {
+		sizeBytes = info.Size()
+	}
+
+	return map[string]interface{}{
+		"domain":               targetDomain,
+		"docroot":              docroot,
+		"target_parent":        parentDir,
+		"target_parent_exists": parentExists,
+		"backup_path":          archivePath,
+		"archive_entries":      entryCount,
+		"size_bytes":           sizeBytes,
+	}, nil
 }
 
 func streamCommandToGzipFile(path string, command string, args ...string) error {
@@ -199,7 +360,7 @@ func deleteRuntimeDBBackup(record DBBackupRecord) error {
 	return os.Remove(resolveDBBackupPath(record))
 }
 
-func createRuntimeSiteBackup(domain, backupPath string) (BackupSnapshot, error) {
+func createRuntimeSiteBackup(domain, backupPath string, incremental bool) (BackupSnapshot, error) {
 	domain = normalizeDomain(domain)
 	if domain == "" {
 		return BackupSnapshot{}, fmt.Errorf("domain is required")
@@ -208,9 +369,9 @@ func createRuntimeSiteBackup(domain, backupPath string) (BackupSnapshot, error) 
 	if !fileExists(docroot) {
 		return BackupSnapshot{}, fmt.Errorf("docroot not found")
 	}
-	targetDir := strings.TrimSpace(backupPath)
-	if targetDir == "" {
-		targetDir = siteBackupDir()
+	targetDir, err := resolveSiteBackupTargetDir(domain, backupPath)
+	if err != nil {
+		return BackupSnapshot{}, err
 	}
 	if err := ensureBackupDirectory(targetDir); err != nil {
 		return BackupSnapshot{}, err
@@ -222,31 +383,42 @@ func createRuntimeSiteBackup(domain, backupPath string) (BackupSnapshot, error) 
 	if _, err := commandOutputTrimmed("tar", "-czf", target, "-C", parent, base); err != nil {
 		return BackupSnapshot{}, err
 	}
+	info, err := os.Stat(target)
+	if err != nil {
+		return BackupSnapshot{}, err
+	}
+	createdAt := info.ModTime().UTC().UnixMilli()
 	hostname, _ := os.Hostname()
+	tags := []string{"website", domain, "full"}
+	if incremental {
+		tags = []string{"website", domain, "incremental"}
+	}
 	return BackupSnapshot{
-		ID:         generateSecret(8),
-		ShortID:    generateSecret(4),
-		Time:       time.Now().UTC().Format(time.RFC3339),
-		Hostname:   firstNonEmpty(hostname, "aurapanel"),
-		Tags:       []string{"website", domain},
-		Domain:     domain,
-		BackupPath: target,
+		ID:          generateSecret(8),
+		ShortID:     generateSecret(4),
+		Time:        time.UnixMilli(createdAt).UTC().Format(time.RFC3339),
+		CreatedAt:   createdAt,
+		Hostname:    firstNonEmpty(hostname, "aurapanel"),
+		Tags:        tags,
+		Domain:      domain,
+		Incremental: incremental,
+		SizeBytes:   info.Size(),
+		BackupPath:  target,
 	}, nil
 }
 
 func restoreRuntimeSiteBackup(snapshot BackupSnapshot, domain string) error {
-	domain = normalizeDomain(firstNonEmpty(domain, snapshot.Domain))
-	if domain == "" {
-		return fmt.Errorf("domain is required")
+	preview, err := previewRuntimeSiteRestore(snapshot, domain)
+	if err != nil {
+		return err
 	}
-	if !fileExists(snapshot.BackupPath) {
-		return fmt.Errorf("backup snapshot not found")
-	}
-	docroot := domainDocroot(domain)
+	targetDomain := normalizeDomain(firstNonEmpty(domain, snapshot.Domain))
+	docroot := domainDocroot(targetDomain)
 	if err := ensureBackupDirectory(filepath.Dir(docroot)); err != nil {
 		return err
 	}
-	if _, err := commandOutputTrimmed("tar", "-xzf", snapshot.BackupPath, "-C", filepath.Dir(docroot)); err != nil {
+	archivePath, _ := preview["backup_path"].(string)
+	if _, err := commandOutputTrimmed("tar", "-xzf", archivePath, "-C", filepath.Dir(docroot)); err != nil {
 		return err
 	}
 	return nil

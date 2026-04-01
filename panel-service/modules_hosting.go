@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -1880,6 +1881,77 @@ func (s *service) handleFileCreateDir(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Directory created."})
 }
 
+func backupSnapshotTimestamp(item BackupSnapshot) int64 {
+	if item.CreatedAt > 0 {
+		return item.CreatedAt
+	}
+	if parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(item.Time)); err == nil {
+		return parsed.UTC().UnixMilli()
+	}
+	return 0
+}
+
+func (s *service) backupDestinationByIDLocked(id string) (BackupDestination, bool) {
+	lookup := strings.TrimSpace(id)
+	if lookup == "" {
+		return BackupDestination{}, false
+	}
+	for _, item := range s.modules.BackupDestinations {
+		if item.ID == lookup {
+			return item, true
+		}
+	}
+	return BackupDestination{}, false
+}
+
+func (s *service) enforceBackupRetentionLocked(domain string, keep int) (int, error) {
+	targetDomain := normalizeDomain(domain)
+	if targetDomain == "" {
+		return 0, nil
+	}
+	keep = normalizeBackupRetentionKeep(keep)
+	domainItems := make([]BackupSnapshot, 0, len(s.modules.BackupSnapshots))
+	for _, snapshot := range s.modules.BackupSnapshots {
+		if snapshot.Domain == targetDomain {
+			domainItems = append(domainItems, snapshot)
+		}
+	}
+	if len(domainItems) <= keep {
+		return 0, nil
+	}
+
+	sort.Slice(domainItems, func(i, j int) bool {
+		return backupSnapshotTimestamp(domainItems[i]) > backupSnapshotTimestamp(domainItems[j])
+	})
+	pruned := domainItems[keep:]
+	prunedIDs := make(map[string]struct{}, len(pruned))
+	var firstErr error
+	for _, item := range pruned {
+		prunedIDs[item.ID] = struct{}{}
+		path := filepath.Clean(strings.TrimSpace(item.BackupPath))
+		if path == "" || !isSiteBackupPathAllowed(path, targetDomain) {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) && firstErr == nil {
+			firstErr = fmt.Errorf("retention cleanup failed for %s: %w", filepath.Base(path), err)
+		}
+	}
+
+	filtered := s.modules.BackupSnapshots[:0]
+	removed := 0
+	for _, snapshot := range s.modules.BackupSnapshots {
+		if snapshot.Domain == targetDomain {
+			if _, ok := prunedIDs[snapshot.ID]; ok {
+				removed++
+				continue
+			}
+		}
+		filtered = append(filtered, snapshot)
+	}
+	s.modules.BackupSnapshots = filtered
+	return removed, firstErr
+}
+
 func (s *service) handleBackupDestinationsGet(w http.ResponseWriter) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1893,6 +1965,9 @@ func (s *service) handleBackupDestinationSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	payload.ID = firstNonEmpty(payload.ID, generateSecret(6))
+	payload.Name = strings.TrimSpace(payload.Name)
+	payload.RemoteRepo = strings.TrimSpace(payload.RemoteRepo)
+	payload.RetentionKeep = normalizeBackupRetentionKeep(payload.RetentionKeep)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	replaced := false
@@ -1947,7 +2022,18 @@ func (s *service) handleBackupScheduleSet(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "Invalid backup schedule payload.")
 		return
 	}
+	payload.Domain = normalizeDomain(payload.Domain)
+	if payload.Domain == "" {
+		writeError(w, http.StatusBadRequest, "Domain is required for backup schedule.")
+		return
+	}
+	payload.BackupPath = strings.TrimSpace(payload.BackupPath)
+	if _, err := resolveSiteBackupTargetDir(payload.Domain, payload.BackupPath); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	payload.ID = firstNonEmpty(payload.ID, generateSecret(6))
+	payload.RetentionKeep = normalizeBackupRetentionKeep(payload.RetentionKeep)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	replaced := false
@@ -1988,27 +2074,80 @@ func (s *service) handleBackupScheduleDelete(w http.ResponseWriter, r *http.Requ
 
 func (s *service) handleBackupCreate(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		Domain      string `json:"domain"`
-		BackupPath  string `json:"backup_path"`
-		RemoteRepo  string `json:"remote_repo"`
-		Password    string `json:"password"`
-		Incremental bool   `json:"incremental"`
+		Domain        string `json:"domain"`
+		DestinationID string `json:"destination_id"`
+		BackupPath    string `json:"backup_path"`
+		RemoteRepo    string `json:"remote_repo"`
+		Password      string `json:"password"`
+		Incremental   bool   `json:"incremental"`
+		RetentionKeep int    `json:"retention_keep"`
 	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid backup payload.")
 		return
 	}
 	domain := normalizeDomain(payload.Domain)
-	snapshot, err := createRuntimeSiteBackup(domain, payload.BackupPath)
+	if domain == "" {
+		writeError(w, http.StatusBadRequest, "Domain is required.")
+		return
+	}
+
+	retentionKeep := payload.RetentionKeep
+	s.mu.RLock()
+	if destination, ok := s.backupDestinationByIDLocked(payload.DestinationID); ok {
+		if retentionKeep <= 0 && destination.RetentionKeep > 0 {
+			retentionKeep = destination.RetentionKeep
+		}
+	}
+	s.mu.RUnlock()
+	if retentionKeep <= 0 {
+		retentionKeep = backupRetentionKeepFromEnv()
+	}
+	retentionKeep = normalizeBackupRetentionKeep(retentionKeep)
+
+	snapshot, err := createRuntimeSiteBackup(domain, payload.BackupPath, payload.Incremental)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	snapshot.Domain = domain
+	snapshot.DestinationID = strings.TrimSpace(payload.DestinationID)
+	snapshot.RetentionKeep = retentionKeep
+	snapshot.Incremental = payload.Incremental
 	s.modules.BackupSnapshots = append([]BackupSnapshot{snapshot}, s.modules.BackupSnapshots...)
-	s.appendActivityLocked("system", "backup_create", fmt.Sprintf("Backup created for %s.", domain), "")
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("Backup started for %s.", domain), Data: snapshot})
+	prunedCount, retentionErr := s.enforceBackupRetentionLocked(domain, retentionKeep)
+
+	actionName := "backup_create"
+	actionDetail := fmt.Sprintf("Backup created for %s.", domain)
+	if payload.Incremental {
+		actionName = "backup_create_incremental"
+		actionDetail = fmt.Sprintf("Incremental backup created for %s.", domain)
+	}
+	s.appendActivityLocked("system", actionName, actionDetail, "")
+
+	message := fmt.Sprintf("Backup completed for %s.", domain)
+	if payload.Incremental {
+		message = fmt.Sprintf("Incremental backup completed for %s.", domain)
+	}
+	if prunedCount > 0 {
+		message = fmt.Sprintf("%s Retention policy pruned %d old snapshot(s).", message, prunedCount)
+	}
+	if retentionErr != nil {
+		message = fmt.Sprintf("%s Retention warning: %s", message, retentionErr.Error())
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Status:  "success",
+		Message: message,
+		Data: map[string]interface{}{
+			"snapshot":     snapshot,
+			"snapshot_id":  firstNonEmpty(snapshot.ShortID, snapshot.ID),
+			"pruned_count": prunedCount,
+		},
+	})
 }
 
 func (s *service) handleBackupSnapshots(w http.ResponseWriter, r *http.Request) {
@@ -2025,6 +2164,9 @@ func (s *service) handleBackupSnapshots(w http.ResponseWriter, r *http.Request) 
 			items = append(items, snapshot)
 		}
 	}
+	sort.Slice(items, func(i, j int) bool {
+		return backupSnapshotTimestamp(items[i]) > backupSnapshotTimestamp(items[j])
+	})
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: items})
 }
 
@@ -2032,6 +2174,7 @@ func (s *service) handleBackupRestore(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Domain     string `json:"domain"`
 		SnapshotID string `json:"snapshot_id"`
+		DryRun     bool   `json:"dry_run"`
 	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid restore payload.")
@@ -2052,11 +2195,31 @@ func (s *service) handleBackupRestore(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Backup snapshot not found.")
 		return
 	}
-	if err := restoreRuntimeSiteBackup(snapshot, payload.Domain); err != nil {
+	targetDomain := normalizeDomain(firstNonEmpty(payload.Domain, snapshot.Domain))
+	if payload.DryRun {
+		preview, err := previewRuntimeSiteRestore(snapshot, targetDomain)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.mu.Lock()
+		s.appendActivityLocked("system", "backup_restore_dry_run", fmt.Sprintf("Restore dry-run completed for %s from snapshot %s.", targetDomain, payload.SnapshotID), "")
+		s.mu.Unlock()
+		writeJSON(w, http.StatusOK, apiResponse{
+			Status:  "success",
+			Message: fmt.Sprintf("Restore dry-run completed for %s from snapshot %s.", targetDomain, payload.SnapshotID),
+			Data:    preview,
+		})
+		return
+	}
+	if err := restoreRuntimeSiteBackup(snapshot, targetDomain); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("Restore completed for %s from snapshot %s.", firstNonEmpty(payload.Domain, snapshot.Domain), payload.SnapshotID)})
+	s.mu.Lock()
+	s.appendActivityLocked("system", "backup_restore", fmt.Sprintf("Restore completed for %s from snapshot %s.", targetDomain, payload.SnapshotID), "")
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("Restore completed for %s from snapshot %s.", targetDomain, payload.SnapshotID)})
 }
 
 func (s *service) handleDBBackupsList(w http.ResponseWriter) {

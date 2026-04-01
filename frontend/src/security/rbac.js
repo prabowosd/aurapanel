@@ -10,6 +10,7 @@ const PATH_RULES = [
   { prefix: '/panel-control', roles: [ROLE_ADMIN] },
   { prefix: '/panel-update', roles: [ROLE_ADMIN] },
   { prefix: '/panel-port', roles: [ROLE_ADMIN] },
+  { prefix: '/cloudlinux', roles: [ROLE_ADMIN] },
   { prefix: '/ols-tuning', roles: [ROLE_ADMIN] },
   { prefix: '/mail-tuning', roles: [ROLE_ADMIN, ROLE_RESELLER] },
   { prefix: '/docker', roles: [ROLE_ADMIN] },

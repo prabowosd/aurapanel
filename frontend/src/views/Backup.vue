@@ -32,6 +32,14 @@
             <input v-model="runForm.incremental" type="checkbox" class="h-4 w-4" />
             {{ t('backup_center.incremental_backup') }}
           </label>
+          <input
+            v-model.number="runForm.retention_keep"
+            type="number"
+            min="1"
+            max="365"
+            class="aura-input md:col-span-2"
+            :placeholder="t('backup_center.form.retention_keep')"
+          />
         </div>
         <div class="flex gap-2">
           <button class="btn-primary" @click="runBackup">{{ t('backup_center.run_backup') }}</button>
@@ -60,6 +68,10 @@
             class="aura-input md:col-span-2"
             :placeholder="t('backup_center.snapshot_placeholder')"
           />
+          <label class="inline-flex items-center gap-2 text-sm text-gray-300 md:col-span-2">
+            <input v-model="restoreForm.dry_run" type="checkbox" class="h-4 w-4" />
+            {{ t('backup_center.dry_run') }}
+          </label>
         </div>
         <button class="btn-primary" @click="restoreBackup">{{ t('backup_center.restore_backup') }}</button>
       </div>
@@ -83,6 +95,14 @@
           type="password"
           class="aura-input"
           :placeholder="t('backup_center.form.destination_password')"
+        />
+        <input
+          v-model.number="destinationForm.retention_keep"
+          type="number"
+          min="1"
+          max="365"
+          class="aura-input"
+          :placeholder="t('backup_center.form.retention_keep')"
         />
         <label class="inline-flex items-center gap-2 text-sm text-gray-300">
           <input v-model="destinationForm.enabled" type="checkbox" class="h-4 w-4" />
@@ -154,6 +174,14 @@
           <input v-model="scheduleForm.incremental" type="checkbox" class="h-4 w-4" />
           {{ t('backup_center.incremental') }}
         </label>
+        <input
+          v-model.number="scheduleForm.retention_keep"
+          type="number"
+          min="1"
+          max="365"
+          class="aura-input"
+          :placeholder="t('backup_center.form.retention_keep')"
+        />
       </div>
       <div class="flex gap-2">
         <button class="btn-primary" @click="saveSchedule">{{ t('backup_center.save_schedule') }}</button>
@@ -200,6 +228,8 @@
               <th class="px-2 py-2 text-left">{{ t('backup_center.table.id') }}</th>
               <th class="px-2 py-2 text-left">{{ t('backup_center.table.time') }}</th>
               <th class="px-2 py-2 text-left">{{ t('backup_center.table.hostname') }}</th>
+              <th class="px-2 py-2 text-left">{{ t('backup_center.table.mode') }}</th>
+              <th class="px-2 py-2 text-left">{{ t('backup_center.table.size') }}</th>
               <th class="px-2 py-2 text-left">{{ t('backup_center.table.tags') }}</th>
             </tr>
           </thead>
@@ -208,10 +238,12 @@
               <td class="px-2 py-2 font-mono text-white">{{ snapshot.short_id || snapshot.id }}</td>
               <td class="px-2 py-2 text-gray-300">{{ snapshot.time }}</td>
               <td class="px-2 py-2 text-gray-300">{{ snapshot.hostname || '-' }}</td>
+              <td class="px-2 py-2 text-gray-300">{{ snapshot.incremental ? t('backup_center.mode.incremental') : t('backup_center.mode.full') }}</td>
+              <td class="px-2 py-2 text-gray-300">{{ formatSize(snapshot.size_bytes) }}</td>
               <td class="px-2 py-2 text-gray-400">{{ (snapshot.tags || []).join(', ') }}</td>
             </tr>
             <tr v-if="snapshots.length === 0">
-              <td colspan="4" class="py-6 text-center text-gray-500">{{ t('backup_center.empty.snapshots') }}</td>
+              <td colspan="6" class="py-6 text-center text-gray-500">{{ t('backup_center.empty.snapshots') }}</td>
             </tr>
           </tbody>
         </table>
@@ -239,6 +271,7 @@ const destinationForm = ref({
   name: '',
   remote_repo: '',
   password: '',
+  retention_keep: 14,
   enabled: true,
 })
 
@@ -249,6 +282,7 @@ const scheduleForm = ref({
   backup_path: '',
   cron: '0 3 * * *',
   incremental: false,
+  retention_keep: 14,
   enabled: true,
 })
 
@@ -257,6 +291,7 @@ const runForm = ref({
   destination_id: '',
   backup_path: '',
   incremental: false,
+  retention_keep: 14,
 })
 
 const restoreForm = ref({
@@ -264,6 +299,7 @@ const restoreForm = ref({
   destination_id: '',
   backup_path: '',
   snapshot_id: '',
+  dry_run: true,
 })
 
 const domains = computed(() => (sites.value || []).map(site => site.domain).filter(Boolean))
@@ -274,7 +310,7 @@ function apiErrorMessage(err, fallbackKey) {
 
 function onDomainChange(target) {
   if (!target.domain || target.backup_path) return
-  target.backup_path = `/home/${target.domain}/public_html`
+  target.backup_path = '/var/backups/aurapanel/sites'
 }
 
 function destinationName(id) {
@@ -292,11 +328,22 @@ function backupPayloadFrom(form) {
   }
   return {
     domain: form.domain,
+    destination_id: form.destination_id,
     backup_path: form.backup_path,
     remote_repo: destination.remote_repo,
     password: destination.password,
     incremental: !!form.incremental,
+    retention_keep: Number(form.retention_keep || destination.retention_keep || 14),
   }
+}
+
+function formatSize(value) {
+  const size = Number(value || 0)
+  if (!Number.isFinite(size) || size <= 0) return '-'
+  if (size >= 1024 * 1024 * 1024) return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  if (size >= 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${size} B`
 }
 
 async function loadSites() {
@@ -321,11 +368,11 @@ async function loadAll() {
     await Promise.all([loadSites(), loadDestinations(), loadSchedules()])
     if (!runForm.value.domain && domains.value.length > 0) {
       runForm.value.domain = domains.value[0]
-      runForm.value.backup_path = `/home/${runForm.value.domain}/public_html`
+      runForm.value.backup_path = '/var/backups/aurapanel/sites'
       restoreForm.value.domain = domains.value[0]
-      restoreForm.value.backup_path = `/home/${restoreForm.value.domain}/public_html`
+      restoreForm.value.backup_path = '/var/backups/aurapanel/sites'
       scheduleForm.value.domain = domains.value[0]
-      scheduleForm.value.backup_path = `/home/${scheduleForm.value.domain}/public_html`
+      scheduleForm.value.backup_path = '/var/backups/aurapanel/sites'
     }
     if (!runForm.value.destination_id && destinations.value.length > 0) {
       runForm.value.destination_id = destinations.value[0].id
@@ -362,6 +409,7 @@ function resetDestinationForm() {
     name: '',
     remote_repo: '',
     password: '',
+    retention_keep: 14,
     enabled: true,
   }
 }
@@ -403,9 +451,10 @@ function resetScheduleForm() {
     id: '',
     domain: domains.value[0] || '',
     destination_id: destinations.value[0]?.id || '',
-    backup_path: domains.value[0] ? `/home/${domains.value[0]}/public_html` : '',
+    backup_path: '/var/backups/aurapanel/sites',
     cron: '0 3 * * *',
     incremental: false,
+    retention_keep: 14,
     enabled: true,
   }
 }
@@ -465,6 +514,7 @@ async function restoreBackup() {
       remote_repo: destination.remote_repo,
       password: destination.password,
       snapshot_id: restoreForm.value.snapshot_id,
+      dry_run: !!restoreForm.value.dry_run,
     }
     const res = await api.post('/backup/restore', payload)
     success.value = res.data?.message || t('backup_center.messages.restore_started')

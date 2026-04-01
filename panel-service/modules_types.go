@@ -56,6 +56,8 @@ type moduleState struct {
 	CloudflareZones    []CloudflareZone
 	CloudflareDNS      map[string][]CloudflareDNSRecord
 	CloudflareSettings map[string]cloudflareZoneConfig
+	CloudLinuxActions  []cloudLinuxActionAuditEntry
+	CloudLinuxRollouts []cloudLinuxRolloutAuditEntry
 	WebmailTokens      map[string]WebmailToken
 	DBToolTokens       map[string]DBToolToken
 }
@@ -285,11 +287,12 @@ type WordPressStaging struct {
 }
 
 type BackupDestination struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	RemoteRepo string `json:"remote_repo"`
-	Password   string `json:"password,omitempty"`
-	Enabled    bool   `json:"enabled"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	RemoteRepo    string `json:"remote_repo"`
+	Password      string `json:"password,omitempty"`
+	RetentionKeep int    `json:"retention_keep,omitempty"`
+	Enabled       bool   `json:"enabled"`
 }
 
 type BackupSchedule struct {
@@ -299,17 +302,23 @@ type BackupSchedule struct {
 	BackupPath    string `json:"backup_path"`
 	Cron          string `json:"cron"`
 	Incremental   bool   `json:"incremental"`
+	RetentionKeep int    `json:"retention_keep,omitempty"`
 	Enabled       bool   `json:"enabled"`
 }
 
 type BackupSnapshot struct {
-	ID         string   `json:"id"`
-	ShortID    string   `json:"short_id"`
-	Time       string   `json:"time"`
-	Hostname   string   `json:"hostname"`
-	Tags       []string `json:"tags"`
-	Domain     string   `json:"domain"`
-	BackupPath string   `json:"backup_path"`
+	ID            string   `json:"id"`
+	ShortID       string   `json:"short_id"`
+	Time          string   `json:"time"`
+	CreatedAt     int64    `json:"created_at,omitempty"`
+	Hostname      string   `json:"hostname"`
+	Tags          []string `json:"tags"`
+	Domain        string   `json:"domain"`
+	DestinationID string   `json:"destination_id,omitempty"`
+	Incremental   bool     `json:"incremental,omitempty"`
+	RetentionKeep int      `json:"retention_keep,omitempty"`
+	SizeBytes     int64    `json:"size_bytes,omitempty"`
+	BackupPath    string   `json:"backup_path"`
 }
 
 type DBBackupRecord struct {

@@ -177,6 +177,11 @@ const routes = [
         component: () => import('../views/ServerStatus.vue')
       },
       {
+        path: 'cloudlinux',
+        name: 'CloudLinux',
+        component: () => import('../views/CloudLinux.vue')
+      },
+      {
         path: 'panel-control',
         name: 'PanelPort',
         component: () => import('../views/PanelPort.vue')

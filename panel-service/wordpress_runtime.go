@@ -13,7 +13,7 @@ func createRuntimeWordPressBackup(site WordPressSite, backupType string) (WordPr
 	if domain == "" {
 		return WordPressBackup{}, fmt.Errorf("domain is required")
 	}
-	snapshot, err := createRuntimeSiteBackup(domain, siteBackupDir())
+	snapshot, err := createRuntimeSiteBackup(domain, siteBackupDir(), false)
 	if err != nil {
 		return WordPressBackup{}, err
 	}

@@ -289,5 +289,165 @@
   "app_runtime": {
     "title": "App Runtime",
     "subtitle": "Node.js, Python ve CMS uygulama yönetimi"
+  },
+  "cloudlinux": {
+    "title": "CloudLinux",
+    "subtitle": "Opsiyonel eklenti modulu: guvenli operasyonlar ve paket profil eslestirmesi",
+    "actions": {
+      "refresh": "Yenile",
+      "refreshing": "Yenileniyor...",
+      "dry_run_label": "Dry-run kullan (sistem degisikligi yapma)",
+      "run_dry": "Dry-Run Calistir",
+      "run_apply": "Aksiyonu Calistir",
+      "running": "Calisiyor..."
+    },
+    "cards": {
+      "availability": "Kullanilabilirlik",
+      "runtime": "Calisma Durumu",
+      "distro": "Dagitim",
+      "kernel": "Kernel"
+    },
+    "values": {
+      "detected": "Algilandi",
+      "not_detected": "Algilanmadi",
+      "enabled": "Etkin",
+      "disabled": "Devre disi",
+      "available": "Mevcut",
+      "missing": "Eksik"
+    },
+    "sections": {
+      "features": "Ozellik Hazirligi",
+      "commands": "Komut Tespiti",
+      "operations": "Kontrollu Operasyonlar",
+      "history": "Operasyon Gecmisi",
+      "profiles": "LVE Paket Profilleri",
+      "rollout": "Rollout Planlayici",
+      "execution": "Rollout Uygulama",
+      "signals": "Tespit Sinyalleri",
+      "warnings": "Uyarilar",
+      "capabilities": "Platform Yetenekleri"
+    },
+    "labels": {
+      "p0": "P0 Temel",
+      "p1": "P1 Paket Eslestirme",
+      "p2": "P2 Rollout Plani",
+      "p3": "P3 Kontrollu Uygulama",
+      "read_only": "Salt-okunur",
+      "auto_detect": "Otomatik tespit",
+      "safe_mode": "Allowlist + Audit",
+      "history_limit": "Son 100 kayit"
+    },
+    "empty": {
+      "actions": "Su an kullanilabilir CloudLinux operasyonu yok.",
+      "history": "Henuz operasyon gecmisi yok.",
+      "profiles": "Paket profili verisi bulunamadi.",
+      "signals": "Tespit sinyali bulunamadi.",
+      "warnings": "Uyari yok."
+    },
+    "history": {
+      "action": "Aksiyon",
+      "status": "Durum",
+      "requested_by": "Talep Eden",
+      "requested_at": "Talep Zamani",
+      "duration": "Sure"
+    },
+    "status": {
+      "success": "Basarili",
+      "failed": "Basarisiz",
+      "dry_run": "Dry-Run",
+      "blocked": "Engellendi",
+      "unknown": "Bilinmiyor"
+    },
+    "features": {
+      "lve_manager": "LVE Yoneticisi",
+      "cagefs": "CageFS",
+      "alt_php_selector": "Alt-PHP Selector",
+      "mysql_governor": "MySQL Governor"
+    },
+    "profiles": {
+      "summary_total": "Paketler: {count}",
+      "summary_ready": "Hazir: {count}",
+      "summary_defaults": "Varsayilan kullanan: {count}",
+      "summary_sites": "Bagli siteler: {count}",
+      "package": "Paket",
+      "plan_type": "Paket Turu",
+      "sites": "Site",
+      "users": "Kullanici",
+      "cpu": "CPU",
+      "ram": "RAM",
+      "io": "I/O",
+      "ep": "EP",
+      "nproc": "NPROC",
+      "status": "Hazirlik",
+      "defaults_used": "Pakette sinirsiz alanlar var; guvenli varsayilanlar kullanildi.",
+      "plan_hosting": "Hosting",
+      "plan_reseller": "Reseller",
+      "plan_unknown": "Bilinmiyor",
+      "readiness_ready": "Hazir",
+      "readiness_waiting": "CloudLinux Bekleniyor",
+      "readiness_missing_lve": "LVE Yoneticisi Eksik",
+      "readiness_missing_lvectl": "lvectl Eksik",
+      "readiness_missing_profile": "Paket Profili Eksik",
+      "readiness_unsupported": "Desteklenmeyen Host"
+    },
+    "rollout": {
+      "package_filter": "Paket Filtresi",
+      "all_packages": "Tum Paketler",
+      "only_ready": "Sadece hazir kullanicilar",
+      "refresh_plan": "Plani Yenile",
+      "summary_scoped": "Filtrelenen kullanici: {count}",
+      "summary_ready": "Hazir kullanici: {count}",
+      "summary_blocked": "Bloklu kullanici: {count}",
+      "summary_defaults": "Varsayilan kullanan: {count}",
+      "apply_mode_enabled": "Canli uygulama: acik",
+      "apply_mode_disabled": "Canli uygulama: kapali",
+      "confirm_token": "Onay anahtari: {token}",
+      "table_user": "Kullanici",
+      "table_role": "Rol",
+      "table_package": "Paket",
+      "table_limits": "Hedef Limitler",
+      "table_status": "Hazirlik",
+      "table_command": "Komut Onerisi",
+      "limits_format": "CPU {cpu}% | RAM {ram} MB | IO {io} MB/s | EP {ep}",
+      "preview_title": "Script Onizleme (Ilk 25 Hazir Komut)",
+      "empty": "Secili filtre icin rollout satiri yok.",
+      "apply_title": "Rollout Calistir",
+      "apply_dry_run": "Dry-run modu (guvenli)",
+      "max_users": "Maks Kullanici",
+      "confirm_label": "Canli Uygulama Onayi",
+      "confirm_placeholder": "Canli uygulama icin {token} yazin",
+      "apply_running": "Uygulaniyor...",
+      "apply_run_dry": "Dry-Run Rollout Calistir",
+      "apply_run_live": "Canli Rollout Calistir",
+      "apply_done": "Rollout komutu tamamlandi.",
+      "apply_failed": "Rollout komutu basarisiz oldu.",
+      "history_title": "Son Rollout Calistirmalari",
+      "history_empty": "Henuz rollout gecmisi yok.",
+      "history_time": "Talep Zamani",
+      "history_mode": "Mod",
+      "history_status": "Durum",
+      "history_stats": "Istatistik",
+      "history_stats_format": "Denenen {attempted} | Basarili {ok} | Basarisiz {failed} | Atlanan {skipped}",
+      "mode_dry": "Dry-Run",
+      "mode_live": "Canli",
+      "audit_success": "Basarili",
+      "audit_partial_failed": "Kismi Basarisiz",
+      "audit_no_op": "No-Op",
+      "audit_dry_run": "Dry-Run",
+      "results_title": "Son Calistirma Sonuclari",
+      "results_status": "Sonuc",
+      "results_message": "Mesaj",
+      "role_user": "Kullanici",
+      "role_reseller": "Reseller",
+      "role_unknown": "Bilinmiyor"
+    },
+    "messages": {
+      "load_failed": "CloudLinux durumu yuklenemedi.",
+      "action_done": "CloudLinux aksiyonu tamamlandi.",
+      "action_failed": "CloudLinux aksiyonu basarisiz oldu."
+    }
+  },
+  "routes": {
+    "CloudLinux": "CloudLinux"
   }
 }
