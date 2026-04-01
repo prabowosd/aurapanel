@@ -3,7 +3,7 @@
     <div class="flex items-center justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold text-white">{{ t('websites.title') }}</h1>
-        <p class="text-gray-400 mt-1">{{ t('websites.subtitle', 'Domain, subdomain ve veritabani baglantilarini yonetin.') }}</p>
+        <p class="text-gray-400 mt-1">{{ t('websites.subtitle', 'Domain, subdomain ve veritabanı bağlantılarını yönetin.') }}</p>
       </div>
       <button class="btn-primary" @click="showAddSiteModal = true">
         <Plus class="w-5 h-5" />
@@ -32,14 +32,14 @@
           :class="activeTab === 'dbLinks' ? 'text-brand-400 border-b-2 border-brand-400' : 'text-gray-400 hover:text-white'"
           @click="activeTab = 'dbLinks'"
         >
-          DB Baglantilari
+          DB Bağlantıları
         </button>
         <button
           class="pb-3 text-sm font-medium transition"
           :class="activeTab === 'advanced' ? 'text-brand-400 border-b-2 border-brand-400' : 'text-gray-400 hover:text-white'"
           @click="activeTab = 'advanced'"
         >
-          Gelismis
+          Gelişmiş
         </button>
       </nav>
     </div>
@@ -70,16 +70,16 @@
       <div class="aura-card border border-panel-border/80 bg-panel-card space-y-3">
         <div class="flex items-center justify-between gap-3">
           <div>
-            <h2 class="text-base font-semibold text-white">Kesfedilen Siteler (Unmanaged)</h2>
+            <h2 class="text-base font-semibold text-white">Keşfedilen Siteler (Unmanaged)</h2>
             <p class="text-xs text-gray-400">FTP veya manuel kurulumla gelen domainleri panele import edin.</p>
           </div>
           <button class="btn-secondary px-3 py-1.5 text-sm" :disabled="discoveryLoading" @click="loadDiscoveredSites">
             <Loader2 v-if="discoveryLoading" class="w-4 h-4 animate-spin mr-1 inline" />
-            Kesfi Yenile
+            Keşfi Yenile
           </button>
         </div>
         <div v-if="discoveredSites.length === 0" class="rounded-lg border border-dashed border-panel-border px-4 py-3 text-sm text-gray-500">
-          Import bekleyen site bulunamadi.
+          Import bekleyen site bulunamadı.
         </div>
         <div v-else class="space-y-2">
           <div
@@ -122,7 +122,7 @@
 
       <div v-else-if="filteredSites.length === 0" class="aura-card text-center py-12">
         <Globe class="w-14 h-14 text-gray-600 mx-auto mb-3" />
-        <p class="text-gray-300">Henuz site bulunmuyor.</p>
+        <p class="text-gray-300">Henüz site bulunmuyor.</p>
       </div>
 
       <div v-else class="space-y-4">
@@ -174,7 +174,7 @@
               </span>
             </button>
             <button class="btn-secondary px-3 py-1.5 text-sm flex-1 sm:flex-none" @click="openEditSiteModal(site)">
-              <Pencil class="w-4 h-4 mr-1 inline" />Duzenle
+              <Pencil class="w-4 h-4 mr-1 inline" />Düzenle
             </button>
             <button class="btn-secondary px-3 py-1.5 text-sm flex-1 sm:flex-none" @click="openManagePage(site)">
               Manage
@@ -194,7 +194,7 @@
         <div class="flex items-center gap-2">
           <button class="btn-secondary px-3 py-1" :disabled="sitesPagination.page <= 1" @click="changeSitesPage(-1)">Geri</button>
           <span>Sayfa {{ sitesPagination.page }} / {{ Math.max(1, sitesPagination.total_pages || 1) }}</span>
-          <button class="btn-secondary px-3 py-1" :disabled="sitesPagination.page >= Math.max(1, sitesPagination.total_pages || 1)" @click="changeSitesPage(1)">Ileri</button>
+          <button class="btn-secondary px-3 py-1" :disabled="sitesPagination.page >= Math.max(1, sitesPagination.total_pages || 1)" @click="changeSitesPage(1)">İleri</button>
         </div>
       </div>
     </div>
@@ -202,8 +202,8 @@
     <div v-if="activeTab === 'subdomains'" class="space-y-4">
       <div class="flex items-center justify-between bg-panel-card p-4 rounded-xl border border-panel-border">
         <div>
-          <h2 class="text-lg font-semibold text-white">Subdomain Yonetimi</h2>
-          <p class="text-sm text-gray-400">Site bazli subdomain olusturabilir veya silebilirsiniz.</p>
+          <h2 class="text-lg font-semibold text-white">Subdomain Yönetimi</h2>
+          <p class="text-sm text-gray-400">Site bazlı subdomain oluşturabilir veya silebilirsiniz.</p>
         </div>
         <div class="flex items-center gap-2">
           <button class="btn-secondary" @click="loadSubdomains">Yenile</button>
@@ -219,8 +219,8 @@
               <th class="text-left py-3 px-2">Parent Domain</th>
               <th class="text-left py-3 px-2">PHP</th>
               <th class="text-left py-3 px-2">SSL</th>
-              <th class="text-left py-3 px-2">Olusturma</th>
-              <th class="text-right py-3 px-2">Islem</th>
+              <th class="text-left py-3 px-2">Oluşturma</th>
+              <th class="text-right py-3 px-2">İşlem</th>
             </tr>
           </thead>
           <tbody>
@@ -239,7 +239,7 @@
               <td class="py-3 px-2 text-right">
                 <div class="flex justify-end gap-2">
                   <button class="btn-secondary px-2 py-1" @click="convertSubdomain(s)">
-                    Siteye Cevir
+                    Siteye Çevir
                   </button>
                   <button class="btn-danger px-2 py-1" @click="deleteSubdomain(s.fqdn)">
                     <Trash2 class="w-4 h-4" />
@@ -248,7 +248,7 @@
               </td>
             </tr>
             <tr v-if="subdomains.length === 0">
-              <td colspan="6" class="text-center py-10 text-gray-500">Subdomain kaydi bulunmuyor.</td>
+              <td colspan="6" class="text-center py-10 text-gray-500">Subdomain kaydı bulunmuyor.</td>
             </tr>
           </tbody>
         </table>
@@ -258,12 +258,12 @@
     <div v-if="activeTab === 'dbLinks'" class="space-y-4">
       <div class="flex items-center justify-between bg-panel-card p-4 rounded-xl border border-panel-border">
         <div>
-          <h2 class="text-lg font-semibold text-white">Veritabani Baglantilari</h2>
-          <p class="text-sm text-gray-400">Olusturulan veritabanlarini web sitelerine baglayin.</p>
+          <h2 class="text-lg font-semibold text-white">Veritabanı Bağlantıları</h2>
+          <p class="text-sm text-gray-400">Oluşturulan veritabanlarını web sitelerine bağlayın.</p>
         </div>
         <div class="flex items-center gap-2">
           <button class="btn-secondary" @click="loadDbLinks">Yenile</button>
-          <button class="btn-primary" @click="showDbLinkModal = true">DB Bagla</button>
+          <button class="btn-primary" @click="showDbLinkModal = true">DB Bağla</button>
         </div>
       </div>
 
@@ -276,8 +276,8 @@
               <th class="text-left py-3 px-2">DB Name</th>
               <th class="text-left py-3 px-2">DB User</th>
               <th class="text-left py-3 px-2">DB Host</th>
-              <th class="text-left py-3 px-2">Baglanti Zamani</th>
-              <th class="text-right py-3 px-2">Islem</th>
+              <th class="text-left py-3 px-2">Bağlantı Zamanı</th>
+              <th class="text-right py-3 px-2">İşlem</th>
             </tr>
           </thead>
           <tbody>
@@ -299,7 +299,7 @@
               </td>
             </tr>
             <tr v-if="dbLinks.length === 0">
-              <td colspan="7" class="text-center py-10 text-gray-500">Henuz website-db baglantisi yok.</td>
+              <td colspan="7" class="text-center py-10 text-gray-500">Henüz website-db bağlantısı yok.</td>
             </tr>
           </tbody>
         </table>
@@ -311,7 +311,7 @@
         <div class="flex flex-wrap items-center gap-3">
           <label class="text-sm text-gray-400">Website</label>
           <select v-model="advancedDomain" class="aura-input w-auto min-w-[220px]" @change="refreshAdvanced">
-            <option disabled value="">Website secin</option>
+            <option disabled value="">Website seçin</option>
             <option v-for="d in parentDomains" :key="d" :value="d">{{ d }}</option>
           </select>
           <button class="btn-secondary" @click="refreshAdvanced">Yenile</button>
@@ -320,7 +320,7 @@
       </div>
 
       <div v-if="!advancedDomain" class="aura-card text-gray-400 text-sm">
-        Gelismis ayarlar icin bir website secin.
+        Gelişmiş ayarlar için bir website seçin.
       </div>
 
       <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -337,7 +337,7 @@
                 <Trash2 class="w-4 h-4" />
               </button>
             </div>
-            <p v-if="domainAliases.length === 0" class="text-xs text-gray-500">Bu domain icin alias kaydi yok.</p>
+            <p v-if="domainAliases.length === 0" class="text-xs text-gray-500">Bu domain için alias kaydı yok.</p>
           </div>
         </div>
 
@@ -345,7 +345,7 @@
           <h3 class="text-white font-semibold">OpenBasedir</h3>
           <label class="inline-flex items-center gap-3 text-sm text-gray-300">
             <input v-model="advancedConfig.open_basedir" type="checkbox" class="w-4 h-4 rounded border-panel-border bg-panel-hover" />
-            OpenBasedir izolasyonunu etkinlestir
+            OpenBasedir izolasyonunu etkinleştir
           </label>
           <div>
             <button class="btn-primary" @click="saveOpenBasedir">Kaydet</button>
@@ -353,7 +353,7 @@
         </div>
 
         <div class="aura-card lg:col-span-2 space-y-3">
-          <h3 class="text-white font-semibold">Rewrite Kurallari</h3>
+          <h3 class="text-white font-semibold">Rewrite Kuralları</h3>
           <textarea v-model="advancedConfig.rewrite_rules" rows="8" class="aura-input w-full font-mono text-xs" placeholder="RewriteEngine On"></textarea>
           <div>
             <button class="btn-primary" @click="saveRewrite">Rewrite Kaydet</button>
@@ -439,7 +439,7 @@
     <Teleport to="body">
       <div v-if="showEditSiteModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
         <div class="bg-panel-card border border-panel-border rounded-2xl p-8 w-full max-w-md shadow-2xl">
-          <h2 class="text-xl font-bold text-white mb-6">Website Duzenle</h2>
+          <h2 class="text-xl font-bold text-white mb-6">Website Düzenle</h2>
           <div class="space-y-4">
             <div>
               <label class="block text-sm text-gray-400 mb-1">Domain</label>
@@ -470,7 +470,7 @@
             <button class="btn-secondary flex-1" @click="showEditSiteModal = false">{{ t('common.cancel') }}</button>
             <button class="btn-primary flex-1" :disabled="editSiteActionLoading" @click="updateSite">
               <Loader2 v-if="editSiteActionLoading" class="w-4 h-4 animate-spin mr-2 inline" />
-              Guncelle
+              Güncelle
             </button>
           </div>
         </div>
@@ -490,8 +490,8 @@
             <button class="btn-secondary px-3 py-1 ml-auto" @click="loadSiteLogs">Yenile</button>
           </div>
           <div class="rounded-xl border border-panel-border bg-panel-dark p-4 h-[420px] overflow-auto">
-            <div v-if="siteLogsLoading" class="text-gray-400 text-sm">Loglar yukleniyor...</div>
-            <pre v-else class="text-xs text-gray-200 whitespace-pre-wrap">{{ siteLogsLines.join('\n') || 'Log kaydi bulunamadi.' }}</pre>
+            <div v-if="siteLogsLoading" class="text-gray-400 text-sm">Loglar yükleniyor...</div>
+            <pre v-else class="text-xs text-gray-200 whitespace-pre-wrap">{{ siteLogsLines.join('\n') || 'Log kaydı bulunamadı.' }}</pre>
           </div>
         </div>
       </div>
@@ -505,7 +505,7 @@
             <div>
               <label class="block text-sm text-gray-400 mb-1">Parent Domain</label>
               <select v-model="subdomainForm.parent_domain" class="aura-input w-full">
-                <option disabled value="">Domain secin</option>
+                <option disabled value="">Domain seçin</option>
                 <option v-for="d in parentDomains" :key="d" :value="d">{{ d }}</option>
               </select>
             </div>
@@ -534,12 +534,12 @@
     <Teleport to="body">
       <div v-if="showDbLinkModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
         <div class="bg-panel-card border border-panel-border rounded-2xl p-8 w-full max-w-md shadow-2xl">
-          <h2 class="text-xl font-bold text-white mb-6">Website DB Baglantisi</h2>
+          <h2 class="text-xl font-bold text-white mb-6">Website DB Bağlantısı</h2>
           <div class="space-y-4">
             <div>
               <label class="block text-sm text-gray-400 mb-1">Website</label>
               <select v-model="dbLinkForm.domain" class="aura-input w-full">
-                <option disabled value="">Website secin</option>
+                <option disabled value="">Website seçin</option>
                 <option v-for="d in parentDomains" :key="d" :value="d">{{ d }}</option>
               </select>
             </div>
@@ -553,14 +553,14 @@
             <div>
               <label class="block text-sm text-gray-400 mb-1">DB Name</label>
               <select v-model="dbLinkForm.db_name" class="aura-input w-full">
-                <option disabled value="">Veritabani secin</option>
+                <option disabled value="">Veritabanı seçin</option>
                 <option v-for="d in currentDbNames" :key="d" :value="d">{{ d }}</option>
               </select>
             </div>
             <div>
               <label class="block text-sm text-gray-400 mb-1">DB User</label>
               <select v-model="dbLinkForm.db_user_identity" class="aura-input w-full">
-                <option disabled value="">Kullanici secin</option>
+                <option disabled value="">Kullanıcı seçin</option>
                 <option v-for="u in currentDbUserOptions" :key="u.identity" :value="u.identity">{{ u.label }}</option>
               </select>
               <p class="mt-2 text-xs text-gray-500">Secilen host: {{ dbLinkForm.db_host || 'localhost' }}</p>
@@ -851,7 +851,7 @@ async function loadSites() {
     sitesPagination.value.total = Number(pg.total || sites.value.length || 0)
     sitesPagination.value.total_pages = Number(pg.total_pages || 1)
   } catch (e) {
-    throw new Error(apiErrorMessage(e, 'Site listesi alinamadi'))
+    throw new Error(apiErrorMessage(e, 'Site listesi alınamadı'))
   }
 }
 
@@ -1004,7 +1004,7 @@ async function refreshAll() {
     }
     await refreshAdvanced()
   } catch (e) {
-    error.value = apiErrorMessage(e, 'Veriler alinamadi')
+    error.value = apiErrorMessage(e, 'Veriler alınamadı')
   } finally {
     loading.value = false
   }
@@ -1023,7 +1023,7 @@ async function importDiscoveredSite(item) {
     })
     await refreshAll()
   } catch (e) {
-    error.value = apiErrorMessage(e, 'Website import basarisiz')
+    error.value = apiErrorMessage(e, 'Website import başarısız')
   } finally {
     importingDomain.value = ''
   }
@@ -1056,7 +1056,7 @@ async function loadSiteLogs() {
     })
     siteLogsLines.value = res.data?.data || []
   } catch (e) {
-    error.value = apiErrorMessage(e, 'Site loglari alinamadi')
+    error.value = apiErrorMessage(e, 'Site logları alınamadı')
     siteLogsLines.value = []
   } finally {
     siteLogsLoading.value = false
@@ -1099,7 +1099,7 @@ async function addSite() {
     }
     await refreshAll()
   } catch (e) {
-    error.value = apiErrorMessage(e, 'Site olusturulamadi')
+    error.value = apiErrorMessage(e, 'Site oluşturulamadı')
   } finally {
     siteActionLoading.value = false
   }
@@ -1126,7 +1126,7 @@ async function issueSSL(site) {
     })
     await refreshAll()
   } catch (e) {
-    error.value = apiErrorMessage(e, 'SSL olusturulamadi')
+    error.value = apiErrorMessage(e, 'SSL oluşturulamadı')
   }
 }
 
@@ -1140,7 +1140,7 @@ async function toggleSuspend(site) {
     }
     await refreshAll()
   } catch (e) {
-    error.value = apiErrorMessage(e, 'Website durumu guncellenemedi')
+    error.value = apiErrorMessage(e, 'Website durumu güncellenemedi')
   }
 }
 
@@ -1178,7 +1178,7 @@ async function updateSite() {
     showEditSiteModal.value = false
     await refreshAll()
   } catch (e) {
-    error.value = apiErrorMessage(e, 'Website guncellenemedi')
+    error.value = apiErrorMessage(e, 'Website güncellenemedi')
   } finally {
     editSiteActionLoading.value = false
   }
@@ -1202,7 +1202,7 @@ async function createSubdomain() {
     }
     await loadSubdomains()
   } catch (e) {
-    error.value = apiErrorMessage(e, 'Subdomain olusturulamadi')
+    error.value = apiErrorMessage(e, 'Subdomain oluşturulamadı')
   } finally {
     subdomainActionLoading.value = false
   }
@@ -1216,13 +1216,13 @@ async function updateSubdomainPhp(subdomain) {
       php_version: subdomain.php_version,
     })
   } catch (e) {
-    error.value = apiErrorMessage(e, 'Subdomain PHP guncellenemedi')
+    error.value = apiErrorMessage(e, 'Subdomain PHP güncellenemedi')
   }
 }
 
 async function deleteSubdomain(fqdn) {
   if (!confirm(`${fqdn} silinsin mi?`)) return
-  const deleteDocroot = confirm('Docroot klasoru de silinsin mi? (Cancel: sadece kayit silinir)')
+  const deleteDocroot = confirm('Docroot klasörü de silinsin mi? (Cancel: sadece kayıt silinir)')
   error.value = ''
   try {
     await api.delete('/websites/subdomains', { params: { fqdn, delete_docroot: deleteDocroot } })
@@ -1233,7 +1233,7 @@ async function deleteSubdomain(fqdn) {
 }
 
 async function convertSubdomain(subdomain) {
-  if (!confirm(`${subdomain.fqdn} full website'e donusturulsun mu?`)) return
+  if (!confirm(`${subdomain.fqdn} full website'e dönüştürülsün mü?`)) return
   error.value = ''
   try {
     await api.post('/websites/subdomains/convert', {
@@ -1244,7 +1244,7 @@ async function convertSubdomain(subdomain) {
     activeTab.value = 'sites'
     await refreshAll()
   } catch (e) {
-    error.value = apiErrorMessage(e, 'Subdomain donusumu basarisiz')
+    error.value = apiErrorMessage(e, 'Subdomain dönüşümü başarısız')
   }
 }
 
@@ -1352,14 +1352,14 @@ async function attachDbLink() {
     showDbLinkModal.value = false
     await loadDbLinks()
   } catch (e) {
-    error.value = apiErrorMessage(e, 'DB baglantisi olusturulamadi')
+    error.value = apiErrorMessage(e, 'DB bağlantısı oluşturulamadı')
   } finally {
     dbLinkActionLoading.value = false
   }
 }
 
 async function detachDbLink(link) {
-  if (!confirm(`${link.domain} - ${link.db_name} baglantisi kaldirilsin mi?`)) return
+  if (!confirm(`${link.domain} - ${link.db_name} bağlantısı kaldırılsın mı?`)) return
   error.value = ''
   try {
     await api.delete('/websites/db-links', {
@@ -1373,7 +1373,7 @@ async function detachDbLink(link) {
     })
     await loadDbLinks()
   } catch (e) {
-    error.value = apiErrorMessage(e, 'DB baglantisi kaldirilamadi')
+    error.value = apiErrorMessage(e, 'DB bağlantısı kaldırılamadı')
   }
 }
 

@@ -4,7 +4,7 @@
       <div>
         <h1 class="text-2xl font-bold text-white">Migration Wizard</h1>
         <p class="text-sm text-gray-400 mt-1">
-          cPanel/CyberPanel hesap (tek hesap/site) yedeklerini analiz edin, donusum planini ve import durumunu izleyin.
+          cPanel/CyberPanel hesap (tek hesap/site) yedeklerini analiz edin, dönüşüm planını ve import durumunu izleyin.
         </p>
       </div>
       <button class="btn-secondary" @click="resetAll">Temizle</button>
@@ -18,13 +18,13 @@
     </div>
 
     <div class="aura-card space-y-4">
-      <h2 class="text-lg font-semibold text-white">1. Backup Yukle ve Kaynak Sec</h2>
+      <h2 class="text-lg font-semibold text-white">1. Backup Yükle ve Kaynak Seç</h2>
       <p class="text-xs text-gray-400">
-        Not: Bu ekran su an tam sunucu imaji degil, hesap/site tabanli backup (.tar.gz/.tgz/.zip) importu icindir.
+        Not: Bu ekran şu an tam sunucu imajı değil, hesap/site tabanlı backup (.tar.gz/.tgz/.zip) importu içindir.
       </p>
       <div class="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <div class="space-y-2 lg:col-span-2">
-          <label class="block text-sm text-gray-400">Backup dosyasi (.tar.gz / .tgz / .zip)</label>
+          <label class="block text-sm text-gray-400">Backup dosyası (.tar.gz / .tgz / .zip)</label>
           <input
             type="file"
             accept=".tar,.tar.gz,.tgz,.zip,application/gzip,application/x-gzip,application/zip"
@@ -46,7 +46,7 @@
 
       <div class="flex flex-wrap gap-2">
         <button class="btn-primary" :disabled="uploading || !selectedFile" @click="uploadBackup">
-          {{ uploading ? 'Yukleniyor...' : 'Yedegi Yukle' }}
+          {{ uploading ? 'Yükleniyor...' : 'Yedeği Yükle' }}
         </button>
       </div>
 
@@ -58,7 +58,7 @@
       </div>
 
       <div class="space-y-2">
-        <label class="block text-sm text-gray-400">Arsiv yolu</label>
+        <label class="block text-sm text-gray-400">Arşiv yolu</label>
         <input
           v-model="archivePath"
           class="aura-input w-full font-mono text-xs"
@@ -94,7 +94,7 @@
             <p class="text-sm text-white mt-1">{{ analysis.stats.email_count }}</p>
           </div>
           <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
-            <p class="text-xs text-gray-400">Arsiv Boyutu</p>
+            <p class="text-xs text-gray-400">Arşiv Boyutu</p>
             <p class="text-sm text-white mt-1">{{ analysis.archive_size_human || '-' }}</p>
           </div>
           <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
@@ -109,7 +109,7 @@
           <div class="flex flex-wrap items-center justify-between gap-2">
             <h3 class="text-sm font-semibold text-white">Pre-check Raporu</h3>
             <p class="text-xs text-gray-300">
-              Tahmini sure: <span class="text-white">{{ etaText(analysis.precheck?.eta_seconds) }}</span>
+              Tahmini süre: <span class="text-white">{{ etaText(analysis.precheck?.eta_seconds) }}</span>
             </p>
           </div>
 
@@ -137,7 +137,7 @@
           </div>
 
           <div v-if="(analysis.precheck?.recommendations || []).length" class="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-3">
-            <p class="text-xs text-cyan-300 mb-2">Oneriler:</p>
+            <p class="text-xs text-cyan-300 mb-2">Öneriler:</p>
             <p v-for="(rec, idx) in analysis.precheck?.recommendations || []" :key="idx" class="text-xs text-cyan-100 mb-1">
               - {{ rec }}
             </p>
@@ -146,30 +146,30 @@
 
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div class="rounded-lg border border-panel-border p-3">
-            <h3 class="text-sm font-semibold text-white mb-2">MySQL Dump Dosyalari</h3>
+            <h3 class="text-sm font-semibold text-white mb-2">MySQL Dump Dosyaları</h3>
             <div class="max-h-48 overflow-auto text-xs font-mono text-gray-300 space-y-1">
               <p v-for="item in analysis.mysql_dumps" :key="item">{{ item }}</p>
-              <p v-if="analysis.mysql_dumps.length === 0" class="text-gray-500">Kayit yok.</p>
+              <p v-if="analysis.mysql_dumps.length === 0" class="text-gray-500">Kayıt yok.</p>
             </div>
           </div>
           <div class="rounded-lg border border-panel-border p-3">
-            <h3 class="text-sm font-semibold text-white mb-2">E-Posta Hesaplari</h3>
+            <h3 class="text-sm font-semibold text-white mb-2">E-Posta Hesapları</h3>
             <div class="max-h-48 overflow-auto text-xs font-mono text-gray-300 space-y-1">
               <p v-for="item in analysis.email_accounts" :key="item">{{ item }}</p>
-              <p v-if="analysis.email_accounts.length === 0" class="text-gray-500">Kayit yok.</p>
+              <p v-if="analysis.email_accounts.length === 0" class="text-gray-500">Kayıt yok.</p>
             </div>
           </div>
           <div class="rounded-lg border border-panel-border p-3">
-            <h3 class="text-sm font-semibold text-white mb-2">VHost Adaylari</h3>
+            <h3 class="text-sm font-semibold text-white mb-2">VHost Adayları</h3>
             <div class="max-h-48 overflow-auto text-xs font-mono text-gray-300 space-y-1">
               <p v-for="item in analysis.vhost_candidates" :key="item">{{ item }}</p>
-              <p v-if="analysis.vhost_candidates.length === 0" class="text-gray-500">Kayit yok.</p>
+              <p v-if="analysis.vhost_candidates.length === 0" class="text-gray-500">Kayıt yok.</p>
             </div>
           </div>
         </div>
 
         <div v-if="analysis.warnings?.length" class="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3">
-          <p class="text-xs text-yellow-300 mb-1">Uyarilar:</p>
+          <p class="text-xs text-yellow-300 mb-1">Uyarılar:</p>
           <p v-for="(w, i) in analysis.warnings" :key="i" class="text-xs text-yellow-200">- {{ w }}</p>
         </div>
       </div>
@@ -177,12 +177,12 @@
 
     <div class="aura-card space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 class="text-lg font-semibold text-white">3. Import Baslat ve Izle</h2>
+        <h2 class="text-lg font-semibold text-white">3. Import Başlat ve İzle</h2>
         <button class="btn-primary" :disabled="importStarting || !archivePath || !isPrecheckReady" @click="startImport">
-          {{ importStarting ? 'Baslatiliyor...' : 'Import Baslat' }}
+          {{ importStarting ? 'Başlatılıyor...' : 'Import Başlat' }}
         </button>
       </div>
-      <p class="text-xs text-gray-400">Import sadece pre-check sonucu READY ise baslatilir.</p>
+      <p class="text-xs text-gray-400">Import sadece pre-check sonucu READY ise başlatılır.</p>
 
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div>
@@ -209,18 +209,18 @@
         </div>
 
         <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
-          <p class="text-xs text-gray-400 mb-2">Canli Log</p>
+          <p class="text-xs text-gray-400 mb-2">Canlı Log</p>
           <pre class="max-h-64 overflow-auto text-xs text-gray-200 whitespace-pre-wrap">{{ (job.logs || []).join('\n') }}</pre>
         </div>
 
         <div v-if="job.summary" class="rounded-lg border border-panel-border p-3 space-y-2">
-          <p class="text-sm text-white font-semibold">Import Ozeti</p>
-          <p class="text-xs text-gray-300">DB cikti dosyasi: {{ job.summary.converted_db_files?.length || 0 }}</p>
+          <p class="text-sm text-white font-semibold">Import Özeti</p>
+          <p class="text-xs text-gray-300">DB çıktı dosyası: {{ job.summary.converted_db_files?.length || 0 }}</p>
           <p class="text-xs text-gray-300 font-mono">Mail plani: {{ job.summary.email_plan_file }}</p>
           <p class="text-xs text-gray-300 font-mono">VHost plani: {{ job.summary.vhost_plan_file }}</p>
           <p class="text-xs text-gray-400">
             Sistem import modu:
-            <span class="text-gray-200">{{ job.summary.system_apply_enabled ? 'AKTIF' : 'DRY-RUN' }}</span>
+            <span class="text-gray-200">{{ job.summary.system_apply_enabled ? 'AKTİF' : 'DRY-RUN' }}</span>
           </p>
         </div>
       </div>
@@ -282,9 +282,9 @@ async function uploadBackup() {
       },
     })
     archivePath.value = res.data?.data?.archive_path || ''
-    setSuccess('Backup dosyasi yuklendi.')
+    setSuccess('Backup dosyası yüklendi.')
   } catch (err) {
-    setError(err?.response?.data?.message || 'Backup yuklenemedi.')
+    setError(err?.response?.data?.message || 'Backup yüklenemedi.')
   } finally {
     uploading.value = false
   }
@@ -303,9 +303,9 @@ async function analyzeBackup() {
     }
     const res = await api.post('/migration/analyze', payload)
     analysis.value = res.data?.data || null
-    setSuccess('Backup analizi tamamlandi.')
+    setSuccess('Backup analizi tamamlandı.')
   } catch (err) {
-    setError(err?.response?.data?.message || 'Backup analizi basarisiz.')
+    setError(err?.response?.data?.message || 'Backup analizi başarısız.')
   } finally {
     analyzing.value = false
   }
@@ -328,7 +328,7 @@ function startPolling() {
 async function startImport() {
   if (!archivePath.value) return
   if (!isPrecheckReady.value) {
-    setError('Pre-check sonucunda blocker var. Import baslatilmadi.')
+    setError('Pre-check sonucunda blocker var. Import başlatılmadı.')
     return
   }
   importStarting.value = true
@@ -346,9 +346,9 @@ async function startImport() {
     if (job.value?.id) {
       startPolling()
     }
-    setSuccess('Import kuyruga alindi.')
+    setSuccess('Import kuyruğa alındı.')
   } catch (err) {
-    setError(err?.response?.data?.message || 'Import baslatilamadi.')
+    setError(err?.response?.data?.message || 'Import başlatılamadı.')
   } finally {
     importStarting.value = false
   }
@@ -364,7 +364,7 @@ async function fetchJobStatus() {
       stopPolling()
     }
   } catch (err) {
-    setError(err?.response?.data?.message || 'Job durumu alinamadi.')
+    setError(err?.response?.data?.message || 'Job durumu alınamadı.')
     stopPolling()
   }
 }
@@ -420,3 +420,4 @@ onBeforeUnmount(() => {
   stopPolling()
 })
 </script>
+

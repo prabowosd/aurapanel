@@ -41,11 +41,11 @@
           <span :class="status.firewall_active ? 'text-emerald-400' : 'text-yellow-400'">
             {{ status.firewall_active ? 'Aktif' : 'Pasif / Tespit edilemedi' }}
           </span>
-          <span v-if="status.firewall_manager" class="text-gray-400">Yonetici: {{ status.firewall_manager }}</span>
+          <span v-if="status.firewall_manager" class="text-gray-400">Yönetici: {{ status.firewall_manager }}</span>
           <span v-if="status.server_ip" class="text-gray-400">Sunucu IP: {{ status.server_ip }}</span>
         </div>
         <p v-if="(status.firewall_open_ports || []).length" class="mt-3 text-xs text-gray-400">
-          Acik portlar: {{ status.firewall_open_ports.join(', ') }}
+          Açık portlar: {{ status.firewall_open_ports.join(', ') }}
         </p>
       </div>
       <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -56,13 +56,13 @@
         />
         <input v-model="firewallForm.reason" class="aura-input" :placeholder="t('security_center.firewall.reason')" />
         <select v-model="firewallForm.block" class="aura-input">
-          <option :value="true">{{ t('security_center.firewall.block') }} (Tum trafik)</option>
-          <option :value="false">{{ t('security_center.firewall.allow') }} (Tum trafik)</option>
+          <option :value="true">{{ t('security_center.firewall.block') }} (Tüm trafik)</option>
+          <option :value="false">{{ t('security_center.firewall.allow') }} (Tüm trafik)</option>
         </select>
         <button class="btn-primary" @click="addFirewallRule">{{ t('security_center.firewall.add_rule') }}</button>
       </div>
       <p class="text-xs text-gray-400">
-        Bu alan port degil, IP/CIDR tabanli kural icindir. Port/TCP/UDP yonetimi icin Panel Port veya servis bazli firewall ekranini kullanin.
+        Bu alan port değil, IP/CIDR tabanlı kural içindir. Port/TCP/UDP yönetimi için Panel Port veya servis bazlı firewall ekranını kullanın.
       </p>
       <div v-if="firewallError" class="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
         {{ firewallError }}
@@ -94,7 +94,7 @@
       </div>
 
       <div class="mt-4 rounded-xl border border-panel-border bg-panel-dark p-4 space-y-3">
-        <h3 class="text-base font-semibold text-white">Port Kurallari (TCP/UDP)</h3>
+        <h3 class="text-base font-semibold text-white">Port Kuralları (TCP/UDP)</h3>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-5">
           <input v-model="firewallPortForm.port" type="number" min="1" max="65535" class="aura-input" placeholder="Port (orn: 3306)" />
           <select v-model="firewallPortForm.protocol" class="aura-input">
@@ -106,10 +106,10 @@
             <option :value="true">Block</option>
           </select>
           <input v-model="firewallPortForm.reason" class="aura-input" placeholder="Reason (opsiyonel)" />
-          <button class="btn-primary" @click="addFirewallPortRule">Port Kurali Ekle</button>
+          <button class="btn-primary" @click="addFirewallPortRule">Port Kuralı Ekle</button>
         </div>
         <p class="text-xs text-gray-400">
-          Bu bolum port bazli kural icindir. IP tabanli izin/engel islemleri bir ustteki IP/CIDR bolumunden yonetilir.
+          Bu bölüm port bazlı kural içindir. IP tabanlı izin/engel işlemleri bir üstteki IP/CIDR bölümünden yönetilir.
         </p>
         <div v-if="firewallPortError" class="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
           {{ firewallPortError }}
@@ -122,12 +122,12 @@
                 <th class="py-2 text-left">Protocol</th>
                 <th class="py-2 text-left">Action</th>
                 <th class="py-2 text-left">Reason</th>
-                <th class="py-2 text-right">Islem</th>
+                <th class="py-2 text-right">İşlem</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="firewallPortRules.length === 0">
-                <td colspan="5" class="py-4 text-center text-gray-400">Port kurali yok</td>
+                <td colspan="5" class="py-4 text-center text-gray-400">Port kuralı yok</td>
               </tr>
               <tr
                 v-for="rule in firewallPortRules"
@@ -303,7 +303,7 @@
             <option value="signature">Signature Fallback</option>
           </select>
           <button class="btn-primary" :disabled="malwareStarting" @click="startMalwareScan">
-            {{ malwareStarting ? 'Tarama baslatiliyor...' : 'Taramayi Baslat' }}
+            {{ malwareStarting ? 'Tarama başlatılıyor...' : 'Taramayı Başlat' }}
           </button>
         </div>
       </div>
@@ -313,7 +313,7 @@
           <h3 class="text-base font-semibold text-white">Scan Jobs</h3>
           <button class="btn-secondary" @click="loadMalwareJobs">Yenile</button>
         </div>
-        <div v-if="malwareJobs.length === 0" class="text-sm text-gray-400">Tarama kaydi bulunmuyor.</div>
+        <div v-if="malwareJobs.length === 0" class="text-sm text-gray-400">Tarama kaydı bulunmuyor.</div>
         <div v-for="job in malwareJobs" :key="job.id" class="rounded-lg border border-panel-border bg-panel-dark p-4 space-y-3">
           <div class="flex flex-wrap items-center gap-2 text-sm">
             <span class="font-mono text-gray-300">{{ job.id }}</span>
@@ -354,10 +354,10 @@
 
       <div class="aura-card space-y-3">
         <div class="flex items-center justify-between">
-          <h3 class="text-base font-semibold text-white">Karantina Yoneticisi</h3>
+          <h3 class="text-base font-semibold text-white">Karantina Yöneticisi</h3>
           <button class="btn-secondary" @click="loadQuarantineRecords">Yenile</button>
         </div>
-        <div v-if="quarantineRecords.length === 0" class="text-sm text-gray-400">Karantina kaydi bulunmuyor.</div>
+        <div v-if="quarantineRecords.length === 0" class="text-sm text-gray-400">Karantina kaydı bulunmuyor.</div>
         <div v-for="item in quarantineRecords" :key="item.id" class="rounded-lg border border-panel-border bg-panel-dark p-3 text-xs space-y-1">
           <p class="text-gray-200 font-mono break-all">Orijinal: {{ item.original_path }}</p>
           <p class="text-gray-400 font-mono break-all">Karantina: {{ item.quarantine_path }}</p>
@@ -367,7 +367,7 @@
             :disabled="!!item.restored_at"
             @click="restoreQuarantineRecord(item.id)"
           >
-            {{ item.restored_at ? 'Geri Yuklendi' : 'Geri Yukle' }}
+            {{ item.restored_at ? 'Geri Yüklendi' : 'Geri Yükle' }}
           </button>
         </div>
       </div>
@@ -541,7 +541,7 @@ async function loadFirewallRules() {
     const res = await api.get('/security/firewall/rules')
     firewallRules.value = res.data.data || []
   } catch (err) {
-    firewallError.value = err.response?.data?.message || err.message || 'Firewall kurallari alinamadi.'
+    firewallError.value = err.response?.data?.message || err.message || 'Firewall kuralları alınamadı.'
   }
 }
 
@@ -550,7 +550,7 @@ async function loadFirewallPortRules() {
     const res = await api.get('/security/firewall/ports')
     firewallPortRules.value = res.data.data || []
   } catch (err) {
-    firewallPortError.value = err.response?.data?.message || err.message || 'Firewall port kurallari alinamadi.'
+    firewallPortError.value = err.response?.data?.message || err.message || 'Firewall port kuralları alınamadı.'
   }
 }
 
@@ -587,7 +587,7 @@ function isValidPort(input) {
 async function addFirewallRule() {
   const ipAddress = String(firewallForm.value.ip_address || '').trim()
   if (!isValidIPv4OrCIDR(ipAddress)) {
-    firewallError.value = 'Gecersiz IP/CIDR. Ornek: 185.190.140.62 veya 185.190.140.0/24'
+    firewallError.value = 'Geçersiz IP/CIDR. Örnek: 185.190.140.62 veya 185.190.140.0/24'
     return
   }
 
@@ -602,7 +602,7 @@ async function addFirewallRule() {
     firewallForm.value.reason = ''
     await loadFirewallRules()
   } catch (err) {
-    firewallError.value = err.response?.data?.message || err.message || 'Firewall kurali eklenemedi.'
+    firewallError.value = err.response?.data?.message || err.message || 'Firewall kuralı eklenemedi.'
   }
 }
 
@@ -612,14 +612,14 @@ async function deleteFirewallRule(ip) {
     await api.delete('/security/firewall/rules', { params: { ip_address: ip } })
     await loadFirewallRules()
   } catch (err) {
-    firewallError.value = err.response?.data?.message || err.message || 'Firewall kurali silinemedi.'
+    firewallError.value = err.response?.data?.message || err.message || 'Firewall kuralı silinemedi.'
   }
 }
 
 async function addFirewallPortRule() {
   const portText = String(firewallPortForm.value.port || '').trim()
   if (!isValidPort(portText)) {
-    firewallPortError.value = 'Gecersiz port. 1-65535 araliginda olmali.'
+    firewallPortError.value = 'Geçersiz port. 1-65535 aralığında olmalı.'
     return
   }
 
@@ -635,7 +635,7 @@ async function addFirewallPortRule() {
     firewallPortForm.value.reason = ''
     await loadFirewallPortRules()
   } catch (err) {
-    firewallPortError.value = err.response?.data?.message || err.message || 'Firewall port kurali eklenemedi.'
+    firewallPortError.value = err.response?.data?.message || err.message || 'Firewall port kuralı eklenemedi.'
   }
 }
 
@@ -651,7 +651,7 @@ async function deleteFirewallPortRule(rule) {
     })
     await loadFirewallPortRules()
   } catch (err) {
-    firewallPortError.value = err.response?.data?.message || err.message || 'Firewall port kurali silinemedi.'
+    firewallPortError.value = err.response?.data?.message || err.message || 'Firewall port kuralı silinemedi.'
   }
 }
 
@@ -840,3 +840,4 @@ onBeforeUnmount(() => {
   stopMalwarePolling()
 })
 </script>
+
