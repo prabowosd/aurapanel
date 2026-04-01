@@ -22,6 +22,7 @@ AuraPanel is being built for 2026-grade infrastructure operations where platform
 - [Performance Model](#performance-model)
 - [Comparison Snapshot](#comparison-snapshot)
 - [Docs and Wiki](#docs-and-wiki)
+- [Live Demo](#live-demo)
 - [Production Installation](#production-installation)
 - [Local Development](#local-development)
 - [Build and Packaging](#build-and-packaging)
@@ -182,6 +183,15 @@ The repository includes a full wiki starter set under `wiki/`:
 - [Troubleshooting](./wiki/Troubleshooting.md)
 
 You can copy these pages directly into GitHub Wiki or keep them versioned in-repo as canonical docs.
+
+## Live Demo
+
+- URL: `https://demo.aurapanel.info`
+- Email: `demo@aurapanel.info`
+- Password: `1234567`
+- Mode: strict read-only demo account
+
+Demo access is intentionally restricted. Mutating operations (create/update/delete, service control, write actions) are blocked at the API gateway level so visitors can explore the panel safely without changing host state.
 
 ## Production Installation
 

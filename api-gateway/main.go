@@ -95,7 +95,9 @@ func main() {
 		middleware.CorsMiddleware(
 			middleware.Logger(
 				middleware.AuthMiddleware(
-					middleware.RBACMiddleware(protectedMux),
+					middleware.RBACMiddleware(
+						middleware.DemoModeMiddleware(protectedMux),
+					),
 				),
 			),
 		),
