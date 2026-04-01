@@ -35,11 +35,17 @@
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div class="lg:col-span-2 aura-card min-h-[400px]">
-        <div class="flex items-center justify-between mb-6">
+        <div class="mb-6 flex flex-wrap items-start justify-between gap-3">
           <h2 class="text-lg font-semibold text-white">{{ t('dashboard.system_load_map') }}</h2>
-          <button class="btn-secondary text-sm px-3 py-1.5" @click="loadDashboard" :disabled="loading">
-            {{ loading ? t('dashboard.refreshing') : t('dashboard.refresh') }}
-          </button>
+          <div class="flex items-center gap-3">
+            <div class="text-right leading-tight">
+              <p class="text-sm font-medium text-gray-300">{{ t('dashboard.uptime', { value: uptimeHuman }) }}</p>
+              <p class="mt-1 text-xs text-gray-500">{{ t('dashboard.load_avg', { value: loadAvg }) }}</p>
+            </div>
+            <button class="btn-secondary px-3 py-1.5 text-sm" @click="loadDashboard" :disabled="loading">
+              {{ loading ? t('dashboard.refreshing') : t('dashboard.refresh') }}
+            </button>
+          </div>
         </div>
         <div class="h-[300px] border border-panel-border rounded-xl bg-panel-darker/40 p-4">
           <div class="mb-3 flex items-center justify-between text-xs text-gray-400">
@@ -80,10 +86,6 @@
             </div>
           </div>
 
-          <div class="mt-3 text-center">
-            <p class="text-gray-400 font-medium">{{ t('dashboard.uptime', { value: uptimeHuman }) }}</p>
-            <p class="text-sm text-gray-500 mt-1">{{ t('dashboard.load_avg', { value: loadAvg }) }}</p>
-          </div>
         </div>
       </div>
 

@@ -14,7 +14,7 @@
       
       <nav class="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
         <div class="mb-3 rounded-xl border border-panel-border bg-panel-card/85 px-3 py-2.5 shadow-lg shadow-black/10">
-          <div class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-400">
+          <div class="flex items-center gap-1.5 text-[10px] font-semibold tracking-[0.16em] text-gray-400">
             <Network class="h-3.5 w-3.5 text-brand-400" />
             <span>{{ t('activity_log.ip') }}</span>
           </div>
@@ -24,7 +24,7 @@
         </div>
 
         <button
-          class="sticky top-0 z-[5] mb-3 flex w-full items-center justify-between rounded-xl border border-panel-border bg-panel-card/95 px-3 py-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-gray-300 shadow-lg shadow-black/10 backdrop-blur-sm transition hover:border-brand-500/30 hover:text-white"
+          class="sticky top-0 z-[5] mb-3 flex w-full items-center justify-between rounded-xl border border-panel-border bg-panel-card/95 px-3 py-2.5 text-xs font-semibold tracking-[0.16em] text-gray-300 shadow-lg shadow-black/10 backdrop-blur-sm transition hover:border-brand-500/30 hover:text-white"
           @click="toggleAllMenus"
         >
           <div class="flex items-center gap-2">
