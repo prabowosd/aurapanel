@@ -659,49 +659,143 @@ func (s *service) handleSSHConfigSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Failed to read sshd_config")
 		return
 	}
-
-	lines := strings.Split(string(content), "\n")
-	portFound := false
-	rootLoginFound := false
-
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "Port ") {
-			lines[i] = fmt.Sprintf("Port %d", port)
-			portFound = true
-		} else if strings.HasPrefix(trimmed, "PermitRootLogin ") {
-			lines[i] = fmt.Sprintf("PermitRootLogin %s", permitRootLogin)
-			rootLoginFound = true
-		}
-	}
-
-	if !portFound {
-		lines = append(lines, fmt.Sprintf("Port %d", port))
-	}
-	if !rootLoginFound {
-		lines = append(lines, fmt.Sprintf("PermitRootLogin %s", permitRootLogin))
-	}
-
-	if err := os.WriteFile(configPath, []byte(strings.Join(lines, "\n")), 0644); err != nil {
+	updatedContent := normalizeSSHConfigContent(string(content), port, permitRootLogin)
+	if err := os.WriteFile(configPath, []byte(updatedContent), 0644); err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to write sshd_config")
 		return
 	}
-
-	// Restart SSH service (sshd on EL, ssh on Ubuntu/Debian)
-	// Disable ssh.socket on Debian/Ubuntu to apply sshd_config correctly
-	go func() {
-		_ = exec.Command("systemctl", "disable", "--now", "ssh.socket").Run()
-		_ = exec.Command("systemctl", "daemon-reload").Run()
-		_ = exec.Command("systemctl", "enable", "ssh.service").Run()
-		_ = exec.Command("systemctl", "restart", "sshd").Run()
-		_ = exec.Command("systemctl", "restart", "ssh").Run()
-	}()
+	if err := applySSHRuntimeConfig(port); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("SSH config was written but service apply failed: %v", err))
+		return
+	}
 
 	s.mu.Lock()
 	s.appendActivityLocked("system", "ssh_config", "SSH Port and Root Login configuration updated.", "")
 	s.mu.Unlock()
 
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "SSH configuration updated successfully."})
+}
+
+func normalizeSSHConfigContent(content string, port int, permitRootLogin string) string {
+	lines := strings.Split(content, "\n")
+	out := make([]string, 0, len(lines)+2)
+
+	portDirective := fmt.Sprintf("Port %d", port)
+	rootDirective := fmt.Sprintf("PermitRootLogin %s", permitRootLogin)
+	portWritten := false
+	rootWritten := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		lowered := strings.ToLower(trimmed)
+		if strings.HasPrefix(lowered, "port ") {
+			if !portWritten {
+				out = append(out, portDirective)
+				portWritten = true
+			}
+			continue
+		}
+		if strings.HasPrefix(lowered, "permitrootlogin ") {
+			if !rootWritten {
+				out = append(out, rootDirective)
+				rootWritten = true
+			}
+			continue
+		}
+		out = append(out, line)
+	}
+
+	if !portWritten {
+		out = append(out, portDirective)
+	}
+	if !rootWritten {
+		out = append(out, rootDirective)
+	}
+
+	return strings.Join(out, "\n")
+}
+
+func applySSHRuntimeConfig(expectedPort int) error {
+	if !runtimeHostLinux() {
+		return nil
+	}
+
+	if err := exec.Command("/usr/sbin/sshd", "-t").Run(); err != nil {
+		return fmt.Errorf("sshd config test failed: %w", err)
+	}
+
+	// Socket activation can resurrect stale listeners on distro defaults.
+	_ = exec.Command("systemctl", "disable", "--now", "ssh.socket").Run()
+	_ = exec.Command("systemctl", "disable", "--now", "sshd.socket").Run()
+	_ = exec.Command("systemctl", "daemon-reload").Run()
+
+	unit, err := detectSSHServiceUnit()
+	if err != nil {
+		return err
+	}
+
+	_ = exec.Command("systemctl", "enable", unit).Run()
+	_ = exec.Command("systemctl", "stop", unit).Run()
+
+	// Kill only listener masters; keep active user sessions intact.
+	_ = exec.Command("pkill", "-f", "sshd: .*\\[listener\\]").Run()
+
+	if err := exec.Command("systemctl", "start", unit).Run(); err != nil {
+		return fmt.Errorf("failed to start %s: %w", unit, err)
+	}
+
+	if err := waitForLocalSSHDPort(expectedPort, 10*time.Second); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func detectSSHServiceUnit() (string, error) {
+	for _, unit := range []string{"ssh.service", "sshd.service"} {
+		if systemdUnitLoaded(unit) {
+			return unit, nil
+		}
+	}
+	return "", fmt.Errorf("no loaded ssh service unit found (ssh.service/sshd.service)")
+}
+
+func systemdUnitLoaded(unit string) bool {
+	out, err := exec.Command("systemctl", "show", "-p", "LoadState", "--value", unit).Output()
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(string(out)), "loaded")
+}
+
+func waitForLocalSSHDPort(port int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if localTCPPortListening(port) {
+			return nil
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	return fmt.Errorf("sshd did not start listening on port %d in time", port)
+}
+
+func localTCPPortListening(port int) bool {
+	output, err := exec.Command("ss", "-ltn").Output()
+	if err != nil {
+		return false
+	}
+	needle := ":" + strconv.Itoa(port)
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		localAddr := fields[3]
+		if strings.HasSuffix(localAddr, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseSSHConfigPort(raw interface{}) (int, error) {
