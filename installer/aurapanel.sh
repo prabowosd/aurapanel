@@ -1011,8 +1011,8 @@ EOF
 \$config['default_host'] = '127.0.0.1';
 \$config['default_port'] = 993;
 \$config['imap_conn_options'] = ['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]];
-\$config['smtp_server'] = '127.0.0.1';
-\$config['smtp_port'] = 587;
+\$config['smtp_server'] = 'ssl://127.0.0.1';
+\$config['smtp_port'] = 465;
 \$config['smtp_user'] = '%u';
 \$config['smtp_pass'] = '%p';
 \$config['smtp_conn_options'] = ['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]];
