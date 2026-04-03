@@ -310,17 +310,19 @@
       </div>
     </div>
 
-    <div v-if="activeTab === 'ssh'" class="aura-card space-y-4">
-      <h2 class="text-lg font-bold text-white">{{ t('security_center.ssh.title') }}</h2>
+    <div v-if="activeTab === 'ssh_settings'" class="aura-card space-y-4">
+      <h2 class="text-lg font-bold text-white">{{ t('security_center.ssh_settings.title') }}</h2>
       <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
         <input v-model="ssh.user" class="aura-input" :placeholder="t('security_center.ssh.user')" />
         <input v-model="ssh.title" class="aura-input" :placeholder="t('security_center.ssh.title_label')" />
         <input v-model="ssh.public_key" class="aura-input md:col-span-2" :placeholder="t('security_center.ssh.public_key')" />
       </div>
       <div class="flex gap-3">
+        <button class="btn-secondary" @click="goToSftpUserAdd">{{ t('security_center.ssh_settings.add_user') }}</button>
         <button class="btn-primary" @click="addSshKey">{{ t('security_center.ssh.add_key') }}</button>
         <button class="btn-secondary" @click="loadSshKeys">{{ t('security_center.ssh.list') }}</button>
       </div>
+      <p class="text-xs text-gray-400">{{ t('security_center.ssh_settings.sftp_note') }}</p>
       <div class="space-y-2">
         <div v-for="key in sshKeys" :key="key.id" class="flex items-center justify-between gap-3 rounded-lg border border-panel-border bg-panel-dark p-3">
           <div>
@@ -332,7 +334,7 @@
       </div>
     </div>
 
-    <div v-if="activeTab === 'ssh_config'" class="aura-card space-y-4">
+    <div v-if="activeTab === 'ssh_settings'" class="aura-card space-y-4">
       <div class="flex items-center justify-between mb-4">
         <div>
           <h2 class="text-lg font-bold text-white">{{ t('security_center.ssh_config.title') || 'SSH Configuration' }}</h2>
@@ -507,14 +509,19 @@ const tabs = [
   { id: 'waf', label: t('security_center.tabs.waf') },
   { id: 'ddos', label: t('security_center.tabs.ddos') || 'DDoS' },
   { id: '2fa', label: t('security_center.tabs.twofa') },
-  { id: 'ssh', label: t('security_center.tabs.ssh') },
-  { id: 'ssh_config', label: t('security_center.tabs.ssh_config') || 'SSH Config' },
+  { id: 'ssh_settings', label: t('security_center.tabs.ssh_settings') || 'SSH Settings' },
   { id: 'malware', label: 'Malware Scanner' },
   { id: 'hardening', label: t('security_center.tabs.hardening') },
   { id: 'kernel', label: t('security_center.tabs.kernel') },
 ]
 
-const activeTab = ref(route.query.tab || 'overview')
+function normalizeSecurityTab(tab) {
+  const value = String(tab || '').trim()
+  if (value === 'ssh' || value === 'ssh_config') return 'ssh_settings'
+  return value || 'overview'
+}
+
+const activeTab = ref(normalizeSecurityTab(typeof route.query.tab === 'string' ? route.query.tab : 'overview'))
 const fail2banStatus = ref({ status: 'loading', raw: '' })
 const fail2banLoading = ref(false)
 const ddosLoading = ref(false)
@@ -664,21 +671,33 @@ const statusCards = computed(() => [
 ])
 
 function setTab(tab) {
-  activeTab.value = tab
-  router.replace({ query: { ...route.query, tab } })
-  if (tab === 'fail2ban') loadFail2ban()
-  if (tab === 'ddos') loadDdos()
-  if (tab === 'ssh_config') loadSshConfig()
+  const normalized = normalizeSecurityTab(tab)
+  activeTab.value = normalized
+  router.replace({ query: { ...route.query, tab: normalized } })
+  if (normalized === 'fail2ban') loadFail2ban()
+  if (normalized === 'ddos') loadDdos()
+  if (normalized === 'ssh_settings') {
+    loadSshConfig()
+    loadSshKeys()
+  }
 }
 
 watch(
   () => route.query.tab,
   tab => {
-    activeTab.value = tab || 'overview'
-    if (tab === 'ddos') loadDdos()
-    if (tab === 'ssh_config') loadSshConfig()
+    const normalized = normalizeSecurityTab(typeof tab === 'string' ? tab : 'overview')
+    activeTab.value = normalized
+    if (normalized === 'ddos') loadDdos()
+    if (normalized === 'ssh_settings') {
+      loadSshConfig()
+      loadSshKeys()
+    }
   },
 )
+
+function goToSftpUserAdd() {
+  router.push({ path: '/sftp', query: { action: 'create' } })
+}
 
 async function loadStatus() {
   const res = await api.get('/security/status')
@@ -981,6 +1000,9 @@ async function loadAll() {
     loadMalwareJobs(),
     loadQuarantineRecords(),
   ])
+  if (activeTab.value === 'ssh_settings') {
+    await loadSshConfig()
+  }
 }
 
 onMounted(loadAll)

@@ -1620,10 +1620,14 @@ Object.assign(extraEn, {
       waf: 'ML-WAF',
       ddos: 'DDoS',
       twofa: '2FA',
-      ssh: 'SSH Keys',
-      ssh_config: 'SSH Config',
+      ssh_settings: 'SSH Settings',
       hardening: 'Hardening',
       kernel: 'Live Patching',
+    },
+    ssh_settings: {
+      title: 'SSH Settings',
+      add_user: 'Add SSH User',
+      sftp_note: 'SFTP users are SSH users. Create users from SFTP Manager.',
     },
     ssh_config: {
       title: 'SSH Configuration',
@@ -1895,7 +1899,7 @@ Object.assign(extraTr, {
     title: 'Security Center',
     subtitle: 'Zero-Trust güvenlik ozelliklerini plan bazli yonetin.',
     refresh: 'Yenile',
-    tabs: { overview: 'Genel Bakış', firewall: 'Firewall', waf: 'ML-WAF', twofa: '2FA', ssh: 'SSH Keys', ssh_config: 'SSH Config', hardening: 'Hardening', kernel: 'Kernel Security' },
+    tabs: { overview: 'Genel Bakış', firewall: 'Firewall', waf: 'ML-WAF', twofa: '2FA', ssh_settings: 'SSH Ayarlari', hardening: 'Hardening', kernel: 'Kernel Security' },
     overview: { active: 'Aktif', passive: 'Pasif', partial: 'Kısmi' },
     firewall: {
       title: 'Firewall (nftables)',
@@ -1939,6 +1943,11 @@ Object.assign(extraTr, {
       add_key: 'Key Ekle',
       list: 'Listele',
       delete: 'Sil',
+    },
+    ssh_settings: {
+      title: 'SSH Ayarlari',
+      add_user: 'SSH Kullanicisi Ekle',
+      sftp_note: 'SFTP kullanicisi ayni zamanda SSH kullanicisidir. Kullanici olusturmak icin SFTP Yoneticisi\'ni kullanin.',
     },
     fail2ban: {
       title: 'Fail2Ban Yöneticisi',

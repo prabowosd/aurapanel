@@ -307,7 +307,7 @@
                   <router-link v-if="can('/security')" :to="{ path: '/security', query: { tab: '2fa' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.totp') }}</span>
                   </router-link>
-                  <router-link v-if="can('/security')" :to="{ path: '/security', query: { tab: 'ssh' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                  <router-link v-if="can('/security')" :to="{ path: '/security', query: { tab: 'ssh_settings' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                     <span>{{ t('layout.links.ssh_keys') }}</span>
                   </router-link>
                   <router-link v-if="can('/security')" :to="{ path: '/security', query: { tab: 'hardening' } }" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
