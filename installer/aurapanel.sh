@@ -725,12 +725,58 @@ to_firewalld_rule() {
   echo "${port_part}/${proto}"
 }
 
+detect_ssh_port() {
+  local detected_port=""
+  local config_file
+
+  for config_file in /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf; do
+    [ -f "${config_file}" ] || continue
+    detected_port="$(awk '
+      /^[[:space:]]*#/ {next}
+      /^[[:space:]]*[Pp][Oo][Rr][Tt][[:space:]]+/ {
+        print $2
+        exit
+      }
+    ' "${config_file}" 2>/dev/null | tr -d '\r\n')"
+    if [ -n "${detected_port}" ] && [[ "${detected_port}" =~ ^[0-9]+$ ]]; then
+      echo "${detected_port}"
+      return 0
+    fi
+  done
+
+  echo "22"
+}
+
+harden_ssh_systemd_unit() {
+  local ssh_unit=""
+  local dropin_dir=""
+
+  if systemd_unit_exists "ssh.service"; then
+    ssh_unit="ssh.service"
+  elif systemd_unit_exists "sshd.service"; then
+    ssh_unit="sshd.service"
+  else
+    warn "No ssh.service/sshd.service unit found for KillMode hardening."
+    return 0
+  fi
+
+  dropin_dir="/etc/systemd/system/${ssh_unit}.d"
+  mkdir -p "${dropin_dir}"
+  cat <<'EOF' > "${dropin_dir}/99-aurapanel-killmode.conf"
+[Service]
+KillMode=control-group
+EOF
+  systemctl daemon-reload >/dev/null 2>&1 || true
+}
+
 configure_standard_firewall() {
   local panel_port="$1"
+  local ssh_port
   local touched="0"
   local ufw_active="0"
   local firewalld_active="0"
   local firewalld_changed="0"
+  ssh_port="$(detect_ssh_port)"
 
   if command -v ufw >/dev/null 2>&1; then
     if ufw status 2>/dev/null | grep -qi "Status: active"; then
@@ -755,7 +801,7 @@ configure_standard_firewall() {
 
   # Standard AuraPanel exposure profile (internet-facing services).
   local -a entries=(
-    "22/tcp|SSH"
+    "${ssh_port}/tcp|SSH"
     "80/tcp|HTTP (ACME challenge)"
     "443/tcp|HTTPS"
     "7080/tcp|OpenLiteSpeed WebAdmin"
@@ -815,6 +861,9 @@ configure_standard_firewall() {
 }
 
 ensure_firewall_manager_active() {
+  local ssh_port
+  ssh_port="$(detect_ssh_port)"
+
   if [ "${PKG_MGR}" = "apt" ]; then
     if command -v ufw >/dev/null 2>&1; then
       if ! ufw status 2>/dev/null | grep -qi "Status: active"; then
@@ -822,7 +871,10 @@ ensure_firewall_manager_active() {
         ufw --force reset >/dev/null 2>&1 || true
         ufw default deny incoming >/dev/null 2>&1 || true
         ufw default allow outgoing >/dev/null 2>&1 || true
-        ufw allow 22/tcp >/dev/null 2>&1 || true
+        ufw allow "${ssh_port}/tcp" >/dev/null 2>&1 || true
+        if [ "${ssh_port}" != "22" ]; then
+          ufw deny 22/tcp >/dev/null 2>&1 || true
+        fi
         ufw --force enable >/dev/null 2>&1 || true
       fi
     fi
@@ -2278,6 +2330,7 @@ main() {
 
   sync_project
   write_service_env_defaults
+  harden_ssh_systemd_unit
   ensure_firewall_manager_active
   configure_powerdns
   configure_minio_service

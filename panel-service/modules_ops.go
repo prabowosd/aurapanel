@@ -724,15 +724,19 @@ func applySSHRuntimeConfig(expectedPort int) error {
 		return fmt.Errorf("sshd config test failed: %w", err)
 	}
 
-	// Socket activation can resurrect stale listeners on distro defaults.
-	_ = exec.Command("systemctl", "disable", "--now", "ssh.socket").Run()
-	_ = exec.Command("systemctl", "disable", "--now", "sshd.socket").Run()
-	_ = exec.Command("systemctl", "daemon-reload").Run()
-
 	unit, err := detectSSHServiceUnit()
 	if err != nil {
 		return err
 	}
+
+	if err := ensureSSHServiceKillModeControlGroup(unit); err != nil {
+		return err
+	}
+
+	// Socket activation can resurrect stale listeners on distro defaults.
+	_ = exec.Command("systemctl", "disable", "--now", "ssh.socket").Run()
+	_ = exec.Command("systemctl", "disable", "--now", "sshd.socket").Run()
+	_ = exec.Command("systemctl", "daemon-reload").Run()
 
 	_ = exec.Command("systemctl", "enable", unit).Run()
 	_ = exec.Command("systemctl", "stop", unit).Run()
@@ -746,6 +750,40 @@ func applySSHRuntimeConfig(expectedPort int) error {
 
 	if err := waitForLocalSSHDPort(expectedPort, 10*time.Second); err != nil {
 		return err
+	}
+
+	// Safety net for stale listeners that may survive from prior restarts.
+	if expectedPort != 22 && localTCPPortListening(22) {
+		_ = exec.Command("pkill", "-f", "sshd: .*\\[listener\\]").Run()
+		if err := exec.Command("systemctl", "restart", unit).Run(); err != nil {
+			return fmt.Errorf("failed to restart %s while cleaning stale listeners: %w", unit, err)
+		}
+		if err := waitForLocalSSHDPort(expectedPort, 10*time.Second); err != nil {
+			return err
+		}
+		if localTCPPortListening(22) {
+			return fmt.Errorf("stale ssh listener still present on port 22")
+		}
+	}
+
+	return nil
+}
+
+func ensureSSHServiceKillModeControlGroup(unit string) error {
+	unit = strings.TrimSpace(unit)
+	if unit == "" {
+		return fmt.Errorf("ssh service unit is required")
+	}
+
+	dropInDir := filepath.Join("/etc/systemd/system", unit+".d")
+	if err := os.MkdirAll(dropInDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create ssh drop-in directory: %w", err)
+	}
+
+	overridePath := filepath.Join(dropInDir, "99-aurapanel-killmode.conf")
+	overrideContent := "[Service]\nKillMode=control-group\n"
+	if err := os.WriteFile(overridePath, []byte(overrideContent), 0o644); err != nil {
+		return fmt.Errorf("failed to write ssh killmode override: %w", err)
 	}
 
 	return nil
