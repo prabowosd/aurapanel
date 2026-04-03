@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -2132,6 +2133,82 @@ func (s *service) handleBackupCreate(w http.ResponseWriter, r *http.Request) {
 	if payload.Incremental {
 		message = fmt.Sprintf("Incremental backup completed for %s.", domain)
 	}
+	if prunedCount > 0 {
+		message = fmt.Sprintf("%s Retention policy pruned %d old snapshot(s).", message, prunedCount)
+	}
+	if retentionErr != nil {
+		message = fmt.Sprintf("%s Retention warning: %s", message, retentionErr.Error())
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Status:  "success",
+		Message: message,
+		Data: map[string]interface{}{
+			"snapshot":     snapshot,
+			"snapshot_id":  firstNonEmpty(snapshot.ShortID, snapshot.ID),
+			"pruned_count": prunedCount,
+		},
+	})
+}
+
+func (s *service) handleBackupUpload(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(512 << 20); err != nil {
+		errText := strings.ToLower(strings.TrimSpace(err.Error()))
+		switch {
+		case strings.Contains(errText, "multipart"), strings.Contains(errText, "boundary"):
+			writeError(w, http.StatusBadRequest, "Backup upload could not be parsed. Use multipart/form-data upload.")
+		case strings.Contains(errText, "request body too large"), strings.Contains(errText, "too large"):
+			writeError(w, http.StatusRequestEntityTooLarge, "Backup upload is too large for current limits.")
+		default:
+			writeError(w, http.StatusBadRequest, "Backup upload could not be parsed.")
+		}
+		return
+	}
+
+	domain := normalizeDomain(r.FormValue("domain"))
+	if domain == "" {
+		writeError(w, http.StatusBadRequest, "Domain is required.")
+		return
+	}
+	destinationID := strings.TrimSpace(r.FormValue("destination_id"))
+	backupPath := strings.TrimSpace(r.FormValue("backup_path"))
+	retentionKeep, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("retention_keep")))
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Backup archive is required.")
+		return
+	}
+	defer file.Close()
+
+	snapshot, err := createRuntimeSiteBackupFromArchive(domain, backupPath, header.Filename, file)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.mu.RLock()
+	if destination, ok := s.backupDestinationByIDLocked(destinationID); ok {
+		if retentionKeep <= 0 && destination.RetentionKeep > 0 {
+			retentionKeep = destination.RetentionKeep
+		}
+	}
+	s.mu.RUnlock()
+	if retentionKeep <= 0 {
+		retentionKeep = backupRetentionKeepFromEnv()
+	}
+	retentionKeep = normalizeBackupRetentionKeep(retentionKeep)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snapshot.Domain = domain
+	snapshot.DestinationID = destinationID
+	snapshot.RetentionKeep = retentionKeep
+	s.modules.BackupSnapshots = append([]BackupSnapshot{snapshot}, s.modules.BackupSnapshots...)
+	prunedCount, retentionErr := s.enforceBackupRetentionLocked(domain, retentionKeep)
+	s.appendActivityLocked("system", "backup_upload", fmt.Sprintf("Backup uploaded for %s from %s.", domain, header.Filename), "")
+
+	message := fmt.Sprintf("Backup uploaded for %s.", domain)
 	if prunedCount > 0 {
 		message = fmt.Sprintf("%s Retention policy pruned %d old snapshot(s).", message, prunedCount)
 	}

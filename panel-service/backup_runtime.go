@@ -127,17 +127,43 @@ func resolveSiteBackupTargetDir(domain, backupPath string) (string, error) {
 	return targetDir, nil
 }
 
-func inspectBackupArchive(path string) (int, error) {
-	out, err := commandOutputTrimmed("tar", "-tzf", path)
-	if err != nil {
-		return 0, fmt.Errorf("archive integrity check failed: %w", err)
+func listBackupArchiveEntries(path string) ([]string, error) {
+	lower := strings.ToLower(strings.TrimSpace(path))
+	var (
+		out string
+		err error
+	)
+	switch {
+	case strings.HasSuffix(lower, ".zip"):
+		out, err = commandOutputTrimmed("unzip", "-Z1", path)
+	case strings.HasSuffix(lower, ".tar"):
+		out, err = commandOutputTrimmed("tar", "-tf", path)
+	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
+		out, err = commandOutputTrimmed("tar", "-tzf", path)
+	default:
+		return nil, fmt.Errorf("unsupported archive format: %s", filepath.Ext(lower))
 	}
-	count := 0
+	if err != nil {
+		return nil, fmt.Errorf("archive integrity check failed: %w", err)
+	}
+	entries := make([]string, 0)
 	for _, line := range strings.Split(out, "\n") {
 		entry := strings.TrimSpace(line)
 		if entry == "" {
 			continue
 		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+func inspectBackupArchive(path string) (int, error) {
+	entries, err := listBackupArchiveEntries(path)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, entry := range entries {
 		normalized := strings.ReplaceAll(entry, "\\", "/")
 		cleaned := strings.ReplaceAll(filepath.Clean(normalized), "\\", "/")
 		if strings.HasPrefix(cleaned, "/") || cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.Contains(cleaned, "/../") {
@@ -407,6 +433,82 @@ func createRuntimeSiteBackup(domain, backupPath string, incremental bool) (Backu
 	}, nil
 }
 
+func uploadedBackupArchiveExt(fileName string) (string, error) {
+	lower := strings.ToLower(strings.TrimSpace(fileName))
+	switch {
+	case strings.HasSuffix(lower, ".tar.gz"):
+		return ".tar.gz", nil
+	case strings.HasSuffix(lower, ".tgz"):
+		return ".tgz", nil
+	case strings.HasSuffix(lower, ".zip"):
+		return ".zip", nil
+	case strings.HasSuffix(lower, ".tar"):
+		return ".tar", nil
+	default:
+		return "", fmt.Errorf("unsupported archive type; use .tar.gz, .tgz, .tar or .zip")
+	}
+}
+
+func createRuntimeSiteBackupFromArchive(domain, backupPath, fileName string, source io.Reader) (BackupSnapshot, error) {
+	domain = normalizeDomain(domain)
+	if domain == "" {
+		return BackupSnapshot{}, fmt.Errorf("domain is required")
+	}
+	targetDir, err := resolveSiteBackupTargetDir(domain, backupPath)
+	if err != nil {
+		return BackupSnapshot{}, err
+	}
+	if err := ensureBackupDirectory(targetDir); err != nil {
+		return BackupSnapshot{}, err
+	}
+	ext, err := uploadedBackupArchiveExt(fileName)
+	if err != nil {
+		return BackupSnapshot{}, err
+	}
+
+	filename := fmt.Sprintf("%s-upload-%s%s", strings.ReplaceAll(domain, ".", "_"), time.Now().UTC().Format("20060102-150405"), ext)
+	target := filepath.Join(targetDir, filename)
+
+	file, err := os.Create(target)
+	if err != nil {
+		return BackupSnapshot{}, err
+	}
+	if _, err := io.Copy(file, source); err != nil {
+		_ = file.Close()
+		_ = os.Remove(target)
+		return BackupSnapshot{}, err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(target)
+		return BackupSnapshot{}, err
+	}
+	if _, err := inspectBackupArchive(target); err != nil {
+		_ = os.Remove(target)
+		return BackupSnapshot{}, err
+	}
+
+	info, err := os.Stat(target)
+	if err != nil {
+		_ = os.Remove(target)
+		return BackupSnapshot{}, err
+	}
+	createdAt := info.ModTime().UTC().UnixMilli()
+	hostname, _ := os.Hostname()
+
+	return BackupSnapshot{
+		ID:          generateSecret(8),
+		ShortID:     generateSecret(4),
+		Time:        time.UnixMilli(createdAt).UTC().Format(time.RFC3339),
+		CreatedAt:   createdAt,
+		Hostname:    firstNonEmpty(hostname, "aurapanel"),
+		Tags:        []string{"website", domain, "uploaded"},
+		Domain:      domain,
+		Incremental: false,
+		SizeBytes:   info.Size(),
+		BackupPath:  target,
+	}, nil
+}
+
 func restoreRuntimeSiteBackup(snapshot BackupSnapshot, domain string) error {
 	preview, err := previewRuntimeSiteRestore(snapshot, domain)
 	if err != nil {
@@ -418,8 +520,20 @@ func restoreRuntimeSiteBackup(snapshot BackupSnapshot, domain string) error {
 		return err
 	}
 	archivePath, _ := preview["backup_path"].(string)
-	if _, err := commandOutputTrimmed("tar", "-xzf", archivePath, "-C", filepath.Dir(docroot)); err != nil {
-		return err
+	lower := strings.ToLower(strings.TrimSpace(archivePath))
+	switch {
+	case strings.HasSuffix(lower, ".zip"):
+		if _, err := commandOutputTrimmed("unzip", "-o", archivePath, "-d", filepath.Dir(docroot)); err != nil {
+			return err
+		}
+	case strings.HasSuffix(lower, ".tar"):
+		if _, err := commandOutputTrimmed("tar", "-xf", archivePath, "-C", filepath.Dir(docroot)); err != nil {
+			return err
+		}
+	default:
+		if _, err := commandOutputTrimmed("tar", "-xzf", archivePath, "-C", filepath.Dir(docroot)); err != nil {
+			return err
+		}
 	}
 	return nil
 }

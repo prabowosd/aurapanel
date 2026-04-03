@@ -100,6 +100,9 @@
     <div v-if="error" class="rounded-2xl border border-red-500/25 bg-red-500/10 px-5 py-4 text-sm text-red-200 shadow-[0_20px_50px_-35px_rgba(239,68,68,0.6)]">
       {{ error }}
     </div>
+    <div v-if="success" class="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-5 py-4 text-sm text-emerald-200 shadow-[0_20px_50px_-35px_rgba(16,185,129,0.6)]">
+      {{ success }}
+    </div>
 
     <div class="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)]">
       <div class="space-y-6">
@@ -363,6 +366,79 @@
           </div>
         </section>
 
+        <section id="backup" class="scroll-mt-24 rounded-[28px] border border-panel-border/70 bg-[linear-gradient(180deg,rgba(30,41,59,0.98),rgba(15,23,42,0.92))] p-6 shadow-[0_28px_80px_-50px_rgba(2,6,23,0.9)]">
+          <div class="flex items-start gap-4">
+            <div class="flex h-12 w-12 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-100">
+              <Archive class="h-5 w-5" />
+            </div>
+            <div>
+              <h2 class="text-xl font-semibold text-white">{{ t('website_manage.sections.backup_title') }}</h2>
+              <p class="mt-1 text-sm text-gray-400">{{ t('website_manage.sections.backup_body') }}</p>
+            </div>
+          </div>
+
+          <div class="mt-6 space-y-4">
+            <div class="rounded-2xl border border-panel-border/70 bg-panel-dark/70 p-4">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <h3 class="text-base font-semibold text-white">{{ t('website_manage.backup.create') }}</h3>
+                <button class="btn-primary" :disabled="backupBusy" @click="runSiteBackup">
+                  <Archive class="h-4 w-4" />
+                  {{ backupBusy ? t('website_manage.backup.creating') : t('website_manage.backup.create') }}
+                </button>
+              </div>
+              <label class="mt-4 block">
+                <span class="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">{{ t('website_manage.backup.path') }}</span>
+                <input v-model="backupPath" class="aura-input w-full" :placeholder="t('website_manage.backup.path_placeholder')" />
+              </label>
+            </div>
+
+            <div class="rounded-2xl border border-panel-border/70 bg-panel-dark/70 p-4">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <h3 class="text-base font-semibold text-white">{{ t('website_manage.backup.upload') }}</h3>
+                <button class="btn-secondary" :disabled="backupUploadBusy || !backupFile" @click="uploadSiteBackup">
+                  <Upload class="h-4 w-4" />
+                  {{ backupUploadBusy ? t('website_manage.backup.uploading') : t('website_manage.backup.upload') }}
+                </button>
+              </div>
+              <input
+                ref="backupFileInput"
+                type="file"
+                accept=".tar,.tar.gz,.tgz,.zip,application/gzip,application/x-gzip,application/zip"
+                class="aura-input mt-4 w-full"
+                @change="setBackupFile"
+              />
+              <p class="mt-2 text-xs text-gray-500">{{ t('website_manage.backup.upload_hint') }}</p>
+            </div>
+
+            <div class="rounded-2xl border border-panel-border/70 bg-panel-dark/70 p-4">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <h3 class="text-base font-semibold text-white">{{ t('website_manage.backup.snapshots') }}</h3>
+                <span class="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-gray-400">{{ backupSnapshots.length }}</span>
+              </div>
+              <div class="mt-4 max-h-[260px] space-y-3 overflow-auto pr-1">
+                <div
+                  v-for="snapshot in backupSnapshots"
+                  :key="snapshot.id"
+                  class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
+                >
+                  <div class="min-w-0">
+                    <p class="truncate text-sm font-semibold text-white">{{ snapshot.short_id || snapshot.id }}</p>
+                    <p class="mt-1 text-xs text-gray-400">{{ formatDateTime(snapshot.time) }} | {{ formatBytes(snapshot.size_bytes || 0) }}</p>
+                  </div>
+                  <button class="btn-secondary px-3 py-2" :disabled="backupBusy" @click="restoreSiteBackup(snapshot)">
+                    <RotateCcw class="h-4 w-4" />
+                    {{ t('website_manage.backup.restore') }}
+                  </button>
+                </div>
+
+                <div v-if="backupSnapshots.length === 0" class="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-5 text-sm text-gray-500">
+                  {{ t('website_manage.backup.empty') }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section id="security" class="scroll-mt-24 rounded-[28px] border border-panel-border/70 bg-[linear-gradient(180deg,rgba(30,41,59,0.98),rgba(15,23,42,0.92))] p-6 shadow-[0_28px_80px_-50px_rgba(2,6,23,0.9)]">
           <div class="flex items-start gap-4">
             <div class="flex h-12 w-12 items-center justify-center rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-100">
@@ -435,6 +511,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Activity,
+  Archive,
   ArrowLeft,
   ChevronRight,
   Database,
@@ -451,6 +528,8 @@ import {
   Server,
   Settings2,
   ShieldCheck,
+  RotateCcw,
+  Upload,
 } from 'lucide-vue-next'
 import api from '../services/api'
 
@@ -463,6 +542,7 @@ const phpVersions = ref([])
 const hostingPackages = ref([])
 
 const error = ref('')
+const success = ref('')
 const site = ref({})
 const form = ref({ owner: 'aura', php_version: '8.3', package: 'default', email: '' })
 const aliases = ref([])
@@ -483,6 +563,12 @@ const traffic = ref({
   top_paths: [],
   source_log: '',
 })
+const backupPath = ref('/var/backups/aurapanel/sites')
+const backupSnapshots = ref([])
+const backupBusy = ref(false)
+const backupUploadBusy = ref(false)
+const backupFile = ref(null)
+const backupFileInput = ref(null)
 
 const siteHomePath = computed(() => `/home/${domain.value}/public_html`)
 const isSuspended = computed(() => String(site.value?.status || 'active').toLowerCase() === 'suspended')
@@ -559,6 +645,23 @@ const launcherGroups = computed(() => [
         href: '#observability',
         icon: ScrollText,
         iconClass: 'text-amber-300',
+      },
+      {
+        key: 'backup',
+        label: t('website_manage.backup.title'),
+        description: t('website_manage.launcher.backup_desc'),
+        href: '#backup',
+        icon: Archive,
+        iconClass: 'text-emerald-300',
+        badge: backupSnapshots.value.length ? `${backupSnapshots.value.length} ${t('website_manage.backup.snapshots_short')}` : '',
+      },
+      {
+        key: 'backup_upload',
+        label: t('website_manage.backup.upload'),
+        description: t('website_manage.launcher.backup_upload_desc'),
+        href: '#backup',
+        icon: Upload,
+        iconClass: 'text-cyan-300',
       },
     ],
   },
@@ -779,6 +882,14 @@ function msg(err, fallbackKey) {
   return err?.response?.data?.message || err?.message || t(fallbackKey)
 }
 
+function formatDateTime(value) {
+  const text = String(value || '').trim()
+  if (!text) return '-'
+  const date = new Date(text)
+  if (Number.isNaN(date.getTime())) return text
+  return date.toLocaleString()
+}
+
 async function loadSite() {
   const res = await api.get('/vhost/list', { params: { search: domain.value, page: 1, per_page: 100 } })
   const data = res.data?.data || []
@@ -879,6 +990,81 @@ async function loadTraffic() {
   }
 }
 
+async function loadBackupSnapshots() {
+  const res = await api.post('/backup/snapshots', { domain: domain.value })
+  backupSnapshots.value = Array.isArray(res.data?.data) ? res.data.data : []
+}
+
+function setBackupFile(event) {
+  backupFile.value = event?.target?.files?.[0] || null
+}
+
+async function runSiteBackup() {
+  backupBusy.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    const res = await api.post('/backup/create', {
+      domain: domain.value,
+      backup_path: backupPath.value,
+      incremental: false,
+    })
+    success.value = res.data?.message || t('website_manage.messages.backup_created')
+    await loadBackupSnapshots()
+  } catch (err) {
+    error.value = msg(err, 'website_manage.messages.backup_create_failed')
+  } finally {
+    backupBusy.value = false
+  }
+}
+
+async function uploadSiteBackup() {
+  if (!backupFile.value) {
+    error.value = t('website_manage.messages.backup_file_required')
+    success.value = ''
+    return
+  }
+  backupUploadBusy.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    const formData = new FormData()
+    formData.append('file', backupFile.value)
+    formData.append('domain', domain.value)
+    formData.append('backup_path', backupPath.value || '')
+    const res = await api.post('/backup/upload', formData, { timeout: 0 })
+    success.value = res.data?.message || t('website_manage.messages.backup_uploaded')
+    backupFile.value = null
+    if (backupFileInput.value) backupFileInput.value.value = ''
+    await loadBackupSnapshots()
+  } catch (err) {
+    error.value = msg(err, 'website_manage.messages.backup_upload_failed')
+  } finally {
+    backupUploadBusy.value = false
+  }
+}
+
+async function restoreSiteBackup(snapshot) {
+  const snapshotID = String(snapshot?.short_id || snapshot?.id || '').trim()
+  if (!snapshotID) return
+  if (!window.confirm(t('website_manage.messages.backup_restore_confirm', { id: snapshotID }))) return
+  backupBusy.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    const res = await api.post('/backup/restore', {
+      domain: domain.value,
+      snapshot_id: snapshotID,
+      dry_run: false,
+    })
+    success.value = res.data?.message || t('website_manage.messages.backup_restored')
+  } catch (err) {
+    error.value = msg(err, 'website_manage.messages.backup_restore_failed')
+  } finally {
+    backupBusy.value = false
+  }
+}
+
 async function refreshInsights() {
   insightError.value = ''
   try {
@@ -894,9 +1080,10 @@ async function refreshInsights() {
 
 async function refreshAll() {
   error.value = ''
+  success.value = ''
   insightError.value = ''
   try {
-    await Promise.all([loadSite(), loadAliases(), loadAdvanced(), loadPackages()])
+    await Promise.all([loadSite(), loadAliases(), loadAdvanced(), loadPackages(), loadBackupSnapshots()])
     await refreshInsights()
   } catch (err) {
     error.value = msg(err, 'website_manage.messages.load_failed')

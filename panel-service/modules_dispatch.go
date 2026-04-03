@@ -409,6 +409,9 @@ func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) b
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/backup/create":
 		s.handleBackupCreate(w, r)
 		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/backup/upload":
+		s.handleBackupUpload(w, r)
+		return true
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/backup/snapshots":
 		s.handleBackupSnapshots(w, r)
 		return true
