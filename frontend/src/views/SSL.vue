@@ -36,6 +36,10 @@
 
     <div v-if="error" class="aura-card border-red-500/30 bg-red-500/5 text-red-400">{{ error }}</div>
     <div v-if="success" class="aura-card border-green-500/30 bg-green-500/5 text-green-300">{{ success }}</div>
+    <div v-if="sitesError" class="aura-card border-amber-500/30 bg-amber-500/5 text-amber-300">{{ sitesError }}</div>
+    <div v-if="!sitesLoading && domains.length === 0" class="aura-card border-amber-500/30 bg-amber-500/5 text-amber-300">
+      {{ t('ssl_manager.messages.no_domains') }}
+    </div>
 
     <div v-if="tab === 'manage'" class="aura-card space-y-4">
       <div class="grid grid-cols-1 gap-3 lg:grid-cols-3">
@@ -94,10 +98,10 @@
       <div class="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <div>
           <label class="mb-1 block text-sm text-gray-400">{{ t('ssl_manager.hostname.hostname') }}</label>
-          <input v-model="hostnameForm.domain" list="ssl-domain-options" class="aura-input w-full" :placeholder="t('ssl_manager.placeholders.hostname')" />
-          <datalist id="ssl-domain-options">
-            <option v-for="domainName in domainSuggestions" :key="`ssl-domain-${domainName}`" :value="domainName" />
-          </datalist>
+          <select v-model="hostnameForm.domain" class="aura-input w-full">
+            <option value="" disabled>{{ t('ssl_manager.placeholders.hostname') }}</option>
+            <option v-for="hostname in hostnameSuggestions" :key="`ssl-host-${hostname}`" :value="hostname">{{ hostname }}</option>
+          </select>
         </div>
         <div>
           <label class="mb-1 block text-sm text-gray-400">{{ t('ssl_manager.hostname.email') }}</label>
@@ -146,7 +150,10 @@
       <div class="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <div>
           <label class="mb-1 block text-sm text-gray-400">{{ t('ssl_manager.wildcard.domain') }}</label>
-          <input v-model="wildcardForm.domain" list="ssl-domain-options" class="aura-input w-full" :placeholder="t('ssl_manager.placeholders.domain')" />
+          <select v-model="wildcardForm.domain" class="aura-input w-full">
+            <option value="" disabled>{{ t('ssl_manager.placeholders.select_domain') }}</option>
+            <option v-for="domainName in wildcardDomainSuggestions" :key="`ssl-wildcard-${domainName}`" :value="domainName">{{ domainName }}</option>
+          </select>
         </div>
         <div>
           <label class="mb-1 block text-sm text-gray-400">{{ t('ssl_manager.wildcard.email') }}</label>
@@ -184,6 +191,8 @@ const success = ref('')
 const sites = ref([])
 const details = ref(null)
 const bindings = ref({ hostname_ssl_domain: null, mail_ssl_domain: null, updated_at: 0 })
+const sitesLoading = ref(false)
+const sitesError = ref('')
 
 const loadingDetails = ref(false)
 const issuingManage = ref(false)
@@ -209,6 +218,35 @@ const domainSuggestions = computed(() => {
     names.add(String(bindings.value.hostname_ssl_domain).trim().toLowerCase())
   }
 
+  return Array.from(names).sort((a, b) => a.localeCompare(b))
+})
+
+const wildcardDomainSuggestions = computed(() => {
+  const names = new Set(domainSuggestions.value)
+
+  const mailBinding = String(bindings.value?.mail_ssl_domain || '').trim().toLowerCase()
+  if (mailBinding.startsWith('mail.')) {
+    names.add(mailBinding.slice(5))
+  }
+
+  const hostnameBinding = String(bindings.value?.hostname_ssl_domain || '').trim().toLowerCase()
+  if (hostnameBinding) {
+    const parts = hostnameBinding.split('.').filter(Boolean)
+    if (parts.length >= 3) {
+      names.add(parts.slice(1).join('.'))
+    }
+  }
+
+  return Array.from(names).sort((a, b) => a.localeCompare(b))
+})
+
+const hostnameSuggestions = computed(() => {
+  const names = new Set()
+  const binding = String(bindings.value?.hostname_ssl_domain || '').trim().toLowerCase()
+  if (binding) names.add(binding)
+  for (const domain of wildcardDomainSuggestions.value) {
+    names.add(`server.${domain}`)
+  }
   return Array.from(names).sort((a, b) => a.localeCompare(b))
 })
 const mailDomainSuggestions = computed(() => {
@@ -262,6 +300,40 @@ function ensureMailDomainDefault() {
   }
 }
 
+function preferredContactEmail() {
+  const current = String(manageForm.value.email || '').trim().toLowerCase()
+  if (current) return current
+  if (sites.value.length > 0) {
+    const first = sites.value[0]
+    const fromSite = String(first?.email || '').trim().toLowerCase()
+    if (fromSite) return fromSite
+    const domain = String(first?.domain || '').trim().toLowerCase()
+    if (domain) return `admin@${domain}`
+  }
+  return ''
+}
+
+function ensureFormDefaults() {
+  if (!manageForm.value.domain && sites.value.length > 0) {
+    manageForm.value.domain = sites.value[0].domain
+  }
+  if (!hostnameForm.value.domain) {
+    hostnameForm.value.domain = hostnameSuggestions.value[0] || ''
+  }
+  if (!wildcardForm.value.domain) {
+    wildcardForm.value.domain = wildcardDomainSuggestions.value[0] || ''
+  }
+  ensureMailDomainDefault()
+
+  const contact = preferredContactEmail()
+  if (contact) {
+    if (!manageForm.value.email) manageForm.value.email = contact
+    if (!hostnameForm.value.email) hostnameForm.value.email = contact
+    if (!mailForm.value.email) mailForm.value.email = contact
+    if (!wildcardForm.value.email) wildcardForm.value.email = contact
+  }
+}
+
 watch(
   () => route.query.tab,
   value => {
@@ -290,24 +362,17 @@ function formatTime(ms) {
 }
 
 async function loadSites() {
+  sitesLoading.value = true
+  sitesError.value = ''
   try {
     const res = await api.get('/vhost/list')
     sites.value = res.data?.data || []
-    if (!manageForm.value.domain && sites.value.length > 0) {
-      manageForm.value.domain = sites.value[0].domain
-      manageForm.value.email = sites.value[0].email || `admin@${sites.value[0].domain}`
-    }
-    if (!hostnameForm.value.domain && sites.value.length > 0) {
-      hostnameForm.value.domain = sites.value[0].domain
-    }
-    if (!mailForm.value.domain && sites.value.length > 0) {
-      ensureMailDomainDefault()
-    }
-    if (!wildcardForm.value.domain && sites.value.length > 0) {
-      wildcardForm.value.domain = sites.value[0].domain
-    }
-  } catch {
+    ensureFormDefaults()
+  } catch (err) {
     sites.value = []
+    sitesError.value = apiErrorMessage(err, 'ssl_manager.messages.manage_failed')
+  } finally {
+    sitesLoading.value = false
   }
 }
 
@@ -315,7 +380,7 @@ async function loadBindings() {
   try {
     const res = await api.get('/ssl/bindings')
     bindings.value = res.data?.data || bindings.value
-    ensureMailDomainDefault()
+    ensureFormDefaults()
   } catch {
     // best effort
   }

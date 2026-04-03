@@ -1833,6 +1833,7 @@ Object.assign(extraEn, {
     },
     messages: {
       details_failed: 'SSL details could not be loaded.',
+      no_domains: 'No website domain found yet. Create a website first, then issue SSL.',
       manage_success: 'Website SSL issued.',
       manage_failed: 'Website SSL could not be issued.',
       hostname_success: 'Hostname SSL issued.',
@@ -2092,7 +2093,8 @@ Object.assign(extraTr, {
       webroot: 'Otomatik tespit (opsiyonel)',
     },
     messages: {
-      details_failed: 'SSL detaylari alınamadı.',
+      details_failed: 'SSL detaylari alinamadi.',
+      no_domains: 'Henuz website domain bulunamadi. Once website olusturun, sonra SSL uretin.',
       manage_success: 'Website SSL oluşturuldu.',
       manage_failed: 'Website SSL oluşturulamadı.',
       hostname_success: 'Hostname SSL oluşturuldu.',
@@ -2104,6 +2106,7 @@ Object.assign(extraTr, {
     },
   },
 })
+
 
 
 
