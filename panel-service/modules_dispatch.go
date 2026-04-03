@@ -538,6 +538,15 @@ func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) b
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cloudflare/ssl":
 		s.handleCloudflareSSL(w, r)
 		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cloudflare/settings":
+		s.handleCloudflareSettings(w, r)
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cloudflare/ssl/always-https":
+		s.handleCloudflareAlwaysHTTPS(w, r)
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cloudflare/ssl/minify":
+		s.handleCloudflareMinify(w, r)
+		return true
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/cloudflare/security":
 		s.handleCloudflareSecurity(w, r)
 		return true

@@ -993,6 +993,103 @@ func (s *service) handleCloudflareSSL(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Cloudflare SSL mode updated."})
 }
 
+func (s *service) handleCloudflareSettings(w http.ResponseWriter, r *http.Request) {
+	var payload map[string]interface{}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid Cloudflare settings payload.")
+		return
+	}
+	creds := cloudflareResolveCredentials(payload)
+	zoneID := strings.TrimSpace(stringValue(payload["zone_id"]))
+	if !creds.valid() || zoneID == "" {
+		writeError(w, http.StatusBadRequest, "Cloudflare credentials and zone_id are required.")
+		return
+	}
+	config, err := cloudflareZoneConfigSnapshot(creds, zoneID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.mu.Lock()
+	s.modules.CloudflareSettings[zoneID] = config
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: config})
+}
+
+func (s *service) handleCloudflareAlwaysHTTPS(w http.ResponseWriter, r *http.Request) {
+	var payload map[string]interface{}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid Cloudflare Always HTTPS payload.")
+		return
+	}
+	creds := cloudflareResolveCredentials(payload)
+	zoneID := strings.TrimSpace(stringValue(payload["zone_id"]))
+	enabled := boolValue(payload["enabled"])
+	if !creds.valid() || zoneID == "" {
+		writeError(w, http.StatusBadRequest, "Cloudflare credentials and zone_id are required.")
+		return
+	}
+	settingValue := "off"
+	if enabled {
+		settingValue = "on"
+	}
+	if err := cloudflarePatchSetting(creds, zoneID, "always_use_https", settingValue); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.mu.Lock()
+	settings := s.modules.CloudflareSettings[zoneID]
+	settings.AlwaysHTTPS = enabled
+	s.modules.CloudflareSettings[zoneID] = settings
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Cloudflare Always HTTPS updated."})
+}
+
+func (s *service) handleCloudflareMinify(w http.ResponseWriter, r *http.Request) {
+	var payload map[string]interface{}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid Cloudflare minify payload.")
+		return
+	}
+	creds := cloudflareResolveCredentials(payload)
+	zoneID := strings.TrimSpace(stringValue(payload["zone_id"]))
+	if !creds.valid() || zoneID == "" {
+		writeError(w, http.StatusBadRequest, "Cloudflare credentials and zone_id are required.")
+		return
+	}
+
+	jsEnabled := boolValue(payload["js"])
+	cssEnabled := boolValue(payload["css"])
+	htmlEnabled := boolValue(payload["html"])
+	value := map[string]string{
+		"js":   "off",
+		"css":  "off",
+		"html": "off",
+	}
+	if jsEnabled {
+		value["js"] = "on"
+	}
+	if cssEnabled {
+		value["css"] = "on"
+	}
+	if htmlEnabled {
+		value["html"] = "on"
+	}
+
+	if err := cloudflarePatchSetting(creds, zoneID, "minify", value); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	s.mu.Lock()
+	settings := s.modules.CloudflareSettings[zoneID]
+	settings.MinifyJS = jsEnabled
+	settings.MinifyCSS = cssEnabled
+	settings.MinifyHTML = htmlEnabled
+	s.modules.CloudflareSettings[zoneID] = settings
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Cloudflare minify settings updated."})
+}
+
 func (s *service) handleCloudflareSecurity(w http.ResponseWriter, r *http.Request) {
 	var payload map[string]interface{}
 	if err := decodeJSON(r, &payload); err != nil {

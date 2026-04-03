@@ -30,13 +30,14 @@ type cloudflareRuntimeStatus struct {
 }
 
 type cfErr struct {
+	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
 
 type cloudflareZoneAPIResult struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Status      string `json:"status"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Status      string   `json:"status"`
 	NameServers []string `json:"name_servers"`
 	Plan        struct {
 		Name string `json:"name"`
@@ -161,6 +162,15 @@ func cloudflareHTTPClient() *http.Client {
 	return &http.Client{Timeout: 20 * time.Second}
 }
 
+func cloudflareSetAuthHeaders(req *http.Request, creds cloudflareCredentials) {
+	if creds.APIToken != "" {
+		req.Header.Set("Authorization", "Bearer "+creds.APIToken)
+		return
+	}
+	req.Header.Set("X-Auth-Email", creds.Email)
+	req.Header.Set("X-Auth-Key", creds.APIKey)
+}
+
 func cloudflareAPICall[T any](creds cloudflareCredentials, method, path string, payload interface{}, resultTarget *T) error {
 	var body io.Reader
 	if payload != nil {
@@ -176,12 +186,7 @@ func cloudflareAPICall[T any](creds cloudflareCredentials, method, path string, 
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if creds.APIToken != "" {
-		req.Header.Set("Authorization", "Bearer "+creds.APIToken)
-	} else {
-		req.Header.Set("X-Auth-Email", creds.Email)
-		req.Header.Set("X-Auth-Key", creds.APIKey)
-	}
+	cloudflareSetAuthHeaders(req, creds)
 
 	resp, err := cloudflareHTTPClient().Do(req)
 	if err != nil {
@@ -193,27 +198,99 @@ func cloudflareAPICall[T any](creds cloudflareCredentials, method, path string, 
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("Cloudflare API returned %d", resp.StatusCode)
-	}
-
 	type envelope struct {
 		Success bool            `json:"success"`
 		Errors  []cfErr         `json:"errors"`
 		Result  json.RawMessage `json:"result"`
 	}
 	var decoded envelope
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return err
-	}
-	if !decoded.Success {
-		return fmt.Errorf(cloudflareAPIError(decoded.Errors))
-	}
-	if resultTarget == nil || len(decoded.Result) == 0 {
+	if err := json.Unmarshal(raw, &decoded); err == nil {
+		if resp.StatusCode >= 400 {
+			message := strings.TrimSpace(cloudflareAPIError(decoded.Errors))
+			if message != "" && message != "Cloudflare API request failed" {
+				return fmt.Errorf("%s (HTTP %d)", message, resp.StatusCode)
+			}
+			return fmt.Errorf("Cloudflare API returned %d", resp.StatusCode)
+		}
+		if !decoded.Success {
+			return fmt.Errorf(cloudflareAPIError(decoded.Errors))
+		}
+		if resultTarget == nil || len(decoded.Result) == 0 {
+			return nil
+		}
+		if err := json.Unmarshal(decoded.Result, resultTarget); err != nil {
+			return err
+		}
 		return nil
 	}
-	if err := json.Unmarshal(decoded.Result, resultTarget); err != nil {
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("Cloudflare API returned %d", resp.StatusCode)
+	}
+	if resultTarget != nil {
+		if err := json.Unmarshal(raw, resultTarget); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func cloudflareGraphQLCall[T any](creds cloudflareCredentials, query string, variables map[string]interface{}, resultTarget *T) error {
+	payload := map[string]interface{}{
+		"query":     query,
+		"variables": variables,
+	}
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
 		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, cloudflareAPIBase+"/graphql", bytes.NewReader(rawPayload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	cloudflareSetAuthHeaders(req, creds)
+
+	resp, err := cloudflareHTTPClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	rawResp, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	type gqlErr struct {
+		Message string `json:"message"`
+	}
+	type gqlEnvelope[T any] struct {
+		Errors []gqlErr `json:"errors"`
+		Data   T        `json:"data"`
+	}
+
+	var envelope gqlEnvelope[T]
+	if err := json.Unmarshal(rawResp, &envelope); err != nil {
+		if resp.StatusCode >= 400 {
+			return fmt.Errorf("Cloudflare GraphQL returned %d", resp.StatusCode)
+		}
+		return err
+	}
+	if len(envelope.Errors) > 0 {
+		message := strings.TrimSpace(envelope.Errors[0].Message)
+		if message == "" {
+			message = "Cloudflare GraphQL request failed"
+		}
+		if resp.StatusCode >= 400 {
+			return fmt.Errorf("%s (HTTP %d)", message, resp.StatusCode)
+		}
+		return fmt.Errorf(message)
+	}
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("Cloudflare GraphQL returned %d", resp.StatusCode)
+	}
+	if resultTarget != nil {
+		*resultTarget = envelope.Data
 	}
 	return nil
 }
@@ -222,7 +299,11 @@ func cloudflareAPIError(errors []cfErr) string {
 	if len(errors) == 0 {
 		return "Cloudflare API request failed"
 	}
-	return firstNonEmpty(strings.TrimSpace(errors[0].Message), "Cloudflare API request failed")
+	message := firstNonEmpty(strings.TrimSpace(errors[0].Message), "Cloudflare API request failed")
+	if errors[0].Code > 0 {
+		return fmt.Sprintf("Cloudflare error %d: %s", errors[0].Code, message)
+	}
+	return message
 }
 
 func cloudflareListZones(creds cloudflareCredentials) ([]CloudflareZone, error) {
@@ -299,8 +380,16 @@ func cloudflareDeleteDNSRecord(creds cloudflareCredentials, zoneID, recordID str
 	return cloudflareAPICall[map[string]interface{}](creds, http.MethodDelete, fmt.Sprintf("/zones/%s/dns_records/%s", zoneID, recordID), nil, nil)
 }
 
-func cloudflarePatchSetting(creds cloudflareCredentials, zoneID, setting, value string) error {
-	return cloudflareAPICall[map[string]interface{}](creds, http.MethodPatch, fmt.Sprintf("/zones/%s/settings/%s", zoneID, setting), map[string]string{"value": value}, nil)
+func cloudflarePatchSetting(creds cloudflareCredentials, zoneID, setting string, value interface{}) error {
+	return cloudflareAPICall[map[string]interface{}](creds, http.MethodPatch, fmt.Sprintf("/zones/%s/settings/%s", zoneID, setting), map[string]interface{}{"value": value}, nil)
+}
+
+func cloudflareSettingValue(creds cloudflareCredentials, zoneID, setting string) (interface{}, error) {
+	var result map[string]interface{}
+	if err := cloudflareAPICall(creds, http.MethodGet, fmt.Sprintf("/zones/%s/settings/%s", zoneID, setting), nil, &result); err != nil {
+		return nil, err
+	}
+	return result["value"], nil
 }
 
 func cloudflarePurgeCache(creds cloudflareCredentials, zoneID string, payload map[string]interface{}) error {
@@ -308,11 +397,118 @@ func cloudflarePurgeCache(creds cloudflareCredentials, zoneID string, payload ma
 }
 
 func cloudflareAnalytics(creds cloudflareCredentials, zoneID string) (map[string]interface{}, error) {
-	var result map[string]interface{}
-	if err := cloudflareAPICall(creds, http.MethodGet, fmt.Sprintf("/zones/%s/analytics/dashboard", zoneID), nil, &result); err != nil {
+	endDate := time.Now().UTC().Format("2006-01-02")
+	startDate := time.Now().UTC().AddDate(0, 0, -29).Format("2006-01-02")
+	query := fmt.Sprintf(`query {
+  viewer {
+    zones(filter: { zoneTag: %q }) {
+      httpRequests1dGroups(limit: 30, filter: { date_geq: %q, date_leq: %q }) {
+        dimensions { date }
+        sum { requests bytes pageViews }
+      }
+    }
+  }
+}`, zoneID, startDate, endDate)
+	type graphqlResponse struct {
+		Viewer struct {
+			Zones []struct {
+				HTTPRequests1dGroups []struct {
+					Dimensions struct {
+						Date string `json:"date"`
+					} `json:"dimensions"`
+					Sum struct {
+						Requests  float64 `json:"requests"`
+						Bytes     float64 `json:"bytes"`
+						PageViews float64 `json:"pageViews"`
+					} `json:"sum"`
+				} `json:"httpRequests1dGroups"`
+			} `json:"zones"`
+		} `json:"viewer"`
+	}
+
+	var gqlData graphqlResponse
+	if err := cloudflareGraphQLCall(creds, query, nil, &gqlData); err != nil {
 		return nil, err
 	}
-	return result, nil
+	if len(gqlData.Viewer.Zones) == 0 {
+		return nil, fmt.Errorf("Cloudflare analytics data not available for selected zone")
+	}
+
+	groups := gqlData.Viewer.Zones[0].HTTPRequests1dGroups
+	series := make([]map[string]interface{}, 0, len(groups))
+	var totalRequests int64
+	var totalPageViews int64
+	var totalBandwidth int64
+
+	for _, item := range groups {
+		requests := int64(item.Sum.Requests)
+		pageViews := int64(item.Sum.PageViews)
+		bandwidth := int64(item.Sum.Bytes)
+		totalRequests += requests
+		totalPageViews += pageViews
+		totalBandwidth += bandwidth
+		series = append(series, map[string]interface{}{
+			"date":      item.Dimensions.Date,
+			"requests":  requests,
+			"pageviews": pageViews,
+			"bandwidth": bandwidth,
+		})
+	}
+
+	return map[string]interface{}{
+		"source": "graphql",
+		"result": map[string]interface{}{
+			"totals": map[string]interface{}{
+				"requests":  totalRequests,
+				"pageviews": totalPageViews,
+				"bandwidth": totalBandwidth,
+			},
+			"series": series,
+		},
+	}, nil
+}
+
+func interfaceAsString(value interface{}) string {
+	return strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", value)))
+}
+
+func cloudflareZoneConfigSnapshot(creds cloudflareCredentials, zoneID string) (cloudflareZoneConfig, error) {
+	config := cloudflareZoneConfig{}
+
+	sslValue, err := cloudflareSettingValue(creds, zoneID, "ssl")
+	if err != nil {
+		return config, err
+	}
+	config.SSLMode = interfaceAsString(sslValue)
+
+	securityValue, err := cloudflareSettingValue(creds, zoneID, "security_level")
+	if err != nil {
+		return config, err
+	}
+	config.SecurityLevel = interfaceAsString(securityValue)
+
+	devModeValue, err := cloudflareSettingValue(creds, zoneID, "development_mode")
+	if err != nil {
+		return config, err
+	}
+	config.DevMode = interfaceAsString(devModeValue) == "on"
+
+	alwaysHTTPSValue, err := cloudflareSettingValue(creds, zoneID, "always_use_https")
+	if err != nil {
+		return config, err
+	}
+	config.AlwaysHTTPS = interfaceAsString(alwaysHTTPSValue) == "on"
+
+	minifyValue, err := cloudflareSettingValue(creds, zoneID, "minify")
+	if err == nil {
+		if typed, ok := minifyValue.(map[string]interface{}); ok {
+			config.MinifyJS = interfaceAsString(typed["js"]) == "on"
+			config.MinifyCSS = interfaceAsString(typed["css"]) == "on"
+			config.MinifyHTML = interfaceAsString(typed["html"]) == "on"
+		}
+	}
+
+	return config, nil
 }
 
 func cloudflareZoneIDForDomain(creds cloudflareCredentials, domain string) (string, error) {

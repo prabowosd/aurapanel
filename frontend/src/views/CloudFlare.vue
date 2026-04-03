@@ -83,6 +83,21 @@
         </nav>
       </div>
 
+      <div class="rounded-xl border border-panel-border bg-panel-card p-4">
+        <div class="flex flex-wrap items-center gap-3">
+          <label class="text-sm text-gray-400">{{ t('cloudflare_manager.scope.select_zone') }}</label>
+          <select
+            :value="selectedZone?.id || ''"
+            class="min-w-[260px] rounded-lg border border-panel-border bg-panel-hover px-3 py-2 text-sm text-white focus:border-orange-500 focus:outline-none"
+            @change="onScopeZoneChange($event.target.value)"
+          >
+            <option value="" disabled>{{ t('cloudflare_manager.scope.select_zone') }}</option>
+            <option v-for="zone in zones" :key="`scope-zone-${zone.id}`" :value="zone.id">{{ zone.name }}</option>
+          </select>
+          <span class="text-xs text-gray-500">{{ t('cloudflare_manager.scope.all_actions_apply') }}</span>
+        </div>
+      </div>
+
       <div v-if="activeTab === 'zones'">
         <div class="overflow-hidden rounded-xl border border-panel-border bg-panel-card">
           <div class="flex items-center justify-between border-b border-panel-border p-4">
@@ -113,7 +128,7 @@
                 <td class="px-4 py-3 text-gray-300">{{ zone.plan }}</td>
                 <td class="px-4 py-3 font-mono text-xs text-gray-400">{{ zone.name_servers?.join(', ') }}</td>
                 <td class="px-4 py-3 text-right">
-                  <button class="rounded bg-orange-600/20 px-3 py-1 text-xs text-orange-400 transition hover:bg-orange-600/40" @click="selectZone(zone)">
+                  <button class="rounded bg-orange-600/20 px-3 py-1 text-xs text-orange-400 transition hover:bg-orange-600/40" @click="selectZone(zone, { goToDns: true })">
                     {{ t('cloudflare_manager.zones.manage_dns') }}
                   </button>
                 </td>
@@ -274,17 +289,11 @@
       <div v-if="activeTab === 'analytics'" class="space-y-4">
         <div class="rounded-xl border border-panel-border bg-panel-card p-5">
           <div class="flex flex-wrap items-center gap-3">
-            <label class="text-sm text-gray-400">Zone</label>
-            <select
-              v-model="analyticsZoneId"
-              class="min-w-[220px] rounded-lg border border-panel-border bg-panel-hover px-3 py-2 text-sm text-white focus:border-orange-500 focus:outline-none"
-            >
-              <option value="" disabled>Select zone</option>
-              <option v-for="zone in zones" :key="zone.id" :value="zone.id">{{ zone.name }}</option>
-            </select>
+            <label class="text-sm text-gray-400">{{ t('cloudflare_manager.dns.zone_label') }}</label>
+            <span class="font-semibold text-white">{{ selectedZone?.name || t('cloudflare_manager.dns.not_selected') }}</span>
             <button
               class="rounded-lg bg-gradient-to-r from-orange-600 to-amber-600 px-4 py-2 text-sm font-medium text-white transition hover:from-orange-700 hover:to-amber-700"
-              :disabled="analyticsLoading || !analyticsZoneId"
+              :disabled="analyticsLoading || !selectedZone?.id"
               @click="loadAnalytics"
             >
               {{ analyticsLoading ? 'Loading...' : 'Load Analytics' }}
@@ -367,7 +376,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Cloud, Trash2 } from 'lucide-vue-next'
 import api from '../services/api'
@@ -409,7 +418,6 @@ const devMode = ref(false)
 const alwaysHttps = ref(true)
 const minifyOptions = reactive({ js: true, css: true, html: false })
 const purgeUrls = ref('')
-const analyticsZoneId = ref('')
 const analyticsLoading = ref(false)
 const analyticsData = ref(null)
 const analyticsError = ref('')
@@ -451,11 +459,10 @@ const readStoredCfAuth = () => {
 
 const saveStoredCfAuth = () => {
   if (typeof window === 'undefined') return
-  if (!cfEmail.value || !cfApiKey.value) return
-  const payload = {
-    email: cfEmail.value,
-    api_key: cfApiKey.value,
-    zone_id: selectedZone.value?.id || '',
+  const payload = { zone_id: selectedZone.value?.id || '' }
+  if (cfEmail.value && cfApiKey.value) {
+    payload.email = cfEmail.value
+    payload.api_key = cfApiKey.value
   }
   window.localStorage.setItem(cfStorageKey, JSON.stringify(payload))
 }
@@ -501,8 +508,11 @@ const connectCf = async (opts = {}) => {
     connected.value = true
     const preferred = preferredZoneId || readStoredCfAuth()?.zone_id || ''
     const matchedZone = zones.value.find(zone => zone.id === preferred) || zones.value[0] || null
-    selectedZone.value = matchedZone
-    saveStoredCfAuth()
+    if (matchedZone) {
+      await selectZone(matchedZone)
+    } else {
+      selectedZone.value = null
+    }
     if (!silent) {
       showNotif(t('cloudflare_manager.messages.connected', { count: zones.value.length }))
     }
@@ -549,18 +559,59 @@ const saveServerAuth = async () => {
 
 const loadZones = connectCf
 
-const selectZone = async zone => {
+const loadDnsRecords = async zoneId => {
+  dnsRecords.value = []
+  const { data } = await api.post('/cloudflare/dns/list', { ...authPayload(), zone_id: zoneId })
+  dnsRecords.value = data.data || []
+}
+
+const applyZoneSettings = config => {
+  if (!config || typeof config !== 'object') return
+  if (config.ssl_mode) selectedSslMode.value = config.ssl_mode
+  if (config.security_level) selectedSecurityLevel.value = config.security_level
+  devMode.value = Boolean(config.dev_mode)
+  alwaysHttps.value = Boolean(config.always_https)
+  minifyOptions.js = Boolean(config.minify_js)
+  minifyOptions.css = Boolean(config.minify_css)
+  minifyOptions.html = Boolean(config.minify_html)
+}
+
+const loadZoneSettings = async zoneId => {
+  const { data } = await api.post('/cloudflare/settings', { ...authPayload(), zone_id: zoneId })
+  applyZoneSettings(data?.data || {})
+}
+
+const selectZone = async (zone, opts = {}) => {
+  const { goToDns = false } = opts
+  if (!zone?.id) return
   selectedZone.value = zone
   saveStoredCfAuth()
-  analyticsZoneId.value = zone?.id || ''
-  activeTab.value = 'dns'
-  dnsRecords.value = []
   try {
-    const { data } = await api.post('/cloudflare/dns/list', { ...authPayload(), zone_id: zone.id })
-    dnsRecords.value = data.data || []
+    await loadZoneSettings(zone.id)
+    if (goToDns) {
+      activeTab.value = 'dns'
+    }
+    if (goToDns || activeTab.value === 'dns') {
+      await loadDnsRecords(zone.id)
+    }
   } catch (err) {
-    showNotif(err.response?.data?.error || t('cloudflare_manager.messages.dns_failed'), 'error')
+    showNotif(err.response?.data?.error || err.response?.data?.message || t('cloudflare_manager.messages.dns_failed'), 'error')
   }
+}
+
+const onScopeZoneChange = async zoneID => {
+  const zone = zones.value.find(item => item.id === zoneID)
+  if (!zone) return
+  await selectZone(zone, { goToDns: activeTab.value === 'dns' })
+}
+
+const requireSelectedZone = () => {
+  const zoneID = selectedZone.value?.id || ''
+  if (!zoneID) {
+    showNotif(t('cloudflare_manager.messages.zone_required'), 'error')
+    return ''
+  }
+  return zoneID
 }
 
 const getNestedNumber = (obj, paths) => {
@@ -615,8 +666,8 @@ const analyticsSummary = computed(() => {
 const formattedAnalytics = computed(() => JSON.stringify(analyticsData.value || {}, null, 2))
 
 const loadAnalytics = async () => {
-  if (!analyticsZoneId.value) {
-    showNotif('Please select a zone first.', 'error')
+  const zoneID = requireSelectedZone()
+  if (!zoneID) {
     return
   }
   analyticsLoading.value = true
@@ -624,12 +675,12 @@ const loadAnalytics = async () => {
   try {
     const { data } = await api.post('/cloudflare/analytics', {
       ...authPayload(),
-      zone_id: analyticsZoneId.value,
+      zone_id: zoneID,
     })
     analyticsData.value = data.data || {}
-    showNotif('Cloudflare analytics loaded.')
+    showNotif(t('cloudflare_manager.messages.analytics_loaded'))
   } catch (err) {
-    analyticsError.value = err.response?.data?.message || err.message || 'Analytics request failed.'
+    analyticsError.value = err.response?.data?.message || err.response?.data?.error || err.message || t('cloudflare_manager.messages.analytics_failed')
     showNotif(analyticsError.value, 'error')
   } finally {
     analyticsLoading.value = false
@@ -637,31 +688,37 @@ const loadAnalytics = async () => {
 }
 
 const addDnsRecord = async () => {
+  const zoneID = requireSelectedZone()
+  if (!zoneID) return
   try {
-    await api.post('/cloudflare/dns/create', { ...authPayload(), zone_id: selectedZone.value.id, ...newDns })
+    await api.post('/cloudflare/dns/create', { ...authPayload(), zone_id: zoneID, ...newDns })
     showNotif(t('cloudflare_manager.messages.dns_added', { type: newDns.type }))
     showAddDns.value = false
-    selectZone(selectedZone.value)
+    await loadDnsRecords(zoneID)
   } catch (err) {
     showNotif(err.response?.data?.error || t('cloudflare_manager.messages.dns_add_failed'), 'error')
   }
 }
 
 const deleteDnsRecord = async recordId => {
+  const zoneID = requireSelectedZone()
+  if (!zoneID) return
   if (!window.confirm(t('cloudflare_manager.dns.delete_confirm'))) return
   try {
-    await api.post('/cloudflare/dns/delete', { ...authPayload(), zone_id: selectedZone.value.id, record_id: recordId })
+    await api.post('/cloudflare/dns/delete', { ...authPayload(), zone_id: zoneID, record_id: recordId })
     showNotif(t('cloudflare_manager.messages.dns_deleted'))
-    selectZone(selectedZone.value)
+    await loadDnsRecords(zoneID)
   } catch (err) {
     showNotif(err.response?.data?.error || t('cloudflare_manager.messages.dns_delete_failed'), 'error')
   }
 }
 
 const setSslMode = async mode => {
+  const zoneID = requireSelectedZone()
+  if (!zoneID) return
   selectedSslMode.value = mode
   try {
-    await api.post('/cloudflare/ssl', { ...authPayload(), zone_id: selectedZone.value?.id || zones.value[0]?.id, mode })
+    await api.post('/cloudflare/ssl', { ...authPayload(), zone_id: zoneID, mode })
     showNotif(t('cloudflare_manager.messages.ssl_updated', { mode }))
   } catch (err) {
     showNotif(err.response?.data?.error || t('cloudflare_manager.messages.ssl_update_failed'), 'error')
@@ -669,8 +726,10 @@ const setSslMode = async mode => {
 }
 
 const purgeAllCache = async () => {
+  const zoneID = requireSelectedZone()
+  if (!zoneID) return
   try {
-    await api.post('/cloudflare/cache/purge', { ...authPayload(), zone_id: selectedZone.value?.id || zones.value[0]?.id, purge_everything: true })
+    await api.post('/cloudflare/cache/purge', { ...authPayload(), zone_id: zoneID, purge_everything: true })
     showNotif(t('cloudflare_manager.messages.cache_purged'))
   } catch (err) {
     showNotif(err.response?.data?.error || t('cloudflare_manager.messages.cache_failed'), 'error')
@@ -678,13 +737,15 @@ const purgeAllCache = async () => {
 }
 
 const purgeSpecificCache = async () => {
+  const zoneID = requireSelectedZone()
+  if (!zoneID) return
   const files = purgeUrls.value.split('\n').filter(item => item.trim())
   if (!files.length) {
     showNotif(t('cloudflare_manager.messages.cache_url_required'), 'error')
     return
   }
   try {
-    await api.post('/cloudflare/cache/purge', { ...authPayload(), zone_id: selectedZone.value?.id || zones.value[0]?.id, files })
+    await api.post('/cloudflare/cache/purge', { ...authPayload(), zone_id: zoneID, files })
     showNotif(t('cloudflare_manager.messages.cache_urls_purged', { count: files.length }))
     purgeUrls.value = ''
   } catch (err) {
@@ -693,9 +754,11 @@ const purgeSpecificCache = async () => {
 }
 
 const setSecurityLevel = async level => {
+  const zoneID = requireSelectedZone()
+  if (!zoneID) return
   selectedSecurityLevel.value = level
   try {
-    await api.post('/cloudflare/security', { ...authPayload(), zone_id: selectedZone.value?.id || zones.value[0]?.id, level })
+    await api.post('/cloudflare/security', { ...authPayload(), zone_id: zoneID, level })
     showNotif(t('cloudflare_manager.messages.security_updated'))
   } catch (err) {
     showNotif(err.response?.data?.error || t('cloudflare_manager.messages.security_failed'), 'error')
@@ -703,9 +766,11 @@ const setSecurityLevel = async level => {
 }
 
 const toggleDevMode = async () => {
+  const zoneID = requireSelectedZone()
+  if (!zoneID) return
   const newValue = !devMode.value
   try {
-    await api.post('/cloudflare/devmode', { ...authPayload(), zone_id: selectedZone.value?.id || zones.value[0]?.id, enabled: newValue })
+    await api.post('/cloudflare/devmode', { ...authPayload(), zone_id: zoneID, enabled: newValue })
     devMode.value = newValue
     showNotif(t('cloudflare_manager.messages.dev_mode_updated', { state: devMode.value ? t('cloudflare_manager.ssl.enabled') : t('cloudflare_manager.ssl.disabled') }))
   } catch (err) {
@@ -713,12 +778,35 @@ const toggleDevMode = async () => {
   }
 }
 
-const toggleAlwaysHttps = () => {
-  alwaysHttps.value = !alwaysHttps.value
-  showNotif(t('cloudflare_manager.messages.always_https_updated', { state: alwaysHttps.value ? t('cloudflare_manager.ssl.enabled') : t('cloudflare_manager.ssl.disabled') }))
+const toggleAlwaysHttps = async () => {
+  const zoneID = requireSelectedZone()
+  if (!zoneID) return
+  const newValue = !alwaysHttps.value
+  try {
+    await api.post('/cloudflare/ssl/always-https', { ...authPayload(), zone_id: zoneID, enabled: newValue })
+    alwaysHttps.value = newValue
+    showNotif(t('cloudflare_manager.messages.always_https_updated', { state: alwaysHttps.value ? t('cloudflare_manager.ssl.enabled') : t('cloudflare_manager.ssl.disabled') }))
+  } catch (err) {
+    showNotif(err.response?.data?.error || t('cloudflare_manager.messages.ssl_update_failed'), 'error')
+  }
 }
 
-const saveMinify = () => showNotif(t('cloudflare_manager.messages.minify_saved'))
+const saveMinify = async () => {
+  const zoneID = requireSelectedZone()
+  if (!zoneID) return
+  try {
+    await api.post('/cloudflare/ssl/minify', {
+      ...authPayload(),
+      zone_id: zoneID,
+      js: !!minifyOptions.js,
+      css: !!minifyOptions.css,
+      html: !!minifyOptions.html,
+    })
+    showNotif(t('cloudflare_manager.messages.minify_saved'))
+  } catch (err) {
+    showNotif(err.response?.data?.error || t('cloudflare_manager.messages.ssl_update_failed'), 'error')
+  }
+}
 
 const dnsTypeBadge = type => {
   const map = {
@@ -746,6 +834,16 @@ onMounted(async () => {
   }
   if (serverStatus.value.configured) {
     await connectCf({ silent: true, auto: true })
+  }
+})
+
+watch(activeTab, async newTab => {
+  if (newTab === 'dns' && selectedZone.value?.id) {
+    try {
+      await loadDnsRecords(selectedZone.value.id)
+    } catch (err) {
+      showNotif(err.response?.data?.error || t('cloudflare_manager.messages.dns_failed'), 'error')
+    }
   }
 })
 </script>

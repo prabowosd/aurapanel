@@ -101,12 +101,10 @@ Object.assign(extraEn, {
       save_action: 'Save To Server',
       saving: 'Saving...',
     },
-    tabs: {
-      zones: 'Zones',
-      dns: 'DNS Records',
-      ssl: 'SSL/TLS',
-      cache: 'Cache',
-      security: 'Security',
+    tabs: { zones: 'Zones', dns: 'DNS Records', ssl: 'SSL/TLS', cache: 'Cache', security: 'Security' },
+    scope: {
+      select_zone: 'Select Website Zone',
+      all_actions_apply: 'All DNS/SSL/Cache/Security/Analytics actions apply only to the selected zone.',
     },
     zones: {
       title: 'Zone List',
@@ -197,7 +195,10 @@ Object.assign(extraEn, {
       dev_mode_updated: 'Development mode updated: {state}',
       dev_mode_failed: 'Development mode could not be updated.',
       always_https_updated: 'Always HTTPS updated: {state}',
-      minify_saved: 'Minify settings saved.',
+      
+      zone_required: 'Select a website zone first.',
+      analytics_loaded: 'CloudFlare analytics loaded.',
+      analytics_failed: 'Analytics request failed.',
       server_auth_saved: 'CloudFlare credentials were saved to server env and auto-sync was enabled.',
       server_auth_failed: 'CloudFlare server credentials could not be saved.',
     },
@@ -413,7 +414,11 @@ Object.assign(extraTr, {
       save_action: 'Sunucuya Kaydet',
       saving: 'Kaydediliyor...',
     },
-    tabs: { zones: 'Zonelar', dns: 'DNS Kayıtlari', ssl: 'SSL/TLS', cache: 'Cache', security: 'Güvenlik' },
+    tabs: { zones: 'Zonelar', dns: 'DNS Kayitlari', ssl: 'SSL/TLS', cache: 'Cache', security: 'Guvenlik' },
+    scope: {
+      select_zone: 'Web Sitesi Zone Sec',
+      all_actions_apply: 'DNS/SSL/Cache/Guvenlik/Analytics islemlerinin tamami sadece secili zone icin uygulanir.',
+    },
     zones: {
       title: 'Zone Listesi',
       empty: 'Zone bulunamadı.',
@@ -497,7 +502,10 @@ Object.assign(extraTr, {
       dev_mode_updated: 'Development mode guncellendi: {state}',
       dev_mode_failed: 'Development mode guncellenemedi.',
       always_https_updated: 'Always HTTPS guncellendi: {state}',
-      minify_saved: 'Minify ayarlari kaydedildi.',
+      
+      zone_required: 'Once bir web sitesi zone secin.',
+      analytics_loaded: 'CloudFlare analytics yuklendi.',
+      analytics_failed: 'Analytics istegi basarisiz.',
       server_auth_saved: 'CloudFlare credential sunucu env dosyasina yazildi ve auto-sync acildi.',
       server_auth_failed: 'CloudFlare credential sunucuya kaydedilemedi.',
     },
@@ -2096,4 +2104,7 @@ Object.assign(extraTr, {
     },
   },
 })
+
+
+
 

@@ -538,6 +538,9 @@ type cloudflareZoneConfig struct {
 	SecurityLevel string
 	DevMode       bool
 	AlwaysHTTPS   bool
+	MinifyJS      bool
+	MinifyCSS     bool
+	MinifyHTML    bool
 }
 
 type WebmailToken struct {
