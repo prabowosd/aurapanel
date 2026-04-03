@@ -227,6 +227,48 @@ func executeServiceAction(serviceName, action string) error {
 	return runCommandWithTimeout(45*time.Second, "systemctl", action, unit)
 }
 
+func executeServiceActionFromPanel(serviceName, action string) (bool, error) {
+	normalizedService := strings.TrimSpace(serviceName)
+	normalizedAction := strings.ToLower(strings.TrimSpace(action))
+
+	if normalizedAction != "restart" {
+		return false, executeServiceAction(normalizedService, normalizedAction)
+	}
+	if normalizedService != "api-gateway" && normalizedService != "panel-service" {
+		return false, executeServiceAction(normalizedService, normalizedAction)
+	}
+
+	unit, ok := serviceUnitName(normalizedService)
+	if !ok {
+		return false, fmt.Errorf("service not supported")
+	}
+	if runtime.GOOS != "linux" {
+		return false, fmt.Errorf("service control is only available on linux hosts")
+	}
+
+	// Return HTTP success first, then restart the critical service.
+	restartUnit := fmt.Sprintf(
+		"aurapanel-control-%s-%d",
+		strings.ReplaceAll(normalizedService, "-", "_"),
+		time.Now().UnixNano(),
+	)
+	if err := runCommandWithTimeout(
+		10*time.Second,
+		"systemd-run",
+		"--unit", restartUnit,
+		"--on-active=2",
+		"systemctl", "restart", unit,
+	); err == nil {
+		return true, nil
+	}
+
+	fallbackCmd := fmt.Sprintf("nohup bash -lc 'sleep 2; systemctl restart %s' >/dev/null 2>&1 &", unit)
+	if err := runCommandWithTimeout(10*time.Second, "sh", "-c", fallbackCmd); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func terminateProcess(pid int) error {
 	if pid <= 0 {
 		return fmt.Errorf("invalid pid")

@@ -2817,8 +2817,13 @@ func (s *service) handleServiceControl(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Unsupported action.")
 		return
 	}
-	if err := executeServiceAction(name, action); err != nil {
+	scheduled, err := executeServiceActionFromPanel(name, action)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if scheduled {
+		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Service action scheduled."})
 		return
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Service action applied."})
