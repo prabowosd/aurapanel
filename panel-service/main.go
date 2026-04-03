@@ -807,6 +807,7 @@ func (s *service) nonAdminRoutePolicy(w http.ResponseWriter, r *http.Request) bo
 	}
 
 	adminOnlyPrefixes := []string{
+		"/api/v1/ai",
 		"/api/v1/users",
 		"/api/v1/packages",
 		"/api/v1/platform/capabilities",

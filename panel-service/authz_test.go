@@ -123,6 +123,29 @@ func TestNonAdminRoutePolicyAllowsProvisionForMatchingOwner(t *testing.T) {
 	}
 }
 
+func TestNonAdminRoutePolicyBlocksAIToolsRoutes(t *testing.T) {
+	svc := &service{
+		startedAt: seedTime(),
+		state:     seedState(),
+		modules:   seedModuleState(),
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/ai/tools/status", nil)
+	req = req.WithContext(context.WithValue(req.Context(), servicePrincipalContextKey, servicePrincipal{
+		Email:    "user@example.com",
+		Role:     "user",
+		Username: "user",
+		Name:     "User",
+	}))
+	rec := httptest.NewRecorder()
+
+	if ok := svc.nonAdminRoutePolicy(rec, req); ok {
+		t.Fatalf("expected policy to block AI tools route")
+	}
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+}
+
 func TestServiceAuthMiddlewareRejectsMissingProxyTokenInProduction(t *testing.T) {
 	t.Setenv("AURAPANEL_DEV_SIMULATION", "")
 	t.Setenv("AURAPANEL_INTERNAL_PROXY_TOKEN", "0123456789abcdef0123456789abcdef")

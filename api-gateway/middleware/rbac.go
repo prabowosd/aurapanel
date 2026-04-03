@@ -33,6 +33,7 @@ func pathMatchesPrefix(path, prefix string) bool {
 
 func isRestrictedNonAdminPath(path string) bool {
 	return pathMatchesPrefix(path, "/api/v1/files") ||
+		pathMatchesPrefix(path, "/api/v1/ai") ||
 		pathMatchesPrefix(path, "/api/v1/security/ssh-keys") ||
 		pathMatchesPrefix(path, "/api/v1/websites/custom-ssl") ||
 		pathMatchesPrefix(path, "/api/v1/websites/vhost-config")

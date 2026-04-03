@@ -9,6 +9,27 @@ import (
 
 func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) bool {
 	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/ai/tools/status":
+		s.handleAIToolsStatus(w)
+		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/ai/tools/catalog":
+		s.handleAIToolsCatalog(w)
+		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/ai/tools/history":
+		s.handleAIToolsHistory(w, r)
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/ai/tools/provider":
+		s.handleAIToolsProviderSet(w, r)
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/ai/tools/policy":
+		s.handleAIToolsPolicySet(w, r)
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/ai/tools/plan":
+		s.handleAIToolsPlan(w, r)
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/ai/tools/execute":
+		s.handleAIToolsExecute(w, r)
+		return true
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/platform/capabilities":
 		s.handlePlatformCapabilities(w)
 		return true

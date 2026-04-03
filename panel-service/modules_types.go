@@ -64,6 +64,10 @@ type moduleState struct {
 	CloudLinuxRollouts  []cloudLinuxRolloutAuditEntry
 	WebmailTokens       map[string]WebmailToken
 	DBToolTokens        map[string]DBToolToken
+	AIToolsProvider     AIToolsProviderRuntime
+	AIToolsPolicy       AIToolsPolicy
+	AIToolsPlans        []AIToolPlan
+	AIToolsHistory      []AIToolExecutionRecord
 }
 
 type PHPVersionInfo struct {
@@ -556,6 +560,71 @@ type DBToolToken struct {
 	ExpiresAt time.Time
 }
 
+type AIToolsProviderConfig struct {
+	Enabled      bool   `json:"enabled"`
+	Model        string `json:"model"`
+	BaseURL      string `json:"base_url,omitempty"`
+	HasAPIKey    bool   `json:"has_api_key"`
+	MaskedAPIKey string `json:"masked_api_key,omitempty"`
+}
+
+type AIToolsProviderRuntime struct {
+	ActiveProvider string                `json:"active_provider"`
+	DeepSeek       AIToolsProviderConfig `json:"deepseek"`
+	Gemini         AIToolsProviderConfig `json:"gemini"`
+	UpdatedAt      int64                 `json:"updated_at"`
+}
+
+type AIToolsPolicy struct {
+	Enabled                  bool     `json:"enabled"`
+	AllowShell               bool     `json:"allow_shell"`
+	AllowPrivilegedShell     bool     `json:"allow_privileged_shell"`
+	AllowServiceControl      bool     `json:"allow_service_control"`
+	AllowMalwareScan         bool     `json:"allow_malware_scan"`
+	RequireConfirmToken      bool     `json:"require_confirm_token"`
+	ConfirmToken             string   `json:"confirm_token"`
+	MaxCommandTimeoutSeconds int      `json:"max_command_timeout_seconds"`
+	MaxOutputChars           int      `json:"max_output_chars"`
+	DefaultCWD               string   `json:"default_cwd"`
+	AllowedCommandPrefixes   []string `json:"allowed_command_prefixes"`
+}
+
+type AIToolPlanStep struct {
+	ID              string                 `json:"id"`
+	Tool            string                 `json:"tool"`
+	Risk            string                 `json:"risk"`
+	Reason          string                 `json:"reason"`
+	RequiresConfirm bool                   `json:"requires_confirm"`
+	Args            map[string]interface{} `json:"args,omitempty"`
+}
+
+type AIToolPlan struct {
+	ID        string           `json:"id"`
+	Prompt    string           `json:"prompt"`
+	Provider  string           `json:"provider"`
+	Model     string           `json:"model"`
+	Summary   string           `json:"summary"`
+	CreatedAt int64            `json:"created_at"`
+	Steps     []AIToolPlanStep `json:"steps"`
+}
+
+type AIToolExecutionRecord struct {
+	ID          string                 `json:"id"`
+	PlanID      string                 `json:"plan_id,omitempty"`
+	Prompt      string                 `json:"prompt,omitempty"`
+	Tool        string                 `json:"tool"`
+	Risk        string                 `json:"risk"`
+	Status      string                 `json:"status"`
+	DryRun      bool                   `json:"dry_run"`
+	RequestedBy string                 `json:"requested_by"`
+	RequestedAt int64                  `json:"requested_at"`
+	FinishedAt  int64                  `json:"finished_at"`
+	DurationMS  int64                  `json:"duration_ms"`
+	Args        map[string]interface{} `json:"args,omitempty"`
+	Output      interface{}            `json:"output,omitempty"`
+	Error       string                 `json:"error,omitempty"`
+}
+
 func seedModuleState() moduleState {
 	return moduleState{
 		PHPIni:           map[string]string{},
@@ -581,6 +650,37 @@ func seedModuleState() moduleState {
 		CloudflareSettings: map[string]cloudflareZoneConfig{},
 		WebmailTokens:      map[string]WebmailToken{},
 		DBToolTokens:       map[string]DBToolToken{},
+		AIToolsProvider: AIToolsProviderRuntime{
+			ActiveProvider: "deepseek",
+			DeepSeek: AIToolsProviderConfig{
+				Enabled: true,
+				Model:   "deepseek-chat",
+				BaseURL: "https://api.deepseek.com/v1",
+			},
+			Gemini: AIToolsProviderConfig{
+				Enabled: false,
+				Model:   "gemini-2.5-flash",
+				BaseURL: "https://generativelanguage.googleapis.com/v1beta",
+			},
+		},
+		AIToolsPolicy: AIToolsPolicy{
+			Enabled:                  true,
+			AllowShell:               true,
+			AllowPrivilegedShell:     false,
+			AllowServiceControl:      true,
+			AllowMalwareScan:         true,
+			RequireConfirmToken:      true,
+			ConfirmToken:             "APPLY_AI_TOOLS",
+			MaxCommandTimeoutSeconds: 20,
+			MaxOutputChars:           4000,
+			DefaultCWD:               "/home",
+			AllowedCommandPrefixes: []string{
+				"pwd", "ls", "cat", "tail", "grep", "find", "du", "df", "ps", "top", "free", "uptime",
+				"journalctl", "systemctl", "service", "whoami", "id", "hostname", "ss", "netstat", "curl",
+			},
+		},
+		AIToolsPlans:   []AIToolPlan{},
+		AIToolsHistory: []AIToolExecutionRecord{},
 	}
 }
 
@@ -647,6 +747,45 @@ func (s *service) bootstrapModules() {
 	}
 	if s.modules.DBToolTokens == nil {
 		s.modules.DBToolTokens = map[string]DBToolToken{}
+	}
+	if strings.TrimSpace(s.modules.AIToolsProvider.ActiveProvider) == "" {
+		s.modules.AIToolsProvider.ActiveProvider = "deepseek"
+	}
+	if strings.TrimSpace(s.modules.AIToolsProvider.DeepSeek.Model) == "" {
+		s.modules.AIToolsProvider.DeepSeek.Model = "deepseek-chat"
+	}
+	if strings.TrimSpace(s.modules.AIToolsProvider.DeepSeek.BaseURL) == "" {
+		s.modules.AIToolsProvider.DeepSeek.BaseURL = "https://api.deepseek.com/v1"
+	}
+	if strings.TrimSpace(s.modules.AIToolsProvider.Gemini.Model) == "" {
+		s.modules.AIToolsProvider.Gemini.Model = "gemini-2.5-flash"
+	}
+	if strings.TrimSpace(s.modules.AIToolsProvider.Gemini.BaseURL) == "" {
+		s.modules.AIToolsProvider.Gemini.BaseURL = "https://generativelanguage.googleapis.com/v1beta"
+	}
+	if s.modules.AIToolsPolicy.MaxCommandTimeoutSeconds <= 0 {
+		s.modules.AIToolsPolicy.MaxCommandTimeoutSeconds = 20
+	}
+	if s.modules.AIToolsPolicy.MaxOutputChars <= 0 {
+		s.modules.AIToolsPolicy.MaxOutputChars = 4000
+	}
+	if strings.TrimSpace(s.modules.AIToolsPolicy.DefaultCWD) == "" {
+		s.modules.AIToolsPolicy.DefaultCWD = "/home"
+	}
+	if len(s.modules.AIToolsPolicy.AllowedCommandPrefixes) == 0 {
+		s.modules.AIToolsPolicy.AllowedCommandPrefixes = []string{
+			"pwd", "ls", "cat", "tail", "grep", "find", "du", "df", "ps", "top", "free", "uptime",
+			"journalctl", "systemctl", "service", "whoami", "id", "hostname", "ss", "netstat", "curl",
+		}
+	}
+	if strings.TrimSpace(s.modules.AIToolsPolicy.ConfirmToken) == "" {
+		s.modules.AIToolsPolicy.ConfirmToken = "APPLY_AI_TOOLS"
+	}
+	if s.modules.AIToolsPlans == nil {
+		s.modules.AIToolsPlans = []AIToolPlan{}
+	}
+	if s.modules.AIToolsHistory == nil {
+		s.modules.AIToolsHistory = []AIToolExecutionRecord{}
 	}
 
 	if len(s.modules.PHPVersions) == 0 {

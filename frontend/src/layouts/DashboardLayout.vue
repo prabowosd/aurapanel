@@ -422,6 +422,9 @@
               <router-link v-if="can('/panel-update')" to="/panel-update" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('panel_update.title') }}</span>
               </router-link>
+              <router-link v-if="can('/ai-tools')" to="/ai-tools" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
+                <span>AI Tools</span>
+              </router-link>
             </div>
           </transition>
         </div>
@@ -686,6 +689,7 @@ const routeTitleKeys = {
   CloudLinux: 'routes.CloudLinux',
   PanelPort: 'routes.PanelPort',
   PanelUpdate: 'panel_update.title',
+  AITools: 'AI Tools',
   Backups: 'routes.Backups',
   OlsTuning: 'routes.OlsTuning',
   MailTuning: 'Mail Tuning',
@@ -742,7 +746,7 @@ const canDevopsGroup = computed(() =>
   ['/docker/images', '/docker/containers', '/docker/create', '/docker/apps', '/cron-jobs', '/federated', '/ops-center'].some((path) => can(path)),
 )
 const canSystemGroup = computed(() =>
-  ['/server-status', '/cloudlinux', '/panel-control', '/panel-update'].some((path) => can(path)),
+  ['/server-status', '/cloudlinux', '/panel-control', '/panel-update', '/ai-tools'].some((path) => can(path)),
 )
 
 const commandItems = computed(() => [
@@ -782,6 +786,7 @@ const commandItems = computed(() => [
   { label: t('routes.CloudLinux'), path: '/cloudlinux' },
   { label: t('layout.links.panel_port'), path: '/panel-control' },
   { label: t('panel_update.title'), path: '/panel-update' },
+  { label: 'AI Tools', path: '/ai-tools' },
   { label: t('routes.Docker Images'), path: '/docker/images' },
   { label: t('routes.Docker Containers'), path: '/docker/containers' },
   { label: t('routes.Docker App Store'), path: '/docker/apps' },
@@ -823,7 +828,7 @@ const isDevopsRoute = computed(() =>
   ['/docker', '/cron-jobs', '/federated', '/ops-center'].some(prefix => route.path.startsWith(prefix))
 )
 const isSystemRoute = computed(() =>
-  ['/server-status', '/cloudlinux', '/panel-control', '/panel-port', '/panel-update'].some(prefix => route.path.startsWith(prefix))
+  ['/server-status', '/cloudlinux', '/panel-control', '/panel-port', '/panel-update', '/ai-tools'].some(prefix => route.path.startsWith(prefix))
 )
 const topLevelMenus = {
   hosting: hostingMenuOpen,

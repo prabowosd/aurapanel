@@ -244,6 +244,12 @@ const routes = [
         name: 'Migration',
         component: () => import('../views/MigrationWizard.vue'),
         meta: { title: 'Migration Wizard' }
+      },
+      {
+        path: 'ai-tools',
+        name: 'AITools',
+        component: () => import('../views/AITools.vue'),
+        meta: { title: 'AI Tools' }
       }
     ]
   }
