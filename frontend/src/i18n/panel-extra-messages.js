@@ -758,6 +758,10 @@ Object.assign(extraEn, {
       hit_title: '{bucket} - {hits} hit',
       hits_with_bandwidth: '{hits} hit | {bandwidth}',
     },
+    messages: {
+      ...(((extraEn.website_manage || {}).messages) || {}),
+      popup_blocked: 'Popup was blocked by your browser. Allow popups for this panel and try again.',
+    },
   },
 })
 
@@ -892,6 +896,10 @@ Object.assign(extraTr, {
       ...(((extraTr.website_manage || {}).insights) || {}),
       hit_title: '{bucket} - {hits} hit',
       hits_with_bandwidth: '{hits} hit | {bandwidth}',
+    },
+    messages: {
+      ...(((extraTr.website_manage || {}).messages) || {}),
+      popup_blocked: 'Tarayici popup penceresini engelledi. Bu panel icin popup izni verip tekrar deneyin.',
     },
   },
 })

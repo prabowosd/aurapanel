@@ -1098,7 +1098,7 @@ function compactQuery(query) {
 function openExternal(url) {
   const openedWindow = window.open(url, '_blank', 'noopener,noreferrer')
   if (!openedWindow) {
-    window.location.href = url
+    error.value = t('website_manage.messages.popup_blocked')
   }
 }
 
