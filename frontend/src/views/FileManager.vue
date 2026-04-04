@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="space-y-6">
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
       <div>
@@ -9,12 +9,12 @@
         <p class="text-gray-400 mt-1">{{ t('filemanager.subtitle') }}</p>
       </div>
       <div class="flex gap-2">
-        <button v-if="selectedFiles.length > 0" @click="showCompressModal = true" class="px-4 py-2 bg-blue-600/20 text-blue-400 border border-blue-600/30 rounded-lg text-sm hover:bg-blue-600/40 transition">📦 {{ t('filemanager.compress') }}</button>
-        <button v-if="selectedFiles.length > 0" @click="trashSelectedItems" class="px-4 py-2 bg-red-600/20 text-red-400 border border-red-600/30 rounded-lg text-sm hover:bg-red-600/40 transition">🗑️ {{ t('filemanager.trash') }}</button>
-        <button v-if="selectedFiles.length > 0" @click="deleteSelectedItems" class="px-4 py-2 bg-red-700/30 text-red-300 border border-red-500/40 rounded-lg text-sm hover:bg-red-700/50 transition">✕ {{ t('filemanager.delete') }}</button>
-        <button @click="showUploadModal = true" class="px-4 py-2 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-lg text-sm hover:from-orange-700 hover:to-amber-700 transition">📤 {{ t('filemanager.upload') }}</button>
-        <button @click="showNewModal = true" class="px-4 py-2 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition">📄 {{ t('filemanager.new_file') }}</button>
-        <button @click="showNewFolderModal = true" class="px-4 py-2 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition">📁 {{ t('filemanager.new_folder') }}</button>
+        <button v-if="selectedFiles.length > 0" @click="showCompressModal = true" class="px-4 py-2 bg-blue-600/20 text-blue-400 border border-blue-600/30 rounded-lg text-sm hover:bg-blue-600/40 transition">ğŸ“¦ {{ t('filemanager.compress') }}</button>
+        <button v-if="selectedFiles.length > 0" @click="trashSelectedItems" class="px-4 py-2 bg-red-600/20 text-red-400 border border-red-600/30 rounded-lg text-sm hover:bg-red-600/40 transition">ğŸ—‘ï¸ {{ t('filemanager.trash') }}</button>
+        <button v-if="selectedFiles.length > 0" @click="deleteSelectedItems" class="px-4 py-2 bg-red-700/30 text-red-300 border border-red-500/40 rounded-lg text-sm hover:bg-red-700/50 transition">âœ• {{ t('filemanager.delete') }}</button>
+        <button @click="showUploadModal = true" class="px-4 py-2 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-lg text-sm hover:from-orange-700 hover:to-amber-700 transition">ğŸ“¤ {{ t('filemanager.upload') }}</button>
+        <button @click="showNewModal = true" class="px-4 py-2 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition">ğŸ“„ {{ t('filemanager.new_file') }}</button>
+        <button @click="showNewFolderModal = true" class="px-4 py-2 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition">ğŸ“ {{ t('filemanager.new_folder') }}</button>
       </div>
     </div>
 
@@ -55,7 +55,7 @@
             </td>
             <td class="px-4 py-2.5">
               <button @click="item.is_dir ? enterDir(item.name) : editFile(item)" class="flex items-center gap-2 text-white hover:text-orange-400 transition font-mono text-xs">
-                <span>{{ item.is_dir ? '📁' : fileIcon(item.name) }}</span>
+                <span>{{ item.is_dir ? 'ğŸ“' : fileIcon(item.name) }}</span>
                 {{ item.name }}
               </button>
             </td>
@@ -64,11 +64,11 @@
             <td class="px-4 py-2.5 text-gray-400 text-xs">{{ new Date(item.modified).toLocaleString() }}</td>
             <td class="px-4 py-2.5 text-right">
               <div class="flex justify-end gap-1">
-                <button v-if="isArchive(item.name)" @click="extractItem(item)" class="px-2 py-1 bg-purple-600/20 text-purple-400 rounded text-xs hover:bg-purple-600/40 transition" :title="t('filemanager.extract')">📦</button>
-                <button v-if="!item.is_dir" @click="editFile(item)" class="px-2 py-1 bg-blue-600/20 text-blue-400 rounded text-xs hover:bg-blue-600/40 transition">📝</button>
-                <button @click="renameItem(item)" class="px-2 py-1 bg-yellow-600/20 text-yellow-400 rounded text-xs hover:bg-yellow-600/40 transition">✏️</button>
-                <button @click="trashSingleItem(item)" class="px-2 py-1 bg-red-600/20 text-red-400 rounded text-xs hover:bg-red-600/40 transition">🗑️</button>
-                <button @click="deleteSingleItem(item)" class="px-2 py-1 bg-red-700/30 text-red-300 rounded text-xs hover:bg-red-700/50 transition">✕</button>
+                <button v-if="isArchive(item.name)" @click="extractItem(item)" class="px-2 py-1 bg-purple-600/20 text-purple-400 rounded text-xs hover:bg-purple-600/40 transition" :title="t('filemanager.extract')">ğŸ“¦</button>
+                <button v-if="!item.is_dir" @click="editFile(item)" class="px-2 py-1 bg-blue-600/20 text-blue-400 rounded text-xs hover:bg-blue-600/40 transition">ğŸ“</button>
+                <button @click="renameItem(item)" class="px-2 py-1 bg-yellow-600/20 text-yellow-400 rounded text-xs hover:bg-yellow-600/40 transition">âœï¸</button>
+                <button @click="trashSingleItem(item)" class="px-2 py-1 bg-red-600/20 text-red-400 rounded text-xs hover:bg-red-600/40 transition">ğŸ—‘ï¸</button>
+                <button @click="deleteSingleItem(item)" class="px-2 py-1 bg-red-700/30 text-red-300 rounded text-xs hover:bg-red-700/50 transition">âœ•</button>
               </div>
             </td>
           </tr>
@@ -83,30 +83,44 @@
         <div class="flex items-center justify-between p-4 border-b border-panel-border">
           <h3 class="text-white font-semibold font-mono text-sm">{{ editingFile?.name }}</h3>
           <div class="flex gap-2">
-            <button @click="saveFile" class="px-4 py-1.5 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition">💾 {{ t('common.save') }}</button>
-            <button @click="showEditor = false" class="px-4 py-1.5 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition">✖ {{ t('common.close') }}</button>
+            <button @click="saveFile" class="px-4 py-1.5 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition">ğŸ’¾ {{ t('common.save') }}</button>
+            <button @click="showEditor = false" class="px-4 py-1.5 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition">âœ– {{ t('common.close') }}</button>
           </div>
         </div>
         <textarea v-model="editorContent" class="flex-1 p-4 bg-[#0d1117] text-green-400 font-mono text-sm resize-none focus:outline-none" spellcheck="false"></textarea>
       </div>
     </div>
-
     <!-- Upload Modal -->
-    <div v-if="showUploadModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" @click.self="showUploadModal = false">
+    <div v-if="showUploadModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" @click.self="closeUploadModal">
       <div class="bg-panel-card border border-panel-border rounded-2xl w-full max-w-md p-6 shadow-2xl">
-        <h3 class="text-xl font-bold text-white mb-4">📤 {{ t('filemanager.upload') }}</h3>
-        <div class="border-2 border-dashed border-panel-border rounded-xl p-8 text-center hover:border-orange-500 transition">
+        <h3 class="text-xl font-bold text-white mb-4">ğŸ“¤ {{ t('filemanager.upload') }}</h3>
+        <div
+          class="border-2 border-dashed border-panel-border rounded-xl p-8 text-center hover:border-orange-500 transition cursor-pointer"
+          @click="triggerUploadSelect"
+          @dragover.prevent
+          @drop.prevent="handleUploadDrop"
+        >
           <p class="text-gray-400">{{ t('filemanager.drag_drop') }}</p>
-          <input type="file" multiple class="mt-3 text-white">
+          <input ref="uploadInputRef" type="file" multiple class="hidden" @change="handleUploadSelection">
+          <p v-if="uploadQueue.length" class="mt-3 text-xs text-orange-300 break-all">{{ uploadQueue.map(file => file.name).join(', ') }}</p>
         </div>
-        <button @click="showUploadModal = false" class="mt-4 w-full py-2.5 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-lg font-medium">{{ t('common.close') }}</button>
+        <div class="mt-4 flex gap-3">
+          <button
+            @click="uploadSelectedFiles"
+            :disabled="uploading || uploadQueue.length === 0"
+            class="flex-1 py-2.5 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {{ uploading ? t('common.loading') : t('filemanager.upload') }}
+          </button>
+          <button @click="closeUploadModal" class="px-4 py-2.5 bg-panel-hover text-gray-300 rounded-lg font-medium hover:bg-gray-600 transition">{{ t('common.close') }}</button>
+        </div>
       </div>
     </div>
 
     <!-- Compress Modal -->
     <div v-if="showCompressModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" @click.self="showCompressModal = false">
       <div class="bg-panel-card border border-panel-border rounded-2xl w-full max-w-sm p-6 shadow-2xl">
-        <h3 class="text-lg font-bold text-white mb-4">📦 {{ t('filemanager.compress_title') }}</h3>
+        <h3 class="text-lg font-bold text-white mb-4">ğŸ“¦ {{ t('filemanager.compress_title') }}</h3>
         <input v-model="compressName" type="text" placeholder="arsiv_adi" class="aura-input mb-4">
         <select v-model="compressFormat" class="aura-input mb-4">
           <option value="zip">.zip</option>
@@ -122,7 +136,7 @@
     <!-- New File Modal -->
     <div v-if="showNewModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" @click.self="showNewModal = false">
       <div class="bg-panel-card border border-panel-border rounded-2xl w-full max-w-sm p-6 shadow-2xl">
-        <h3 class="text-lg font-bold text-white mb-4">📄 {{ t('filemanager.new_file') }}</h3>
+        <h3 class="text-lg font-bold text-white mb-4">ğŸ“„ {{ t('filemanager.new_file') }}</h3>
         <input v-model="newFileName" type="text" placeholder="dosya_adi.txt" class="aura-input">
         <div class="flex gap-3 mt-4">
           <button @click="createFile" class="flex-1 py-2 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-lg text-sm">{{ t('common.create') }}</button>
@@ -134,7 +148,7 @@
     <!-- New Folder Modal -->
     <div v-if="showNewFolderModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" @click.self="showNewFolderModal = false">
       <div class="bg-panel-card border border-panel-border rounded-2xl w-full max-w-sm p-6 shadow-2xl">
-        <h3 class="text-lg font-bold text-white mb-4">📁 {{ t('filemanager.new_folder') }}</h3>
+        <h3 class="text-lg font-bold text-white mb-4">ğŸ“ {{ t('filemanager.new_folder') }}</h3>
         <input v-model="newFolderName" type="text" placeholder="klasor_adi" class="aura-input">
         <div class="flex gap-3 mt-4">
           <button @click="createFolder" class="flex-1 py-2 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-lg text-sm">{{ t('common.create') }}</button>
@@ -185,6 +199,9 @@ const showUploadModal = ref(false)
 const showNewModal = ref(false)
 const showNewFolderModal = ref(false)
 const showCompressModal = ref(false)
+const uploadInputRef = ref(null)
+const uploadQueue = ref([])
+const uploading = ref(false)
 
 const editingFile = ref(null)
 const editorContent = ref('')
@@ -222,8 +239,8 @@ const isArchive = (name) => {
 
 const fileIcon = (name) => {
   const ext = name.split('.').pop().toLowerCase()
-  const map = { php: '🐘', js: '🟨', html: '🌐', css: '🎨', py: '🐍', txt: '📝', json: '📋', xml: '📄', log: '📜', sh: '⚙️', conf: '⚙️', sql: '🗃️', zip: '📦', gz: '📦', tar: '📦', tgz: '📦', jpg: '🖼️', png: '🖼️', svg: '🖼️', md: '📖' }
-  return map[ext] || '📄'
+  const map = { php: 'ğŸ˜', js: 'ğŸŸ¨', html: 'ğŸŒ', css: 'ğŸ¨', py: 'ğŸ', txt: 'ğŸ“', json: 'ğŸ“‹', xml: 'ğŸ“„', log: 'ğŸ“œ', sh: 'âš™ï¸', conf: 'âš™ï¸', sql: 'ğŸ—ƒï¸', zip: 'ğŸ“¦', gz: 'ğŸ“¦', tar: 'ğŸ“¦', tgz: 'ğŸ“¦', jpg: 'ğŸ–¼ï¸', png: 'ğŸ–¼ï¸', svg: 'ğŸ–¼ï¸', md: 'ğŸ“–' }
+  return map[ext] || 'ğŸ“„'
 }
 
 const loadFiles = async () => {
@@ -406,6 +423,49 @@ const createFolder = async () => {
   }
 }
 
+const triggerUploadSelect = () => {
+  uploadInputRef.value?.click()
+}
+
+const handleUploadSelection = (event) => {
+  uploadQueue.value = Array.from(event?.target?.files || [])
+}
+
+const handleUploadDrop = (event) => {
+  uploadQueue.value = Array.from(event?.dataTransfer?.files || [])
+}
+
+const resetUploadState = () => {
+  uploadQueue.value = []
+  if (uploadInputRef.value) {
+    uploadInputRef.value.value = ''
+  }
+}
+
+const closeUploadModal = () => {
+  showUploadModal.value = false
+  uploading.value = false
+  resetUploadState()
+}
+
+const uploadSelectedFiles = async () => {
+  if (!uploadQueue.value.length) return
+  uploading.value = true
+  try {
+    const formData = new FormData()
+    formData.append('path', currentPath.value)
+    uploadQueue.value.forEach(file => formData.append('files', file))
+    await api.post('/files/upload', formData)
+    showNotif(t('filemanager.upload_success'))
+    closeUploadModal()
+    loadFiles()
+  } catch {
+    showNotif(t('common.error'), 'error')
+  } finally {
+    uploading.value = false
+  }
+}
+
 watch(
   () => route.query,
   (query) => {
@@ -419,3 +479,4 @@ watch(
 
 onMounted(loadFiles)
 </script>
+

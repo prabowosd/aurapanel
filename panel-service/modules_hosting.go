@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -1786,6 +1787,89 @@ func (s *service) handleFileWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "File written."})
+}
+
+func (s *service) handleFileUpload(w http.ResponseWriter, r *http.Request) {
+	const maxUploadBytes = 250 << 20 // 250 MB
+
+	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid multipart upload payload.")
+		return
+	}
+
+	targetPath := strings.TrimSpace(r.FormValue("path"))
+	if targetPath == "" {
+		targetPath = "/home"
+	}
+
+	destDir, err := resolveManagedPath(targetPath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if stat, statErr := os.Stat(destDir); statErr != nil || !stat.IsDir() {
+		writeError(w, http.StatusBadRequest, "Upload target must be an existing directory.")
+		return
+	}
+
+	fileHeaders := r.MultipartForm.File["files"]
+	if len(fileHeaders) == 0 {
+		fileHeaders = r.MultipartForm.File["file"]
+	}
+	if len(fileHeaders) == 0 {
+		writeError(w, http.StatusBadRequest, "No files selected for upload.")
+		return
+	}
+
+	uploaded := 0
+	for _, header := range fileHeaders {
+		name := strings.TrimSpace(filepath.Base(header.Filename))
+		if name == "" {
+			continue
+		}
+
+		src, openErr := header.Open()
+		if openErr != nil {
+			writeError(w, http.StatusBadRequest, "Unable to read uploaded file.")
+			return
+		}
+
+		destPath, resolveErr := resolveManagedPath(filepath.Join(destDir, name))
+		if resolveErr != nil {
+			_ = src.Close()
+			writeError(w, http.StatusBadRequest, resolveErr.Error())
+			return
+		}
+
+		dst, createErr := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if createErr != nil {
+			_ = src.Close()
+			writeError(w, http.StatusBadRequest, "Unable to create destination file.")
+			return
+		}
+
+		if _, copyErr := io.Copy(dst, src); copyErr != nil {
+			_ = dst.Close()
+			_ = src.Close()
+			writeError(w, http.StatusBadRequest, "Failed to save uploaded file.")
+			return
+		}
+
+		_ = dst.Close()
+		_ = src.Close()
+		uploaded++
+	}
+
+	if uploaded == 0 {
+		writeError(w, http.StatusBadRequest, "No valid files selected for upload.")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, apiResponse{
+		Status:  "success",
+		Message: fmt.Sprintf("%d file(s) uploaded.", uploaded),
+	})
 }
 
 func (s *service) handleFileRename(w http.ResponseWriter, r *http.Request) {

@@ -310,6 +310,9 @@ func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) b
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/files/write":
 		s.handleFileWrite(w, r)
 		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/files/upload":
+		s.handleFileUpload(w, r)
+		return true
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/files/rename":
 		s.handleFileRename(w, r)
 		return true
