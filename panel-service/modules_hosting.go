@@ -564,8 +564,9 @@ func (s *service) handleWebsiteCustomSSLSet(w http.ResponseWriter, r *http.Reque
 
 func (s *service) handleWebsiteOpenBasedirSet(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		Domain  string `json:"domain"`
-		Enabled bool   `json:"enabled"`
+		Domain      string `json:"domain"`
+		Enabled     *bool  `json:"enabled"`
+		OpenBasedir *bool  `json:"open_basedir"`
 	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid open_basedir payload.")
@@ -583,10 +584,21 @@ func (s *service) handleWebsiteOpenBasedirSet(w http.ResponseWriter, r *http.Req
 	defer s.mu.Unlock()
 	s.ensureDefaultSiteArtifactsLocked(domain)
 	cfg := s.state.AdvancedConfig[domain]
-	cfg.OpenBasedir = payload.Enabled
+	enabled := false
+	switch {
+	case payload.Enabled != nil:
+		enabled = *payload.Enabled
+	case payload.OpenBasedir != nil:
+		enabled = *payload.OpenBasedir
+	}
+	cfg.OpenBasedir = enabled
 	s.state.AdvancedConfig[domain] = cfg
 	if err := s.syncOLSVhostsLocked(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.saveRuntimeStateLocked(); err != nil {
+		writeError(w, http.StatusInternalServerError, "open_basedir update could not be persisted.")
 		return
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Open Basedir updated.", Data: cfg})
@@ -594,8 +606,9 @@ func (s *service) handleWebsiteOpenBasedirSet(w http.ResponseWriter, r *http.Req
 
 func (s *service) handleWebsiteRewriteSet(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		Domain string `json:"domain"`
-		Rules  string `json:"rules"`
+		Domain       string `json:"domain"`
+		Rules        string `json:"rules"`
+		RewriteRules string `json:"rewrite_rules"`
 	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid rewrite payload.")
@@ -612,17 +625,22 @@ func (s *service) handleWebsiteRewriteSet(w http.ResponseWriter, r *http.Request
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ensureDefaultSiteArtifactsLocked(domain)
+	resolvedRules := firstNonEmpty(payload.Rules, payload.RewriteRules)
 	cfg := s.state.AdvancedConfig[domain]
-	cfg.RewriteRules = payload.Rules
+	cfg.RewriteRules = resolvedRules
 	s.state.AdvancedConfig[domain] = cfg
 	if err := s.syncOLSVhostsLocked(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := s.saveRuntimeStateLocked(); err != nil {
+		writeError(w, http.StatusInternalServerError, "rewrite update could not be persisted.")
+		return
+	}
 
 	// Write directly to .htaccess as well to ensure immediate application
 	htaccessPath := filepath.Join(domainDocroot(domain), ".htaccess")
-	_ = os.WriteFile(htaccessPath, []byte(payload.Rules), 0o644)
+	_ = os.WriteFile(htaccessPath, []byte(resolvedRules), 0o644)
 	_ = reloadOpenLiteSpeed()
 
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "Rewrite rules updated.", Data: cfg})
@@ -630,8 +648,9 @@ func (s *service) handleWebsiteRewriteSet(w http.ResponseWriter, r *http.Request
 
 func (s *service) handleWebsiteVhostConfigSet(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		Domain  string `json:"domain"`
-		Content string `json:"content"`
+		Domain      string `json:"domain"`
+		Content     string `json:"content"`
+		VhostConfig string `json:"vhost_config"`
 	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid vhost config payload.")
@@ -648,11 +667,16 @@ func (s *service) handleWebsiteVhostConfigSet(w http.ResponseWriter, r *http.Req
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ensureDefaultSiteArtifactsLocked(domain)
+	resolvedContent := firstNonEmpty(payload.Content, payload.VhostConfig)
 	cfg := s.state.AdvancedConfig[domain]
-	cfg.VhostConfig = payload.Content
+	cfg.VhostConfig = resolvedContent
 	s.state.AdvancedConfig[domain] = cfg
 	if err := s.syncOLSVhostsLocked(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.saveRuntimeStateLocked(); err != nil {
+		writeError(w, http.StatusInternalServerError, "vhost config update could not be persisted.")
 		return
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "VHost config updated.", Data: cfg})

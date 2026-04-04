@@ -1192,14 +1192,16 @@ async function launchWebmailSso() {
 
 async function saveWebsite() {
   error.value = ''
+  success.value = ''
   try {
-    await api.post('/vhost/update', {
+    const res = await api.post('/vhost/update', {
       domain: domain.value,
       owner: form.value.owner,
       php_version: form.value.php_version,
       package: form.value.package,
       email: form.value.email,
     })
+    success.value = res.data?.message || t('common.success')
     await loadSite()
   } catch (err) {
     error.value = msg(err, 'website_manage.messages.save_failed')
@@ -1208,11 +1210,14 @@ async function saveWebsite() {
 
 async function toggleSuspend() {
   error.value = ''
+  success.value = ''
   try {
     if (isSuspended.value) {
-      await api.post('/vhost/unsuspend', { domain: domain.value })
+      const res = await api.post('/vhost/unsuspend', { domain: domain.value })
+      success.value = res.data?.message || t('common.success')
     } else {
-      await api.post('/vhost/suspend', { domain: domain.value })
+      const res = await api.post('/vhost/suspend', { domain: domain.value })
+      success.value = res.data?.message || t('common.success')
     }
     await loadSite()
   } catch (err) {
@@ -1222,12 +1227,14 @@ async function toggleSuspend() {
 
 async function issueSsl() {
   error.value = ''
+  success.value = ''
   try {
-    await api.post('/ssl/issue', {
+    const res = await api.post('/ssl/issue', {
       domain: domain.value,
       email: form.value.email || `admin@${domain.value}`,
       provider: 'letsencrypt',
     })
+    success.value = res.data?.message || t('common.success')
     await loadSite()
   } catch (err) {
     error.value = msg(err, 'website_manage.messages.ssl_failed')
@@ -1237,8 +1244,10 @@ async function issueSsl() {
 async function addAlias() {
   if (!aliasInput.value) return
   error.value = ''
+  success.value = ''
   try {
-    await api.post('/websites/aliases', { domain: domain.value, alias: aliasInput.value })
+    const res = await api.post('/websites/aliases', { domain: domain.value, alias: aliasInput.value })
+    success.value = res.data?.message || t('common.success')
     aliasInput.value = ''
     await loadAliases()
   } catch (err) {
@@ -1248,8 +1257,10 @@ async function addAlias() {
 
 async function deleteAlias(alias) {
   error.value = ''
+  success.value = ''
   try {
-    await api.delete('/websites/aliases', { params: { domain: domain.value, alias } })
+    const res = await api.delete('/websites/aliases', { params: { domain: domain.value, alias } })
+    success.value = res.data?.message || t('common.success')
     await loadAliases()
   } catch (err) {
     error.value = msg(err, 'website_manage.messages.alias_delete_failed')
@@ -1258,8 +1269,11 @@ async function deleteAlias(alias) {
 
 async function saveOpenBasedir() {
   error.value = ''
+  success.value = ''
   try {
-    await api.post('/websites/open-basedir', { domain: domain.value, enabled: !!advanced.value.open_basedir })
+    const enabled = !!advanced.value.open_basedir
+    const res = await api.post('/websites/open-basedir', { domain: domain.value, enabled, open_basedir: enabled })
+    success.value = res.data?.message || t('common.success')
     await loadAdvanced()
   } catch (err) {
     error.value = msg(err, 'website_manage.messages.open_basedir_failed')
@@ -1268,8 +1282,15 @@ async function saveOpenBasedir() {
 
 async function saveRewrite() {
   error.value = ''
+  success.value = ''
   try {
-    await api.post('/websites/rewrite', { domain: domain.value, rules: advanced.value.rewrite_rules || '' })
+    const rewriteRules = advanced.value.rewrite_rules || ''
+    const res = await api.post('/websites/rewrite', {
+      domain: domain.value,
+      rules: rewriteRules,
+      rewrite_rules: rewriteRules,
+    })
+    success.value = res.data?.message || t('common.success')
     await loadAdvanced()
   } catch (err) {
     error.value = msg(err, 'website_manage.messages.rewrite_failed')
@@ -1278,8 +1299,15 @@ async function saveRewrite() {
 
 async function saveVhost() {
   error.value = ''
+  success.value = ''
   try {
-    await api.post('/websites/vhost-config', { domain: domain.value, content: advanced.value.vhost_config || '' })
+    const vhostConfig = advanced.value.vhost_config || ''
+    const res = await api.post('/websites/vhost-config', {
+      domain: domain.value,
+      content: vhostConfig,
+      vhost_config: vhostConfig,
+    })
+    success.value = res.data?.message || t('common.success')
     await loadAdvanced()
   } catch (err) {
     error.value = msg(err, 'website_manage.messages.vhost_failed')
@@ -1288,12 +1316,14 @@ async function saveVhost() {
 
 async function saveCustomSsl() {
   error.value = ''
+  success.value = ''
   try {
-    await api.post('/websites/custom-ssl', {
+    const res = await api.post('/websites/custom-ssl', {
       domain: domain.value,
       cert_pem: customSsl.value.cert_pem || '',
       key_pem: customSsl.value.key_pem || '',
     })
+    success.value = res.data?.message || t('common.success')
     await loadAdvanced()
   } catch (err) {
     error.value = msg(err, 'website_manage.messages.custom_ssl_failed')
