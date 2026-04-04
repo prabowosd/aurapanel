@@ -161,6 +161,35 @@ function clampPercent(value) {
   return Math.max(0, Math.min(100, numeric))
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function isRetryableStatus(error) {
+  const status = Number(error?.response?.status || 0)
+  return status === 0 || status === 502 || status === 503 || status === 504
+}
+
+async function requestWithRetry(requestFactory, options = {}) {
+  const retries = Number(options.retries ?? 2)
+  const baseDelayMs = Number(options.baseDelayMs ?? 250)
+  let lastError = null
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await requestFactory()
+    } catch (err) {
+      lastError = err
+      if (attempt >= retries || !isRetryableStatus(err)) {
+        throw err
+      }
+      await sleep(baseDelayMs * (attempt + 1))
+    }
+  }
+
+  throw lastError || new Error('request failed')
+}
+
 function parseLoadAvgPercent(rawLoadAvg, cpuCores) {
   const firstValue = String(rawLoadAvg || '').trim().split(/\s+/)[0]
   const loadValue = Number.parseFloat(firstValue)
@@ -237,7 +266,7 @@ function updateLiveMetrics(metrics = {}) {
 
 async function pollLoadMetrics() {
   try {
-    const metricsRes = await api.get('/status/metrics')
+    const metricsRes = await requestWithRetry(() => api.get('/status/metrics'))
     const metrics = metricsRes.data?.data || {}
     updateLiveMetrics(metrics)
   } catch {
@@ -250,28 +279,42 @@ async function loadDashboard() {
   error.value = ''
 
   try {
-    const [
-      vhostsRes,
-      mariaRes,
-      pgRes,
-      ebpfRes,
-      metricsRes,
-      servicesRes,
-    ] = await Promise.all([
-      api.get('/vhost/list'),
-      api.get('/db/mariadb/list'),
-      api.get('/db/postgres/list'),
-      api.get('/security/ebpf/events'),
-      api.get('/status/metrics'),
-      api.get('/status/services'),
+    const settled = await Promise.allSettled([
+      requestWithRetry(() => api.get('/vhost/list')),
+      requestWithRetry(() => api.get('/db/mariadb/list')),
+      requestWithRetry(() => api.get('/db/postgres/list')),
+      requestWithRetry(() => api.get('/security/ebpf/events')),
+      requestWithRetry(() => api.get('/status/metrics')),
+      requestWithRetry(() => api.get('/status/services')),
     ])
 
-    const websites = Array.isArray(vhostsRes.data?.data) ? vhostsRes.data.data : []
-    const mariaDbs = Array.isArray(mariaRes.data?.data) ? mariaRes.data.data : []
-    const pgDbs = Array.isArray(pgRes.data?.data) ? pgRes.data.data : []
-    const ebpfEvents = Array.isArray(ebpfRes.data?.data) ? ebpfRes.data.data : []
-    const metrics = metricsRes.data?.data || {}
-    const services = Array.isArray(servicesRes.data?.data) ? servicesRes.data.data : []
+    const [vhostsRes, mariaRes, pgRes, ebpfRes, metricsRes, servicesRes] = settled
+    const failedCount = settled.filter(item => item.status === 'rejected').length
+
+    if (failedCount === settled.length) {
+      const firstError = settled.find(item => item.status === 'rejected')
+      const reason = firstError?.status === 'rejected' ? firstError.reason : null
+      throw reason || new Error(t('dashboard.load_failed'))
+    }
+
+    const websites = vhostsRes.status === 'fulfilled' && Array.isArray(vhostsRes.value?.data?.data)
+      ? vhostsRes.value.data.data
+      : []
+    const mariaDbs = mariaRes.status === 'fulfilled' && Array.isArray(mariaRes.value?.data?.data)
+      ? mariaRes.value.data.data
+      : []
+    const pgDbs = pgRes.status === 'fulfilled' && Array.isArray(pgRes.value?.data?.data)
+      ? pgRes.value.data.data
+      : []
+    const ebpfEvents = ebpfRes.status === 'fulfilled' && Array.isArray(ebpfRes.value?.data?.data)
+      ? ebpfRes.value.data.data
+      : []
+    const metrics = metricsRes.status === 'fulfilled' && metricsRes.value?.data?.data
+      ? metricsRes.value.data.data
+      : {}
+    const services = servicesRes.status === 'fulfilled' && Array.isArray(servicesRes.value?.data?.data)
+      ? servicesRes.value.data.data
+      : []
 
     updateLiveMetrics(metrics)
 
@@ -343,6 +386,7 @@ async function loadDashboard() {
     }
 
     logs.value = [...ebpfLog, ...serviceLog].slice(0, 5)
+    error.value = ''
 
   } catch (err) {
     error.value = err?.response?.data?.message || err?.message || t('dashboard.load_failed')
