@@ -799,6 +799,7 @@ func (s *service) nonAdminRoutePolicy(w http.ResponseWriter, r *http.Request) bo
 		"/api/v1/security/2fa/setup",
 		"/api/v1/security/2fa/verify",
 		"/api/v1/vhost/list",
+		"/api/v1/files",
 	}
 	for _, prefix := range allowedWithoutDomain {
 		if servicePathMatchesPrefix(path, prefix) {
@@ -812,7 +813,6 @@ func (s *service) nonAdminRoutePolicy(w http.ResponseWriter, r *http.Request) bo
 		"/api/v1/packages",
 		"/api/v1/platform/capabilities",
 		"/api/v1/cloudlinux",
-		"/api/v1/files",
 		"/api/v1/php",
 		"/api/v1/vhost/discover",
 		"/api/v1/vhost/import",
@@ -2220,6 +2220,10 @@ func (s *service) handleUsersDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "Admin user cannot be deleted.")
 		return
 	}
+
+	previousUsers := append([]PanelUser(nil), s.state.Users...)
+	previousWebsites := append([]Website(nil), s.state.Websites...)
+
 	s.state.Users = append(s.state.Users[:index], s.state.Users[index+1:]...)
 	for i := range s.state.Websites {
 		if s.state.Websites[i].Owner == username || s.state.Websites[i].User == username {
@@ -2228,6 +2232,13 @@ func (s *service) handleUsersDelete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.recountSitesLocked()
+	if err := s.saveRuntimeStateLocked(); err != nil {
+		s.state.Users = previousUsers
+		s.state.Websites = previousWebsites
+		s.recountSitesLocked()
+		writeError(w, http.StatusInternalServerError, "User deletion could not be persisted.")
+		return
+	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "User deleted."})
 }
 

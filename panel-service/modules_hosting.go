@@ -1760,7 +1760,105 @@ func olsTuningResponseData(cfg OLSTuningConfig, pending bool, runtimeErr string)
 	return data
 }
 
+func managedPathWithinRoot(path, root string) bool {
+	normalizedPath := filepath.Clean(strings.TrimSpace(path))
+	normalizedRoot := filepath.Clean(strings.TrimSpace(root))
+	if normalizedPath == "." || normalizedRoot == "." || normalizedRoot == "" {
+		return false
+	}
+	return normalizedPath == normalizedRoot || strings.HasPrefix(normalizedPath, normalizedRoot+string(os.PathSeparator))
+}
+
+func (s *service) nonAdminOwnedFileRoots(principal servicePrincipal) map[string]struct{} {
+	roots := map[string]struct{}{}
+	if principal.Role == "admin" {
+		return roots
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, site := range s.state.Websites {
+		if !s.principalOwnsWebsiteLocked(principal, site) {
+			continue
+		}
+		domain := normalizeDomain(site.Domain)
+		if domain == "" {
+			continue
+		}
+		root := filepath.Clean(filepath.Join("/home", domain))
+		roots[root] = struct{}{}
+	}
+
+	return roots
+}
+
+func (s *service) nonAdminCanAccessManagedFilePath(principal servicePrincipal, path string) bool {
+	if principal.Role == "admin" {
+		return true
+	}
+	resolved, err := resolveManagedPath(path)
+	if err != nil {
+		return false
+	}
+	roots := s.nonAdminOwnedFileRoots(principal)
+	if len(roots) == 0 {
+		return false
+	}
+	for root := range roots {
+		if managedPathWithinRoot(resolved, root) {
+			return true
+		}
+	}
+	return false
+}
+
+func filterHomeEntriesForRoots(entries []virtualFileEntry, roots map[string]struct{}) []virtualFileEntry {
+	if len(entries) == 0 || len(roots) == 0 {
+		return []virtualFileEntry{}
+	}
+	allowedNames := map[string]struct{}{}
+	for root := range roots {
+		name := strings.ToLower(strings.TrimSpace(filepath.Base(root)))
+		if name == "" || name == "." || name == "/" {
+			continue
+		}
+		allowedNames[name] = struct{}{}
+	}
+	filtered := make([]virtualFileEntry, 0, len(entries))
+	for _, item := range entries {
+		if !item.IsDir {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(item.Name))
+		if _, ok := allowedNames[name]; ok {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func (s *service) resolveFilePathForPrincipal(principal servicePrincipal, path string) (string, int, error) {
+	resolved, err := resolveManagedPath(path)
+	if err != nil {
+		return "", http.StatusBadRequest, err
+	}
+	if principal.Role == "admin" {
+		return resolved, http.StatusOK, nil
+	}
+	if !s.nonAdminCanAccessManagedFilePath(principal, resolved) {
+		return "", http.StatusForbidden, fmt.Errorf("Access denied for this path.")
+	}
+	return resolved, http.StatusOK, nil
+}
+
 func (s *service) handleFilesList(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
+
 	path := strings.TrimSpace(r.URL.Query().Get("path"))
 	if path == "" {
 		var payload struct {
@@ -1773,7 +1871,38 @@ func (s *service) handleFilesList(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "/home"
 	}
-	items, err := listManagedEntries(path)
+
+	resolvedPath, err := resolveManagedPath(path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if principal.Role != "admin" {
+		roots := s.nonAdminOwnedFileRoots(principal)
+		if len(roots) == 0 {
+			writeError(w, http.StatusForbidden, "No owned websites available for file access.")
+			return
+		}
+		if resolvedPath == filepath.Clean("/home") {
+			items, listErr := listManagedEntries(resolvedPath)
+			if listErr != nil {
+				writeError(w, http.StatusBadRequest, listErr.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, apiResponse{
+				Status: "success",
+				Data:   filterHomeEntriesForRoots(items, roots),
+			})
+			return
+		}
+		if !s.nonAdminCanAccessManagedFilePath(principal, resolvedPath) {
+			writeError(w, http.StatusForbidden, "Access denied for this path.")
+			return
+		}
+	}
+
+	items, err := listManagedEntries(resolvedPath)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -1782,6 +1911,12 @@ func (s *service) handleFilesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *service) handleFileRead(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
+
 	var payload struct {
 		Path string `json:"path"`
 	}
@@ -1789,7 +1924,12 @@ func (s *service) handleFileRead(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid file read payload.")
 		return
 	}
-	content, err := readManagedFile(payload.Path)
+	resolvedPath, status, err := s.resolveFilePathForPrincipal(principal, payload.Path)
+	if err != nil {
+		writeError(w, status, err.Error())
+		return
+	}
+	content, err := readManagedFile(resolvedPath)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
@@ -1798,6 +1938,12 @@ func (s *service) handleFileRead(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *service) handleFileWrite(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
+
 	var payload struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
@@ -1806,7 +1952,12 @@ func (s *service) handleFileWrite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid file write payload.")
 		return
 	}
-	if err := writeManagedFile(payload.Path, payload.Content); err != nil {
+	resolvedPath, status, err := s.resolveFilePathForPrincipal(principal, payload.Path)
+	if err != nil {
+		writeError(w, status, err.Error())
+		return
+	}
+	if err := writeManagedFile(resolvedPath, payload.Content); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1814,10 +1965,24 @@ func (s *service) handleFileWrite(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *service) handleFileUpload(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
+
 	const maxUploadBytes = 250 << 20 // 250 MB
 
 	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid multipart upload payload.")
+		errText := strings.ToLower(err.Error())
+		switch {
+		case strings.Contains(errText, "request body too large"), strings.Contains(errText, "too large"):
+			writeError(w, http.StatusRequestEntityTooLarge, "Upload is too large for current limits.")
+		case strings.Contains(errText, "multipart"), strings.Contains(errText, "boundary"):
+			writeError(w, http.StatusBadRequest, "Upload could not be parsed. Use multipart/form-data upload.")
+		default:
+			writeError(w, http.StatusBadRequest, "Invalid multipart upload payload.")
+		}
 		return
 	}
 
@@ -1826,9 +1991,9 @@ func (s *service) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 		targetPath = "/home"
 	}
 
-	destDir, err := resolveManagedPath(targetPath)
+	destDir, status, err := s.resolveFilePathForPrincipal(principal, targetPath)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, status, err.Error())
 		return
 	}
 
@@ -1897,6 +2062,12 @@ func (s *service) handleFileUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *service) handleFileRename(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
+
 	var payload struct {
 		OldPath string `json:"old_path"`
 		NewPath string `json:"new_path"`
@@ -1905,7 +2076,17 @@ func (s *service) handleFileRename(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid rename payload.")
 		return
 	}
-	if err := renameManagedPath(payload.OldPath, payload.NewPath); err != nil {
+	oldPath, status, err := s.resolveFilePathForPrincipal(principal, payload.OldPath)
+	if err != nil {
+		writeError(w, status, err.Error())
+		return
+	}
+	newPath, status, err := s.resolveFilePathForPrincipal(principal, payload.NewPath)
+	if err != nil {
+		writeError(w, status, err.Error())
+		return
+	}
+	if err := renameManagedPath(oldPath, newPath); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1913,6 +2094,12 @@ func (s *service) handleFileRename(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *service) handleFileChmod(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
+
 	var payload struct {
 		Path string `json:"path"`
 		Mode string `json:"mode"`
@@ -1921,7 +2108,12 @@ func (s *service) handleFileChmod(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid chmod payload.")
 		return
 	}
-	if err := setManagedPermissions(payload.Path, payload.Mode); err != nil {
+	resolvedPath, status, err := s.resolveFilePathForPrincipal(principal, payload.Path)
+	if err != nil {
+		writeError(w, status, err.Error())
+		return
+	}
+	if err := setManagedPermissions(resolvedPath, payload.Mode); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1929,6 +2121,12 @@ func (s *service) handleFileChmod(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *service) handleFileTrash(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
+
 	var payload struct {
 		Path string `json:"path"`
 	}
@@ -1936,7 +2134,12 @@ func (s *service) handleFileTrash(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid trash payload.")
 		return
 	}
-	if err := trashManagedPath(payload.Path); err != nil {
+	resolvedPath, status, err := s.resolveFilePathForPrincipal(principal, payload.Path)
+	if err != nil {
+		writeError(w, status, err.Error())
+		return
+	}
+	if err := trashManagedPath(resolvedPath); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1944,6 +2147,12 @@ func (s *service) handleFileTrash(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *service) handleFileDelete(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
+
 	var payload struct {
 		Path string `json:"path"`
 	}
@@ -1951,7 +2160,12 @@ func (s *service) handleFileDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid delete payload.")
 		return
 	}
-	if err := deleteManagedPath(payload.Path); err != nil {
+	resolvedPath, status, err := s.resolveFilePathForPrincipal(principal, payload.Path)
+	if err != nil {
+		writeError(w, status, err.Error())
+		return
+	}
+	if err := deleteManagedPath(resolvedPath); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1959,6 +2173,12 @@ func (s *service) handleFileDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *service) handleFileCompress(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
+
 	var payload struct {
 		Format   string   `json:"format"`
 		DestPath string   `json:"dest_path"`
@@ -1968,7 +2188,21 @@ func (s *service) handleFileCompress(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid compress payload.")
 		return
 	}
-	if err := compressManagedFiles(payload.DestPath, payload.Sources, payload.Format); err != nil {
+	resolvedDest, status, err := s.resolveFilePathForPrincipal(principal, payload.DestPath)
+	if err != nil {
+		writeError(w, status, err.Error())
+		return
+	}
+	resolvedSources := make([]string, 0, len(payload.Sources))
+	for _, source := range payload.Sources {
+		resolvedSource, sourceStatus, resolveErr := s.resolveFilePathForPrincipal(principal, source)
+		if resolveErr != nil {
+			writeError(w, sourceStatus, resolveErr.Error())
+			return
+		}
+		resolvedSources = append(resolvedSources, resolvedSource)
+	}
+	if err := compressManagedFiles(resolvedDest, resolvedSources, payload.Format); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1976,6 +2210,12 @@ func (s *service) handleFileCompress(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *service) handleFileExtract(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
+
 	var payload struct {
 		ArchivePath string `json:"archive_path"`
 		DestDir     string `json:"dest_dir"`
@@ -1984,7 +2224,17 @@ func (s *service) handleFileExtract(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid extract payload.")
 		return
 	}
-	if err := extractManagedArchive(payload.ArchivePath, payload.DestDir); err != nil {
+	resolvedArchive, status, err := s.resolveFilePathForPrincipal(principal, payload.ArchivePath)
+	if err != nil {
+		writeError(w, status, err.Error())
+		return
+	}
+	resolvedDest, status, err := s.resolveFilePathForPrincipal(principal, payload.DestDir)
+	if err != nil {
+		writeError(w, status, err.Error())
+		return
+	}
+	if err := extractManagedArchive(resolvedArchive, resolvedDest); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1992,6 +2242,12 @@ func (s *service) handleFileExtract(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *service) handleFileCreateDir(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
+
 	var payload struct {
 		Path string `json:"path"`
 	}
@@ -1999,7 +2255,12 @@ func (s *service) handleFileCreateDir(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid create directory payload.")
 		return
 	}
-	if err := createManagedDir(payload.Path); err != nil {
+	resolvedPath, status, err := s.resolveFilePathForPrincipal(principal, payload.Path)
+	if err != nil {
+		writeError(w, status, err.Error())
+		return
+	}
+	if err := createManagedDir(resolvedPath); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

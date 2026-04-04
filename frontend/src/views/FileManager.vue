@@ -227,6 +227,17 @@ const showNotif = (msg, type = 'success') => {
   setTimeout(() => notification.value = null, 3000)
 }
 
+const apiErrorMessage = (error) => {
+  const responseData = error?.response?.data
+  if (typeof responseData?.message === 'string' && responseData.message.trim()) {
+    return responseData.message.trim()
+  }
+  if (typeof responseData?.error === 'string' && responseData.error.trim()) {
+    return responseData.error.trim()
+  }
+  return t('common.error')
+}
+
 const formatBytes = (bytes) => {
   if (bytes === 0) return '0 B'
   const k = 1024, sizes = ['B', 'KB', 'MB', 'GB', 'TB'], i = Math.floor(Math.log(bytes) / Math.log(k))
@@ -502,8 +513,8 @@ const uploadSelectedFiles = async () => {
     showNotif(t('filemanager.upload_success'))
     closeUploadModal()
     loadFiles()
-  } catch {
-    showNotif(t('common.error'), 'error')
+  } catch (e) {
+    showNotif(apiErrorMessage(e), 'error')
   } finally {
     uploading.value = false
   }

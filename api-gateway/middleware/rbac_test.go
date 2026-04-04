@@ -48,7 +48,7 @@ func TestRBACMiddlewareBlocksResellerOnAdminRoute(t *testing.T) {
 	}
 }
 
-func TestRBACMiddlewareBlocksUserFileOps(t *testing.T) {
+func TestRBACMiddlewareAllowsUserFileOps(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -59,8 +59,8 @@ func TestRBACMiddlewareBlocksUserFileOps(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 }
 

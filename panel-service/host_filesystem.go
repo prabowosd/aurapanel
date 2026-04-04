@@ -38,7 +38,7 @@ func resolveManagedPath(input string) (string, error) {
 	if target == "" {
 		target = "/home"
 	}
-	if !filepath.IsAbs(target) {
+	if !filepath.IsAbs(target) && !strings.HasPrefix(target, "/") {
 		target = filepath.Join("/home", target)
 	}
 	target = filepath.Clean(target)

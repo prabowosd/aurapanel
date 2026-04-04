@@ -99,9 +99,7 @@ func main() {
 			middleware.Logger(
 				middleware.DDoSGuardMiddleware(
 					middleware.AuthMiddleware(
-						middleware.RBACMiddleware(
-							middleware.DemoModeMiddleware(protectedMux),
-						),
+						middleware.RBACMiddleware(protectedMux),
 					),
 				),
 			),

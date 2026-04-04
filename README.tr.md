@@ -22,7 +22,6 @@ Temel üç ilke:
 - [Performans Modeli](#performans-modeli)
 - [Karşılaştırma Özeti](#karşılaştırma-özeti)
 - [Doküman ve Wiki](#doküman-ve-wiki)
-- [Canlı Demo](#canlı-demo)
 - [Production Kurulum](#production-kurulum)
 - [Yerel Geliştirme](#yerel-geliştirme)
 - [Build ve Paketleme](#build-ve-paketleme)
@@ -178,15 +177,6 @@ Bu sayfaları GitHub Wiki'ye yayınlamak için:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/publish-wiki.ps1
 ```
-
-## Canlı Demo
-
-- URL: `https://demo.aurapanel.info`
-- Email: `demo@aurapanel.info`
-- Şifre: `1234567`
-- Mod: katı read-only demo hesabı
-
-Demo erişimi bilinçli olarak kısıtlıdır. Oluşturma/güncelleme/silme gibi mutasyon işlemleri ve host durumunu değiştiren aksiyonlar API gateway seviyesinde engellenir. Böylece ziyaretçiler paneli güvenle inceleyebilir.
 
 ## Production Kurulum
 

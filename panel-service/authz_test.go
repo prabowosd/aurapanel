@@ -146,6 +146,63 @@ func TestNonAdminRoutePolicyBlocksAIToolsRoutes(t *testing.T) {
 	}
 }
 
+func TestNonAdminRoutePolicyAllowsFileRoutes(t *testing.T) {
+	svc := &service{
+		startedAt: seedTime(),
+		state:     seedState(),
+		modules:   seedModuleState(),
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/files/list", strings.NewReader(`{"path":"/home"}`))
+	req = req.WithContext(context.WithValue(req.Context(), servicePrincipalContextKey, servicePrincipal{
+		Email:    "user@example.com",
+		Role:     "user",
+		Username: "user",
+		Name:     "User",
+	}))
+	rec := httptest.NewRecorder()
+
+	if ok := svc.nonAdminRoutePolicy(rec, req); !ok {
+		t.Fatalf("expected policy to allow file route, got status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestNonAdminFilePathOwnershipCheck(t *testing.T) {
+	t.Setenv("AURAPANEL_ALLOWED_PATHS", "/home,/var/www,/usr/local/lsws,/etc/letsencrypt,/var/log,/opt/aurapanel")
+
+	svc := &service{
+		startedAt: seedTime(),
+		state:     seedState(),
+		modules:   seedModuleState(),
+	}
+	svc.bootstrapModules()
+	svc.state.Users = append(svc.state.Users, PanelUser{
+		ID:       44,
+		Username: "user1",
+		Email:    "user1@example.com",
+		Name:     "User One",
+		Role:     "user",
+		Active:   true,
+	})
+	svc.state.Websites = []Website{
+		{Domain: "owned.example.com", Owner: "user1", User: "user1", Email: "user1@example.com", Status: "active"},
+		{Domain: "other.example.com", Owner: "user2", User: "user2", Email: "user2@example.com", Status: "active"},
+	}
+
+	principal := servicePrincipal{
+		Email:    "user1@example.com",
+		Role:     "user",
+		Username: "user1",
+		Name:     "User One",
+	}
+
+	if !svc.nonAdminCanAccessManagedFilePath(principal, "/home/owned.example.com/public_html/index.php") {
+		t.Fatalf("expected owned path to be allowed")
+	}
+	if svc.nonAdminCanAccessManagedFilePath(principal, "/home/other.example.com/public_html/index.php") {
+		t.Fatalf("expected foreign path to be denied")
+	}
+}
+
 func TestServiceAuthMiddlewareRejectsMissingProxyTokenInProduction(t *testing.T) {
 	t.Setenv("AURAPANEL_DEV_SIMULATION", "")
 	t.Setenv("AURAPANEL_INTERNAL_PROXY_TOKEN", "0123456789abcdef0123456789abcdef")

@@ -32,8 +32,7 @@ func pathMatchesPrefix(path, prefix string) bool {
 }
 
 func isRestrictedNonAdminPath(path string) bool {
-	return pathMatchesPrefix(path, "/api/v1/files") ||
-		pathMatchesPrefix(path, "/api/v1/ai") ||
+	return pathMatchesPrefix(path, "/api/v1/ai") ||
 		pathMatchesPrefix(path, "/api/v1/security/ssh-keys") ||
 		pathMatchesPrefix(path, "/api/v1/websites/custom-ssl") ||
 		pathMatchesPrefix(path, "/api/v1/websites/vhost-config")
@@ -56,6 +55,7 @@ func resellerAllowed(path string) bool {
 		"/api/v1/backup",
 		"/api/v1/apps",
 		"/api/v1/wordpress",
+		"/api/v1/files",
 		"/api/v1/php",
 		"/api/v1/ssl",
 		"/api/v1/monitor/cron",
@@ -87,6 +87,10 @@ func userAllowed(method, path string) bool {
 	}
 
 	if path == "/api/v1/auth/me" || path == "/api/v1/status/metrics" || path == "/api/v1/status/services" || path == "/api/v1/status/update" {
+		return true
+	}
+
+	if pathMatchesPrefix(path, "/api/v1/files") {
 		return true
 	}
 
