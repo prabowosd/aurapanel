@@ -894,7 +894,7 @@ configure_pureftpd() {
   fi
 
   log "Configuring PureFTPd defaults..."
-  mkdir -p /etc/pure-ftpd/conf /etc/pure-ftpd /etc/ssl/private
+  mkdir -p /etc/pure-ftpd/conf /etc/pure-ftpd/auth /etc/pure-ftpd /etc/ssl/private
 
   if [ ! -f /etc/ssl/private/pure-ftpd.pem ]; then
     openssl req -x509 -nodes -newkey rsa:2048 \
@@ -912,6 +912,15 @@ configure_pureftpd() {
   echo "yes" > /etc/pure-ftpd/conf/UnixAuthentication
   echo "no" > /etc/pure-ftpd/conf/PAMAuthentication
   echo "/etc/pure-ftpd/pureftpd.pdb" > /etc/pure-ftpd/conf/PureDB
+  # Panel FTP users are mapped to www-data (uid 33) by default.
+  # Keep MinUID low enough, otherwise Pure-FTPd rejects login with:
+  # "account disabled (uid < ...)" / 530 errors.
+  echo "33" > /etc/pure-ftpd/conf/MinUID
+
+  # Ensure auth backends are actually enabled for Debian/Ubuntu layouts.
+  ln -sfn ../conf/PureDB /etc/pure-ftpd/auth/60puredb
+  ln -sfn ../conf/UnixAuthentication /etc/pure-ftpd/auth/65unix
+  ln -sfn ../conf/PAMAuthentication /etc/pure-ftpd/auth/70pam
 
   touch /etc/pure-ftpd/pureftpd.passwd
   pure-pw mkdb /etc/pure-ftpd/pureftpd.pdb -f /etc/pure-ftpd/pureftpd.passwd >/dev/null 2>&1 || true
