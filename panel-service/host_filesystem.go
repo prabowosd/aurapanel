@@ -1,9 +1,11 @@
 package main
 
 import (
+	"archive/zip"
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -156,6 +158,140 @@ func runManagedArchiveCommand(command string, args ...string) error {
 	return nil
 }
 
+func binaryAvailable(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+func createZipArchive(dest string, sources []string) error {
+	file, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer := zip.NewWriter(file)
+	defer writer.Close()
+
+	for _, source := range sources {
+		sourceInfo, err := os.Stat(source)
+		if err != nil {
+			return err
+		}
+		baseParent := filepath.Dir(source)
+
+		if !sourceInfo.IsDir() {
+			if err := addPathToZip(writer, source, baseParent); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			return addPathToZip(writer, path, baseParent)
+		}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func addPathToZip(writer *zip.Writer, path, baseParent string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+
+	rel, err := filepath.Rel(baseParent, path)
+	if err != nil {
+		return err
+	}
+	name := filepath.ToSlash(rel)
+	if name == "." || name == "" {
+		return nil
+	}
+
+	header, err := zip.FileInfoHeader(info)
+	if err != nil {
+		return err
+	}
+	header.Name = name
+	if info.IsDir() {
+		if !strings.HasSuffix(header.Name, "/") {
+			header.Name += "/"
+		}
+		_, err = writer.CreateHeader(header)
+		return err
+	}
+
+	header.Method = zip.Deflate
+	out, err := writer.CreateHeader(header)
+	if err != nil {
+		return err
+	}
+	in, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	_, err = io.Copy(out, in)
+	return err
+}
+
+func extractZipArchive(archivePath, destDir string) error {
+	reader, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	destClean := filepath.Clean(destDir)
+	for _, entry := range reader.File {
+		entryName := filepath.Clean(entry.Name)
+		if entryName == "." || entryName == "" {
+			continue
+		}
+		target := filepath.Clean(filepath.Join(destClean, entryName))
+		if target != destClean && !strings.HasPrefix(target, destClean+string(os.PathSeparator)) {
+			return fmt.Errorf("zip contains invalid path: %s", entry.Name)
+		}
+
+		if entry.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+
+		in, err := entry.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, entry.Mode())
+		if err != nil {
+			in.Close()
+			return err
+		}
+		if _, err := io.Copy(out, in); err != nil {
+			out.Close()
+			in.Close()
+			return err
+		}
+		out.Close()
+		in.Close()
+	}
+	return nil
+}
+
 func compressManagedFiles(destPath string, sources []string, format string) error {
 	if len(sources) == 0 {
 		return errors.New("at least one source path is required")
@@ -178,8 +314,11 @@ func compressManagedFiles(destPath string, sources []string, format string) erro
 
 	switch strings.ToLower(strings.TrimSpace(format)) {
 	case "zip":
-		args := append([]string{"-r", dest}, resolvedSources...)
-		return runManagedArchiveCommand("zip", args...)
+		if binaryAvailable("zip") {
+			args := append([]string{"-r", dest}, resolvedSources...)
+			return runManagedArchiveCommand("zip", args...)
+		}
+		return createZipArchive(dest, resolvedSources)
 	default:
 		args := append([]string{"-czf", dest}, resolvedSources...)
 		return runManagedArchiveCommand("tar", args...)
@@ -201,7 +340,12 @@ func extractManagedArchive(archivePath, destDir string) error {
 	lower := strings.ToLower(archive)
 	switch {
 	case strings.HasSuffix(lower, ".zip"):
-		return runManagedArchiveCommand("unzip", "-o", archive, "-d", dest)
+		if binaryAvailable("unzip") {
+			return runManagedArchiveCommand("unzip", "-o", archive, "-d", dest)
+		}
+		return extractZipArchive(archive, dest)
+	case strings.HasSuffix(lower, ".tar"):
+		return runManagedArchiveCommand("tar", "-xf", archive, "-C", dest)
 	default:
 		return runManagedArchiveCommand("tar", "-xzf", archive, "-C", dest)
 	}

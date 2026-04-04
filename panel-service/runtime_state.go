@@ -156,3 +156,8 @@ func nextSeedUserID(state appState) int {
 	}
 	return nextID
 }
+
+func init() {
+	gob.Register(map[string]interface{}{})
+	gob.Register([]interface{}{})
+}

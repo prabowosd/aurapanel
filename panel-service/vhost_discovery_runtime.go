@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -188,7 +189,7 @@ func (s *service) handleVhostImport(w http.ResponseWriter, r *http.Request) {
 
 	snapshot, err := s.captureRuntimeSnapshotLocked()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to prepare import rollback state.")
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to prepare import rollback: %v", err))
 		return
 	}
 
