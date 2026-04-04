@@ -172,7 +172,11 @@ func setManagedPermissions(path, modeValue string) error {
 	if err != nil {
 		return err
 	}
-	return os.Chmod(resolved, mode)
+	if err := os.Chmod(resolved, mode); err != nil {
+		return err
+	}
+	_ = ensureManagedWebRuntimeWritable(resolved, mode)
+	return nil
 }
 
 func parseOctalFileMode(value string) (os.FileMode, error) {
@@ -455,6 +459,143 @@ func managedPathOwnerIDs(path string) (int, int, error) {
 		return 0, 0, err
 	}
 	return uid, gid, nil
+}
+
+func modeRequestsWrite(mode os.FileMode) bool {
+	return mode&0o222 != 0
+}
+
+func managedWebsiteDomainFromPath(path string) string {
+	normalized := filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
+	if normalized == "" || normalized == "." || normalized == "/" {
+		return ""
+	}
+	if !strings.HasPrefix(normalized, "/home/") {
+		return ""
+	}
+	parts := strings.Split(strings.TrimPrefix(normalized, "/"), "/")
+	if len(parts) < 2 || parts[0] != "home" {
+		return ""
+	}
+	domain := normalizeDomain(parts[1])
+	if !isValidDomainName(domain) {
+		return ""
+	}
+	return domain
+}
+
+func webRuntimeIdentityFromPSOutput(output string) (string, string) {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		user := strings.TrimSpace(fields[0])
+		group := strings.TrimSpace(fields[1])
+		comm := strings.ToLower(strings.TrimSpace(fields[2]))
+		if user == "" || user == "root" {
+			continue
+		}
+		if strings.Contains(comm, "lsphp") || strings.Contains(comm, "php-fpm") || strings.Contains(comm, "php") {
+			if group == "" {
+				group = user
+			}
+			return user, group
+		}
+	}
+	return "", ""
+}
+
+func detectWebRuntimeIdentity() (string, string) {
+	envUser := strings.TrimSpace(os.Getenv("AURAPANEL_WEB_RUNTIME_USER"))
+	envGroup := strings.TrimSpace(os.Getenv("AURAPANEL_WEB_RUNTIME_GROUP"))
+	if envUser != "" {
+		if envGroup == "" {
+			envGroup = envUser
+		}
+		return envUser, envGroup
+	}
+
+	if output, err := commandOutputTrimmed("ps", "-eo", "user=,group=,comm="); err == nil {
+		if user, group := webRuntimeIdentityFromPSOutput(output); user != "" {
+			return user, group
+		}
+	}
+
+	candidates := [][2]string{
+		{"www-data", "www-data"},
+		{"nobody", "nogroup"},
+		{"nobody", "nobody"},
+	}
+	for _, candidate := range candidates {
+		if !systemUserExists(candidate[0]) {
+			continue
+		}
+		group := candidate[1]
+		if !systemGroupExists(group) {
+			group = candidate[0]
+		}
+		return candidate[0], group
+	}
+	return "", ""
+}
+
+func ensureManagedWebRuntimeWritable(path string, mode os.FileMode) error {
+	if runtime.GOOS == "windows" || !modeRequestsWrite(mode) {
+		return nil
+	}
+	resolved, err := resolveManagedPath(path)
+	if err != nil {
+		return nil
+	}
+	if managedWebsiteDomainFromPath(resolved) == "" {
+		return nil
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return nil
+	}
+	user, group := detectWebRuntimeIdentity()
+	if user == "" {
+		return nil
+	}
+	if group == "" {
+		group = user
+	}
+
+	if binaryAvailable("setfacl") {
+		aclPerm := "rw"
+		if info.IsDir() {
+			aclPerm = "rwx"
+		}
+		aclSpec := fmt.Sprintf("u:%s:%s", user, aclPerm)
+		if info.IsDir() {
+			if _, err := commandOutputTrimmed("setfacl", "-R", "-m", aclSpec, resolved); err == nil {
+				_, _ = commandOutputTrimmed("setfacl", "-R", "-d", "-m", aclSpec, resolved)
+				return nil
+			}
+		} else {
+			if _, err := commandOutputTrimmed("setfacl", "-m", aclSpec, resolved); err == nil {
+				return nil
+			}
+		}
+	}
+
+	ownerSpec := user
+	if systemGroupExists(group) {
+		ownerSpec = user + ":" + group
+	}
+	if info.IsDir() {
+		_, _ = commandOutputTrimmed("chown", "-R", ownerSpec, resolved)
+	} else {
+		_, _ = commandOutputTrimmed("chown", ownerSpec, resolved)
+	}
+	return nil
 }
 
 func tailManagedFile(path string, limit int) ([]string, error) {
