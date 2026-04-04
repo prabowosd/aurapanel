@@ -1107,15 +1107,14 @@ EOF
 configure_db_tools_hardening() {
   local hardening_script="${PROJECT_DIR}/installer/db-tools-hardening.sh"
   if [ ! -f "${hardening_script}" ]; then
-    warn "DB tools hardening script not found: ${hardening_script}"
-    return 0
+    fail "DB tools hardening script not found: ${hardening_script}"
   fi
 
   chmod +x "${hardening_script}" >/dev/null 2>&1 || true
   if "${hardening_script}"; then
     ok "DB tools hardening policy applied."
   else
-    warn "DB tools hardening script failed. Review logs and apply manually."
+    fail "DB tools hardening script failed."
   fi
 }
 
@@ -1313,6 +1312,24 @@ ensure_wp_cli() {
   else
     log "WP-CLI is already installed."
   fi
+}
+
+ensure_docker_runtime() {
+  if command -v docker >/dev/null 2>&1; then
+    ok "Docker runtime already available."
+    return
+  fi
+
+  log "Installing Docker runtime (required for pgAdmin)..."
+  if [ "${PKG_MGR}" = "apt" ]; then
+    install_packages docker.io || fail "Docker installation failed."
+  else
+    install_packages docker || install_packages docker-ce || fail "Docker installation failed."
+  fi
+
+  command -v docker >/dev/null 2>&1 || fail "Docker binary missing after install."
+  systemctl enable docker >/dev/null 2>&1 || true
+  systemctl start docker >/dev/null 2>&1 || true
 }
 
 ensure_ols_public_listeners() {
@@ -2356,6 +2373,7 @@ main() {
   configure_minio_service
   configure_roundcube
   configure_ols_webmail_route
+  ensure_docker_runtime
   configure_db_tools_hardening
   configure_mail_stack_vmail
   configure_htaccess_watcher

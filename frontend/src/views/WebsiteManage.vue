@@ -544,7 +544,7 @@ const hostingPackages = ref([])
 const error = ref('')
 const success = ref('')
 const site = ref({})
-const form = ref({ owner: 'aura', php_version: '8.3', package: 'default', email: '' })
+const form = ref({ owner: '', php_version: '8.3', package: 'default', email: '' })
 const aliases = ref([])
 const aliasInput = ref('')
 const advanced = ref({ open_basedir: false, rewrite_rules: '', vhost_config: '' })
@@ -895,7 +895,7 @@ async function loadSite() {
   const data = res.data?.data || []
   site.value = data.find(item => String(item.domain || '').toLowerCase() === domain.value) || {}
   form.value = {
-    owner: site.value.owner || site.value.user || 'aura',
+    owner: site.value.owner || site.value.user || '',
     php_version: site.value.php_version || site.value.php || '8.3',
     package: site.value.package || 'default',
     email: site.value.email || `webmaster@${domain.value}`,

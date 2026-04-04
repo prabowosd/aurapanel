@@ -65,6 +65,7 @@
           {{ t('server_status.services_tab') }}
         </button>
         <button
+          v-if="canViewProcesses"
           @click="tab = 'processes'"
           :class="['pb-3 text-sm font-medium transition', tab === 'processes' ? 'text-orange-400 border-b-2 border-orange-400' : 'text-gray-400 hover:text-white']"
         >
@@ -88,7 +89,7 @@
           </div>
           <p class="text-gray-500 text-xs">{{ s.desc }}</p>
         </div>
-        <div class="flex gap-2">
+        <div v-if="canControlServices" class="flex gap-2">
           <button
             v-if="isServiceRunning(s.status)"
             @click="controlService(s.name, 'stop')"
@@ -113,7 +114,7 @@
       </div>
     </div>
 
-    <div v-if="tab === 'processes'" class="bg-panel-card border border-panel-border rounded-xl overflow-hidden">
+    <div v-if="tab === 'processes' && canViewProcesses" class="bg-panel-card border border-panel-border rounded-xl overflow-hidden">
       <div v-if="loadingProcesses" class="p-6 text-center text-gray-500">{{ t('common.loading') }}</div>
       <table v-else class="w-full text-sm">
         <thead>
@@ -134,7 +135,7 @@
             <td class="px-4 py-2.5 text-gray-300 text-xs">{{ p.mem }}%</td>
             <td class="px-4 py-2.5 text-white font-mono text-xs truncate max-w-[260px]">{{ p.command }}</td>
             <td class="px-4 py-2.5 text-right">
-              <button @click="killProcess(p.pid)" class="px-2 py-1 bg-red-600/20 text-red-400 rounded text-xs hover:bg-red-600/40 transition">{{ t('server_status.kill_process') }}</button>
+              <button v-if="canControlServices" @click="killProcess(p.pid)" class="px-2 py-1 bg-red-600/20 text-red-400 rounded text-xs hover:bg-red-600/40 transition">{{ t('server_status.kill_process') }}</button>
             </td>
           </tr>
         </tbody>
@@ -148,12 +149,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Activity, Cpu, MemoryStick, HardDrive, Clock, Loader2 } from 'lucide-vue-next'
 import api from '../services/api'
+import { useAuthStore } from '../stores/auth'
 
 const { t } = useI18n({ useScope: 'global' })
+const authStore = useAuthStore()
 
 const tab = ref('services')
 const notification = ref('')
@@ -180,6 +183,8 @@ const metrics = ref({
 
 const services = ref([])
 const processes = ref([])
+const canControlServices = computed(() => authStore.isAdmin)
+const canViewProcesses = computed(() => authStore.isAdmin || authStore.isReseller)
 
 const showNotif = (message) => {
   notification.value = message
@@ -252,10 +257,16 @@ const fetchServices = async () => {
 }
 
 const fetchProcesses = async () => {
+  if (!canViewProcesses.value) {
+    processes.value = []
+    return
+  }
   loadingProcesses.value = true
   try {
     const res = await api.get('/status/processes')
     processes.value = Array.isArray(res.data?.data) ? res.data.data : []
+  } catch {
+    processes.value = []
   } finally {
     loadingProcesses.value = false
   }
@@ -282,16 +293,23 @@ const killProcess = async (pid) => {
 }
 
 const refreshAll = async () => {
-  await Promise.all([fetchMetrics(), fetchServices(), fetchProcesses()])
+  const tasks = [fetchMetrics(), fetchServices()]
+  if (canViewProcesses.value) {
+    tasks.push(fetchProcesses())
+  }
+  await Promise.all(tasks)
   showNotif(t('server_status.messages.updated'))
 }
 
 watch(tab, async (value) => {
   if (value === 'services' && !services.value.length) await fetchServices()
-  if (value === 'processes' && !processes.value.length) await fetchProcesses()
+  if (value === 'processes' && canViewProcesses.value && !processes.value.length) await fetchProcesses()
 })
 
 onMounted(async () => {
+  if (!canViewProcesses.value && tab.value === 'processes') {
+    tab.value = 'services'
+  }
   await refreshAll()
   interval = setInterval(fetchMetrics, 10000)
 })

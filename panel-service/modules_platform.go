@@ -613,10 +613,14 @@ func (s *service) handleCMSInstall(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		AppType    string `json:"app_type"`
 		Domain     string `json:"domain"`
+		Owner      string `json:"owner"`
+		User       string `json:"user"`
 		DBName     string `json:"db_name"`
 		DBUser     string `json:"db_user"`
+		DBPass     string `json:"db_pass"`
 		AdminEmail string `json:"admin_email"`
 		AdminUser  string `json:"admin_user"`
+		AdminPass  string `json:"admin_pass"`
 	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid CMS install payload.")
@@ -627,13 +631,14 @@ func (s *service) handleCMSInstall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Domain is required.")
 		return
 	}
+	siteOwner := s.resolveRequestedOwner(r, payload.Owner, payload.User)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.findWebsiteLocked(domain) == nil {
 		site := Website{
 			Domain:        domain,
-			Owner:         "aura",
-			User:          "aura",
+			Owner:         siteOwner,
+			User:          siteOwner,
 			PHP:           "8.3",
 			PHPVersion:    "8.3",
 			Package:       "default",
@@ -655,9 +660,17 @@ func (s *service) handleCMSInstall(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if payload.AppType == "wordpress" {
-		wp := buildWordPressSite(domain, "aura", firstNonEmpty(payload.AdminEmail, "admin@"+domain), "8.3")
+		wp := buildWordPressSite(domain, siteOwner, firstNonEmpty(payload.AdminEmail, "admin@"+domain), "8.3")
 		wp.DBName = firstNonEmpty(payload.DBName, wp.DBName)
 		wp.DBUser = firstNonEmpty(payload.DBUser, wp.DBUser)
+		dbPass := strings.TrimSpace(payload.DBPass)
+		if dbPass == "" {
+			dbPass = generateSecret(18)
+		}
+		adminPass := strings.TrimSpace(payload.AdminPass)
+		if adminPass == "" {
+			adminPass = generateSecret(18)
+		}
 
 		docroot := domainDocroot(domain)
 
@@ -666,13 +679,11 @@ func (s *service) handleCMSInstall(w http.ResponseWriter, r *http.Request) {
 			os.MkdirAll(docroot, 0755)
 			exec.Command("wp", "core", "download", "--path="+docroot, "--allow-root").Run()
 
-			dbPass := "temp_db_pass_here" // In a real scenario, this should be the randomly generated or provided DB password
 			exec.Command("wp", "config", "create", "--path="+docroot, "--allow-root", "--dbname="+wp.DBName, "--dbuser="+wp.DBUser, "--dbpass="+dbPass, "--dbhost=127.0.0.1").Run()
 
-			adminPass := "admin123" // In a real scenario, this should be generated or user-provided
 			exec.Command("wp", "core", "install", "--path="+docroot, "--allow-root", "--url=https://"+domain, "--title="+domain, "--admin_user="+firstNonEmpty(payload.AdminUser, "admin"), "--admin_password="+adminPass, "--admin_email="+wp.AdminEmail).Run()
 
-			exec.Command("chown", "-R", "aura:aura", docroot).Run()
+			exec.Command("chown", "-R", siteOwner+":"+siteOwner, docroot).Run()
 
 			s.mu.Lock()
 			s.refreshWordPressSiteStatsLocked(domain)
@@ -696,8 +707,29 @@ func (s *service) handleCMSInstall(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		s.refreshWordPressSiteStatsLocked(domain)
+		generated := map[string]string{}
+		if strings.TrimSpace(payload.DBPass) == "" {
+			generated["db_pass"] = dbPass
+		}
+		if strings.TrimSpace(payload.AdminPass) == "" {
+			generated["admin_pass"] = adminPass
+		}
+		responseData := map[string]interface{}{"domain": domain}
+		if len(generated) > 0 {
+			responseData["generated_credentials"] = generated
+		}
+		writeJSON(w, http.StatusOK, apiResponse{
+			Status:  "success",
+			Message: fmt.Sprintf("%s installed on %s.", firstNonEmpty(payload.AppType, "Application"), domain),
+			Data:    responseData,
+		})
+		return
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: fmt.Sprintf("%s installed on %s.", firstNonEmpty(payload.AppType, "Application"), domain)})
+	writeJSON(w, http.StatusOK, apiResponse{
+		Status:  "success",
+		Message: fmt.Sprintf("%s installed on %s.", firstNonEmpty(payload.AppType, "Application"), domain),
+		Data:    map[string]interface{}{"domain": domain},
+	})
 }
 
 func (s *service) handleWordPressSites(w http.ResponseWriter) {
@@ -1045,11 +1077,12 @@ func (s *service) handleWordPressStagingCreate(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusBadRequest, "Source and staging domain are required.")
 		return
 	}
+	owner := s.resolveRequestedOwner(r)
 	record := WordPressStaging{
 		ID:            generateSecret(8),
 		SourceDomain:  source,
 		StagingDomain: target,
-		Owner:         "aura",
+		Owner:         owner,
 		CreatedAt:     time.Now().UTC().Unix(),
 		Status:        "ready",
 	}
@@ -1057,7 +1090,7 @@ func (s *service) handleWordPressStagingCreate(w http.ResponseWriter, r *http.Re
 	defer s.mu.Unlock()
 	s.modules.WordPressStaging[source] = append([]WordPressStaging{record}, s.modules.WordPressStaging[source]...)
 	if s.findWordPressSiteIndexLocked(target) == -1 {
-		wp := buildWordPressSite(target, "aura", "admin@"+target, "8.3")
+		wp := buildWordPressSite(target, owner, "admin@"+target, "8.3")
 		wp.Status = "staging"
 		s.modules.WordPressSites = append([]WordPressSite{wp}, s.modules.WordPressSites...)
 	}

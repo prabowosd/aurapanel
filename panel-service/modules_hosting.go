@@ -737,6 +737,7 @@ func (s *service) handleSubdomainConvert(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	fqdn := normalizeDomain(payload.FQDN)
+	owner := s.resolveRequestedOwner(r, payload.Owner)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	index := -1
@@ -753,10 +754,14 @@ func (s *service) handleSubdomainConvert(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.state.Subdomains = append(s.state.Subdomains[:index], s.state.Subdomains[index+1:]...)
+	if err := s.enforceOwnerDomainsLimitLocked(owner); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	s.state.Websites = append(s.state.Websites, Website{
 		Domain:        fqdn,
-		Owner:         firstNonEmpty(payload.Owner, "aura"),
-		User:          firstNonEmpty(payload.Owner, "aura"),
+		Owner:         owner,
+		User:          owner,
 		PHP:           firstNonEmpty(payload.PHPVersion, source.PHPVersion, s.firstInstalledPHPVersionLocked()),
 		PHPVersion:    firstNonEmpty(payload.PHPVersion, source.PHPVersion, s.firstInstalledPHPVersionLocked()),
 		Package:       "default",
@@ -884,7 +889,8 @@ func (s *service) recalcDNSZoneLocked(domain string) {
 
 func (s *service) handleDNSZoneCreate(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		Domain string `json:"domain"`
+		Domain   string `json:"domain"`
+		ServerIP string `json:"server_ip"`
 	}
 	if err := decodeJSON(r, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid DNS zone payload.")
@@ -903,9 +909,16 @@ func (s *service) handleDNSZoneCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	serverIP := strings.TrimSpace(payload.ServerIP)
+	if net.ParseIP(serverIP) == nil {
+		serverIP = detectPrimaryIPv4()
+		if strings.TrimSpace(serverIP) == "" {
+			serverIP = "127.0.0.1"
+		}
+	}
 	s.modules.DNSZones = append(s.modules.DNSZones, DNSZone{ID: generateSecret(6), Name: domain, Kind: "native", Records: 2, DNSSECEnabled: false})
 	s.modules.DNSRecords[domain] = []DNSRecord{
-		{RecordType: "A", Name: domain, Content: "203.0.113.10", TTL: 3600},
+		{RecordType: "A", Name: domain, Content: serverIP, TTL: 3600},
 		{RecordType: "TXT", Name: domain, Content: "v=spf1 mx a ~all", TTL: 3600},
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Message: "DNS zone created."})
@@ -993,9 +1006,13 @@ func (s *service) handleDNSReconcile(w http.ResponseWriter, r *http.Request) {
 	domain := normalizeDomain(payload.Domain)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	serverIP := detectPrimaryIPv4()
+	if strings.TrimSpace(serverIP) == "" {
+		serverIP = "127.0.0.1"
+	}
 	if len(s.modules.DNSRecords[domain]) == 0 {
 		s.modules.DNSRecords[domain] = []DNSRecord{
-			{RecordType: "A", Name: domain, Content: "203.0.113.10", TTL: 3600},
+			{RecordType: "A", Name: domain, Content: serverIP, TTL: 3600},
 			{RecordType: "MX", Name: domain, Content: fmt.Sprintf("mail.%s", domain), TTL: 3600},
 			{RecordType: "TXT", Name: domain, Content: "v=spf1 mx a ~all", TTL: 3600},
 		}
@@ -1062,14 +1079,49 @@ func (s *service) handleDefaultNameserversReset(w http.ResponseWriter) {
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.modules.DefaultNameservers})
 }
 
-func (s *service) handleMailboxesList(w http.ResponseWriter) {
+func (s *service) handleMailboxesList(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
 	s.mu.RLock()
 	quotaByAddress := map[string]int{}
+	ownerByAddress := map[string]string{}
 	for _, mailbox := range s.modules.Mailboxes {
 		quotaByAddress[mailbox.Address] = mailbox.QuotaMB
+		ownerByAddress[strings.ToLower(strings.TrimSpace(mailbox.Address))] = sanitizeName(mailbox.Owner)
 	}
 	s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: loadSystemMailboxes(quotaByAddress)})
+	items := loadSystemMailboxes(quotaByAddress)
+	if principal.Role != "admin" {
+		ids := principalAliases(principal)
+		s.mu.RLock()
+		if user := s.findUserByEmailLocked(principal.Email); user != nil {
+			ids[sanitizeName(user.Username)] = struct{}{}
+		}
+		s.mu.RUnlock()
+		filtered := make([]Mailbox, 0, len(items))
+		for _, item := range items {
+			allowedDomain := false
+			if normalizeDomain(item.Domain) != "" {
+				s.mu.RLock()
+				allowedDomain = s.canAccessDomainLocked(principal, item.Domain)
+				s.mu.RUnlock()
+			}
+			if allowedDomain {
+				filtered = append(filtered, item)
+				continue
+			}
+			if owner := ownerByAddress[strings.ToLower(strings.TrimSpace(item.Address))]; owner != "" {
+				if _, ok := ids[owner]; ok {
+					filtered = append(filtered, item)
+				}
+			}
+		}
+		items = filtered
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: items})
 }
 
 func (s *service) handleMailboxCreate(w http.ResponseWriter, r *http.Request) {
@@ -1094,8 +1146,13 @@ func (s *service) handleMailboxCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Mailbox password is required.")
 		return
 	}
+	owner := s.resolveRequestedOwner(r, payload.Owner)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.enforceOwnerEmailsLimitLocked(owner); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	address := fmt.Sprintf("%s@%s", username, domain)
 	for _, mailbox := range s.modules.Mailboxes {
 		if mailbox.Address == address {
@@ -1107,7 +1164,7 @@ func (s *service) handleMailboxCreate(w http.ResponseWriter, r *http.Request) {
 		Address: address,
 		Domain:  domain,
 		User:    username,
-		Owner:   firstNonEmpty(payload.Owner, "aura"),
+		Owner:   owner,
 		QuotaMB: maxInt(payload.QuotaMB, 256),
 		UsedMB:  0,
 	})
@@ -1475,7 +1532,31 @@ func (s *service) transferAccountsLocked(kind string) *[]TransferAccount {
 	return &s.modules.FTPUsers
 }
 
+func (s *service) transferAccountAccessibleToPrincipal(principal servicePrincipal, account TransferAccount) bool {
+	if principal.Role == "admin" {
+		return true
+	}
+	domain := normalizeDomain(account.Domain)
+	if domain != "" {
+		s.mu.RLock()
+		allowed := s.canAccessDomainLocked(principal, domain)
+		s.mu.RUnlock()
+		if allowed {
+			return true
+		}
+	}
+	if strings.TrimSpace(account.HomeDir) != "" {
+		return s.nonAdminCanAccessManagedFilePath(principal, account.HomeDir)
+	}
+	return false
+}
+
 func (s *service) handleTransferList(w http.ResponseWriter, r *http.Request, kind string) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
 	domain := normalizeDomain(r.URL.Query().Get("domain"))
 	source, err := runtimeTransferAccounts(kind)
 	if err != nil {
@@ -1483,19 +1564,28 @@ func (s *service) handleTransferList(w http.ResponseWriter, r *http.Request, kin
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	source = mergeTransferMetadata(source, *s.transferAccountsLocked(kind))
 	*s.transferAccountsLocked(kind) = source
+	s.mu.Unlock()
 	items := make([]TransferAccount, 0, len(source))
 	for _, item := range source {
-		if domain == "" || item.Domain == domain {
-			items = append(items, item)
+		if domain != "" && normalizeDomain(item.Domain) != domain {
+			continue
 		}
+		if principal.Role != "admin" && !s.transferAccountAccessibleToPrincipal(principal, item) {
+			continue
+		}
+		items = append(items, item)
 	}
 	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: items})
 }
 
 func (s *service) handleTransferCreate(w http.ResponseWriter, r *http.Request, kind string) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
 	var payload struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -1520,6 +1610,10 @@ func (s *service) handleTransferCreate(w http.ResponseWriter, r *http.Request, k
 		writeError(w, http.StatusBadRequest, "Home directory must be under /home/<account>/...")
 		return
 	}
+	if principal.Role != "admin" && !s.transferAccountAccessibleToPrincipal(principal, account) {
+		writeError(w, http.StatusForbidden, "Access denied for this transfer home directory.")
+		return
+	}
 	if err := createRuntimeTransferAccount(kind, account.Username, payload.Password, account.HomeDir); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -1532,6 +1626,11 @@ func (s *service) handleTransferCreate(w http.ResponseWriter, r *http.Request, k
 }
 
 func (s *service) handleTransferPassword(w http.ResponseWriter, r *http.Request, kind string) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
 	var payload struct {
 		Username    string `json:"username"`
 		NewPassword string `json:"new_password"`
@@ -1545,6 +1644,34 @@ func (s *service) handleTransferPassword(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	key := sanitizeName(payload.Username)
+	if principal.Role != "admin" {
+		source, err := runtimeTransferAccounts(kind)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		s.mu.Lock()
+		source = mergeTransferMetadata(source, *s.transferAccountsLocked(kind))
+		*s.transferAccountsLocked(kind) = source
+		s.mu.Unlock()
+		target := TransferAccount{}
+		found := false
+		for _, item := range source {
+			if sanitizeName(item.Username) == key {
+				target = item
+				found = true
+				break
+			}
+		}
+		if !found {
+			writeError(w, http.StatusNotFound, "Transfer account not found.")
+			return
+		}
+		if !s.transferAccountAccessibleToPrincipal(principal, target) {
+			writeError(w, http.StatusForbidden, "Access denied for this transfer account.")
+			return
+		}
+	}
 	if err := updateRuntimeTransferPassword(kind, key, payload.NewPassword); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -1562,6 +1689,11 @@ func (s *service) handleTransferPassword(w http.ResponseWriter, r *http.Request,
 }
 
 func (s *service) handleTransferDelete(w http.ResponseWriter, r *http.Request, kind string) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
 	var payload struct {
 		Username string `json:"username"`
 	}
@@ -1570,6 +1702,34 @@ func (s *service) handleTransferDelete(w http.ResponseWriter, r *http.Request, k
 		return
 	}
 	key := sanitizeName(payload.Username)
+	if principal.Role != "admin" {
+		source, err := runtimeTransferAccounts(kind)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		s.mu.Lock()
+		source = mergeTransferMetadata(source, *s.transferAccountsLocked(kind))
+		*s.transferAccountsLocked(kind) = source
+		s.mu.Unlock()
+		target := TransferAccount{}
+		found := false
+		for _, item := range source {
+			if sanitizeName(item.Username) == key {
+				target = item
+				found = true
+				break
+			}
+		}
+		if !found {
+			writeError(w, http.StatusNotFound, "Transfer account not found.")
+			return
+		}
+		if !s.transferAccountAccessibleToPrincipal(principal, target) {
+			writeError(w, http.StatusForbidden, "Access denied for this transfer account.")
+			return
+		}
+	}
 	if err := deleteRuntimeTransferAccount(kind, key); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

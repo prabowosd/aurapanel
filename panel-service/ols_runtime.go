@@ -439,7 +439,7 @@ func renderOLSManagedListenerMapBlock(sites []olsManagedSite) string {
 }
 
 func siteSystemOwner(site Website) string {
-	return firstNonEmpty(sanitizeName(site.Owner), sanitizeName(site.User), "aura")
+	return firstNonEmpty(sanitizeName(site.Owner), sanitizeName(site.User), "admin")
 }
 
 func systemNoLoginShell() string {

@@ -271,11 +271,11 @@ func importMigrationArchive(analysis MigrationAnalysis, targetOwner string) (Mig
 	emailPlanPath := filepath.Join(workDir, "email-plan.json")
 	vhostPlanPath := filepath.Join(workDir, "vhost-plan.json")
 	emailPlan, _ := json.MarshalIndent(map[string]interface{}{
-		"target_owner": firstNonEmpty(strings.TrimSpace(targetOwner), "aura"),
+		"target_owner": firstNonEmpty(strings.TrimSpace(targetOwner), "admin"),
 		"accounts":     analysis.EmailAccounts,
 	}, "", "  ")
 	vhostPlan, _ := json.MarshalIndent(map[string]interface{}{
-		"target_owner": firstNonEmpty(strings.TrimSpace(targetOwner), "aura"),
+		"target_owner": firstNonEmpty(strings.TrimSpace(targetOwner), "admin"),
 		"domains":      analysis.VhostCandidates,
 	}, "", "  ")
 	if err := os.WriteFile(emailPlanPath, emailPlan, 0o644); err != nil {

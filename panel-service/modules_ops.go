@@ -1216,7 +1216,7 @@ func (s *service) buildMigrationPrecheckLocked(analysis MigrationAnalysis, targe
 
 	target := sanitizeName(strings.TrimSpace(targetOwner))
 	if target == "" {
-		target = "aura"
+		target = s.defaultOwnerLocked()
 	}
 
 	if analysis.ArchivePath == "" {

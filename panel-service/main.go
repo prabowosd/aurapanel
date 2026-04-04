@@ -33,7 +33,6 @@ const (
 	updateCacheTTL       = 45 * time.Second
 	updateErrorCacheTTL  = 2 * time.Minute
 	defaultAdminEmail    = "admin@server.com"
-	defaultAdminPass     = "password123"
 	maxJSONBodyBytes     = 1 << 20
 	defaultJWTSessionTTL = 12 * time.Hour
 	defaultAuthCookie    = "aurapanel_session"
@@ -837,6 +836,7 @@ func (s *service) nonAdminRoutePolicy(w http.ResponseWriter, r *http.Request) bo
 		"/api/v1/security/malware",
 		"/api/v1/security/ddos",
 		"/api/v1/status/service/control",
+		"/api/v1/status/processes",
 		"/api/v1/status/panel-port",
 		"/api/v1/status/panel-reverse-domain",
 		"/api/v1/status/update/apply",
@@ -1032,11 +1032,11 @@ func (s *service) handleCompat(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/packages/delete":
 		s.handlePackagesDelete(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/db/mariadb/list":
-		s.handleDatabaseList(w, "mariadb")
+		s.handleDatabaseList(w, r, "mariadb")
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/db/mariadb/users":
-		s.handleDatabaseUsers(w, "mariadb")
+		s.handleDatabaseUsers(w, r, "mariadb")
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/db/mariadb/remote-access":
-		s.handleRemoteAccessList(w, "mariadb")
+		s.handleRemoteAccessList(w, r, "mariadb")
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/db/mariadb/create":
 		s.handleDatabaseCreate(w, r, "mariadb")
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/db/mariadb/drop":
@@ -1046,11 +1046,11 @@ func (s *service) handleCompat(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/db/mariadb/remote-access":
 		s.handleRemoteAccessCreate(w, r, "mariadb")
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/db/postgres/list":
-		s.handleDatabaseList(w, "postgresql")
+		s.handleDatabaseList(w, r, "postgresql")
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/db/postgres/users":
-		s.handleDatabaseUsers(w, "postgresql")
+		s.handleDatabaseUsers(w, r, "postgresql")
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/db/postgres/remote-access":
-		s.handleRemoteAccessList(w, "postgresql")
+		s.handleRemoteAccessList(w, r, "postgresql")
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/db/postgres/create":
 		s.handleDatabaseCreate(w, r, "postgresql")
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/db/postgres/drop":
@@ -1743,6 +1743,19 @@ func principalAliases(pr servicePrincipal) map[string]struct{} {
 	return ids
 }
 
+func principalDefaultOwner(pr servicePrincipal) string {
+	if value := sanitizeName(pr.Username); value != "" {
+		return value
+	}
+	local := strings.Split(strings.ToLower(strings.TrimSpace(pr.Email)), "@")
+	if len(local) > 0 {
+		if value := sanitizeName(local[0]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func (s *service) principalOwnsWebsiteLocked(pr servicePrincipal, site Website) bool {
 	if pr.Role == "admin" {
 		return true
@@ -1771,6 +1784,154 @@ func (s *service) canAccessDomainLocked(pr servicePrincipal, domain string) bool
 		return false
 	}
 	return s.principalOwnsWebsiteLocked(pr, *site)
+}
+
+func (s *service) defaultOwnerLocked() string {
+	for _, user := range s.state.Users {
+		if normalizeRole(user.Role) == "admin" {
+			if value := sanitizeName(user.Username); value != "" {
+				return value
+			}
+		}
+	}
+	if len(s.state.Users) > 0 {
+		if value := sanitizeName(s.state.Users[0].Username); value != "" {
+			return value
+		}
+	}
+	return "admin"
+}
+
+func (s *service) resolveRequestedOwner(r *http.Request, values ...string) string {
+	for _, value := range values {
+		if normalized := sanitizeName(value); normalized != "" {
+			return normalized
+		}
+	}
+	if principal, ok := principalFromContext(r.Context()); ok {
+		if candidate := principalDefaultOwner(principal); candidate != "" {
+			return candidate
+		}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.defaultOwnerLocked()
+}
+
+func (s *service) packageByNameLocked(name string) (Package, bool) {
+	needle := strings.TrimSpace(name)
+	if needle == "" {
+		return Package{}, false
+	}
+	for _, pkg := range s.state.Packages {
+		if strings.EqualFold(pkg.Name, needle) {
+			return pkg, true
+		}
+	}
+	return Package{}, false
+}
+
+func (s *service) ownerPackageLocked(owner string) (Package, bool) {
+	owner = sanitizeName(owner)
+	packageName := "default"
+	if user := s.findUserLocked(owner); user != nil {
+		packageName = firstNonEmpty(strings.TrimSpace(user.Package), "default")
+	}
+	if pkg, ok := s.packageByNameLocked(packageName); ok {
+		return pkg, true
+	}
+	if pkg, ok := s.packageByNameLocked("default"); ok {
+		return pkg, true
+	}
+	return Package{}, false
+}
+
+func ownerMatches(candidate, owner string) bool {
+	return sanitizeName(candidate) == sanitizeName(owner)
+}
+
+func (s *service) ownerWebsiteCountLocked(owner string) int {
+	count := 0
+	for _, site := range s.state.Websites {
+		if ownerMatches(firstNonEmpty(site.Owner, site.User), owner) {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *service) ownerDatabaseCountLocked(owner string) int {
+	count := 0
+	for _, item := range s.state.MariaDBs {
+		if ownerMatches(item.Owner, owner) {
+			count++
+		}
+	}
+	for _, item := range s.state.PostgresDBs {
+		if ownerMatches(item.Owner, owner) {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *service) ownerEmailCountLocked(owner string) int {
+	count := 0
+	for _, mailbox := range s.modules.Mailboxes {
+		if ownerMatches(mailbox.Owner, owner) {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *service) enforceOwnerDomainsLimitLocked(owner string) error {
+	pkg, ok := s.ownerPackageLocked(owner)
+	if !ok || pkg.Domains <= 0 {
+		return nil
+	}
+	if s.ownerWebsiteCountLocked(owner) >= pkg.Domains {
+		return fmt.Errorf("package domain limit reached for owner %q (%d)", owner, pkg.Domains)
+	}
+	return nil
+}
+
+func (s *service) enforceOwnerDatabasesLimitLocked(owner string) error {
+	pkg, ok := s.ownerPackageLocked(owner)
+	if !ok || pkg.Databases <= 0 {
+		return nil
+	}
+	if s.ownerDatabaseCountLocked(owner) >= pkg.Databases {
+		return fmt.Errorf("package database limit reached for owner %q (%d)", owner, pkg.Databases)
+	}
+	return nil
+}
+
+func (s *service) enforceOwnerEmailsLimitLocked(owner string) error {
+	pkg, ok := s.ownerPackageLocked(owner)
+	if !ok || pkg.Emails <= 0 {
+		return nil
+	}
+	if s.ownerEmailCountLocked(owner) >= pkg.Emails {
+		return fmt.Errorf("package email limit reached for owner %q (%d)", owner, pkg.Emails)
+	}
+	return nil
+}
+
+func (s *service) principalCanAccessDatabaseLocked(pr servicePrincipal, item DatabaseRecord) bool {
+	if pr.Role == "admin" {
+		return true
+	}
+	if normalizeDomain(item.SiteDomain) != "" && s.canAccessDomainLocked(pr, item.SiteDomain) {
+		return true
+	}
+	ids := principalAliases(pr)
+	if user := s.findUserByEmailLocked(pr.Email); user != nil {
+		ids[sanitizeName(user.Username)] = struct{}{}
+	}
+	owner := sanitizeName(item.Owner)
+	_, ok := ids[owner]
+	return owner != "" && ok
 }
 
 func (s *service) requireDomainAccess(w http.ResponseWriter, r *http.Request, domain string) bool {
@@ -1889,6 +2050,8 @@ func (s *service) handleVhostCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	owner := s.resolveRequestedOwner(r, payload.Owner, payload.User)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1902,9 +2065,12 @@ func (s *service) handleVhostCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	owner := firstNonEmpty(strings.TrimSpace(payload.Owner), strings.TrimSpace(payload.User), "aura")
 	email := firstNonEmpty(strings.TrimSpace(payload.Email), fmt.Sprintf("webmaster@%s", domain))
 	phpVersion := firstNonEmpty(strings.TrimSpace(payload.PHPVersion), "8.3")
+	if err := s.enforceOwnerDomainsLimitLocked(owner); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 
 	site := Website{
 		Domain:        domain,
@@ -2056,17 +2222,33 @@ func (s *service) handleUsersCreate(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 
 	username := sanitizeName(payload.Username)
+	if username == "" {
+		writeError(w, http.StatusBadRequest, "Username must include at least one alphanumeric character.")
+		return
+	}
+	email := strings.ToLower(strings.TrimSpace(payload.Email))
 	if s.findUserLocked(username) != nil {
 		writeError(w, http.StatusConflict, "User already exists.")
 		return
 	}
+	for i := range s.state.Users {
+		if strings.EqualFold(strings.TrimSpace(s.state.Users[i].Email), email) {
+			writeError(w, http.StatusConflict, "Email is already in use by another user.")
+			return
+		}
+	}
 
-	passwordHash := mustHashPassword(firstNonEmpty(strings.TrimSpace(payload.Password), "password123"))
+	rawPassword := strings.TrimSpace(payload.Password)
+	if rawPassword == "" {
+		writeError(w, http.StatusBadRequest, "Password is required.")
+		return
+	}
+	passwordHash := mustHashPassword(rawPassword)
 	user := PanelUser{
 		ID:           s.state.NextUserID,
 		Username:     username,
 		Name:         strings.Title(username),
-		Email:        strings.TrimSpace(payload.Email),
+		Email:        email,
 		Role:         normalizeRole(payload.Role),
 		Package:      firstNonEmpty(strings.TrimSpace(payload.Package), "default"),
 		Sites:        0,
@@ -2226,10 +2408,11 @@ func (s *service) handleUsersDelete(w http.ResponseWriter, r *http.Request) {
 	previousWebsites := append([]Website(nil), s.state.Websites...)
 
 	s.state.Users = append(s.state.Users[:index], s.state.Users[index+1:]...)
+	reassignOwner := s.defaultOwnerLocked()
 	for i := range s.state.Websites {
 		if s.state.Websites[i].Owner == username || s.state.Websites[i].User == username {
-			s.state.Websites[i].Owner = "aura"
-			s.state.Websites[i].User = "aura"
+			s.state.Websites[i].Owner = reassignOwner
+			s.state.Websites[i].User = reassignOwner
 		}
 	}
 	s.recountSitesLocked()
@@ -2385,10 +2568,14 @@ func (s *service) handlePackagesDelete(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotFound, "Package not found.")
 }
 
-func (s *service) handleDatabaseList(w http.ResponseWriter, engine string) {
-	records, err := runtimeDatabaseList(engine)
-	if err != nil {
+func (s *service) handleDatabaseList(w http.ResponseWriter, r *http.Request, engine string) {
+	if _, err := runtimeDatabaseList(engine); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
 		return
 	}
 	s.mu.Lock()
@@ -2397,47 +2584,111 @@ func (s *service) handleDatabaseList(w http.ResponseWriter, engine string) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	items := []DatabaseRecord{}
 	if engine == "mariadb" {
-		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.state.MariaDBs})
-		return
+		items = append(items, s.state.MariaDBs...)
+	} else {
+		items = append(items, s.state.PostgresDBs...)
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: records})
+	if principal.Role != "admin" {
+		filtered := make([]DatabaseRecord, 0, len(items))
+		for _, item := range items {
+			if s.principalCanAccessDatabaseLocked(principal, item) {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: items})
 }
 
-func (s *service) handleDatabaseUsers(w http.ResponseWriter, engine string) {
+func (s *service) handleDatabaseUsers(w http.ResponseWriter, r *http.Request, engine string) {
 	if _, err := runtimeDatabaseUsers(engine); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.syncRuntimeDatabaseStateLocked(engine); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	users := []DatabaseUser{}
+	dbs := []DatabaseRecord{}
 	if engine == "mariadb" {
-		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: publicDBUsers(s.state.MariaUsers)})
-		return
+		users = append(users, s.state.MariaUsers...)
+		dbs = append(dbs, s.state.MariaDBs...)
+	} else {
+		users = append(users, s.state.PostgresUsers...)
+		dbs = append(dbs, s.state.PostgresDBs...)
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: publicDBUsers(s.state.PostgresUsers)})
+	if principal.Role != "admin" {
+		allowedDBs := map[string]struct{}{}
+		for _, item := range dbs {
+			if s.principalCanAccessDatabaseLocked(principal, item) {
+				allowedDBs[item.Name] = struct{}{}
+			}
+		}
+		filtered := make([]DatabaseUser, 0, len(users))
+		for _, item := range users {
+			if item.LinkedDBName == "" {
+				continue
+			}
+			if _, ok := allowedDBs[item.LinkedDBName]; ok {
+				filtered = append(filtered, item)
+			}
+		}
+		users = filtered
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: publicDBUsers(users)})
 }
 
-func (s *service) handleRemoteAccessList(w http.ResponseWriter, engine string) {
+func (s *service) handleRemoteAccessList(w http.ResponseWriter, r *http.Request, engine string) {
 	if _, err := runtimeRemoteAccessList(engine); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.syncRuntimeDatabaseStateLocked(engine); err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	rules := []RemoteAccessRule{}
+	dbs := []DatabaseRecord{}
 	if engine == "mariadb" {
-		writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.state.MariaRemoteRules})
-		return
+		rules = append(rules, s.state.MariaRemoteRules...)
+		dbs = append(dbs, s.state.MariaDBs...)
+	} else {
+		rules = append(rules, s.state.PostgresRemoteRules...)
+		dbs = append(dbs, s.state.PostgresDBs...)
 	}
-	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: s.state.PostgresRemoteRules})
+	if principal.Role != "admin" {
+		allowedDBs := map[string]struct{}{}
+		for _, item := range dbs {
+			if s.principalCanAccessDatabaseLocked(principal, item) {
+				allowedDBs[item.Name] = struct{}{}
+			}
+		}
+		filtered := make([]RemoteAccessRule, 0, len(rules))
+		for _, item := range rules {
+			if _, ok := allowedDBs[item.DBName]; ok {
+				filtered = append(filtered, item)
+			}
+		}
+		rules = filtered
+	}
+	writeJSON(w, http.StatusOK, apiResponse{Status: "success", Data: rules})
 }
 
 func (s *service) handleDatabaseCreate(w http.ResponseWriter, r *http.Request, engine string) {
@@ -2459,6 +2710,25 @@ func (s *service) handleDatabaseCreate(w http.ResponseWriter, r *http.Request, e
 	dbPass := firstNonEmpty(strings.TrimSpace(payload.DBPass), generateSecret(16))
 	dbName := sanitizeDBName(payload.DBName)
 	dbUser := sanitizeDBName(payload.DBUser)
+
+	owner := sanitizeName(strings.TrimSpace(payload.Owner))
+	if owner == "" && normalizeDomain(payload.SiteDomain) != "" {
+		s.mu.RLock()
+		if site := s.findWebsiteLocked(normalizeDomain(payload.SiteDomain)); site != nil {
+			owner = sanitizeName(firstNonEmpty(site.Owner, site.User))
+		}
+		s.mu.RUnlock()
+	}
+	if owner == "" {
+		owner = s.resolveRequestedOwner(r)
+	}
+	s.mu.Lock()
+	if err := s.enforceOwnerDatabasesLimitLocked(owner); err != nil {
+		s.mu.Unlock()
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	s.mu.Unlock()
 	if err := createRuntimeDatabase(engine, dbName, dbUser, dbPass); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -2469,7 +2739,7 @@ func (s *service) handleDatabaseCreate(w http.ResponseWriter, r *http.Request, e
 		Size:       "0 MB",
 		Tables:     0,
 		Engine:     engine,
-		Owner:      firstNonEmpty(strings.TrimSpace(payload.Owner), "aura"),
+		Owner:      owner,
 		SiteDomain: normalizeDomain(payload.SiteDomain),
 	}
 	user := DatabaseUser{
@@ -3314,9 +3584,12 @@ func (s *service) handleSSLIssue(w http.ResponseWriter, r *http.Request) {
 
 	// Ensure user exists and owns the directory
 	s.mu.Lock()
-	siteOwner := "aura"
+	siteOwner := ""
 	if site := s.findWebsiteLocked(domain); site != nil {
-		siteOwner = firstNonEmpty(site.Owner, site.User, "aura")
+		siteOwner = sanitizeName(firstNonEmpty(site.Owner, site.User))
+	}
+	if siteOwner == "" {
+		siteOwner = s.defaultOwnerLocked()
 	}
 	s.mu.Unlock()
 
@@ -3432,6 +3705,11 @@ func (s *service) ensureUserLocked(username, email, role, pkg, password string) 
 		return
 	}
 
+	resolvedPassword := strings.TrimSpace(password)
+	autoProvisioned := resolvedPassword == ""
+	if autoProvisioned {
+		resolvedPassword = generateSecret(18)
+	}
 	s.state.Users = append(s.state.Users, PanelUser{
 		ID:           s.state.NextUserID,
 		Username:     key,
@@ -3439,8 +3717,8 @@ func (s *service) ensureUserLocked(username, email, role, pkg, password string) 
 		Email:        email,
 		Role:         normalizeRole(role),
 		Package:      firstNonEmpty(pkg, "default"),
-		Active:       true,
-		PasswordHash: mustHashPassword(firstNonEmpty(password, "password123")),
+		Active:       !autoProvisioned,
+		PasswordHash: mustHashPassword(resolvedPassword),
 	})
 	s.state.NextUserID++
 }
@@ -4149,8 +4427,12 @@ func loadAdminSeedCredentials() (string, string) {
 	adminPassword := firstNonEmpty(
 		readEnvFileValue(adminGatewayEnvPath(), "AURAPANEL_ADMIN_PASSWORD"),
 		readTrimmedFile(adminInitialPasswordPath()),
-		defaultAdminPass,
 	)
+	if strings.TrimSpace(adminPassword) == "" {
+		adminPassword = generateSecret(24)
+		_ = writeAdminPasswordFile(adminPassword)
+		log.Printf("warning: admin credentials were missing; generated a secure bootstrap password in %s", adminInitialPasswordPath())
+	}
 
 	return adminEmail, mustHashPassword(adminPassword)
 }

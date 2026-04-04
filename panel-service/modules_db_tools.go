@@ -89,6 +89,7 @@ func (s *service) handleDBToolConsume(w http.ResponseWriter, r *http.Request, to
 		_, _ = w.Write([]byte("<html><body><h1>DB tool token expired</h1></body></html>"))
 		return
 	}
+	s.registerDBToolAccess(item.IssuedBy, serviceClientIP(r), item.ExpiresAt)
 
 	targetURL := resolveDBToolBaseURL(r, tool)
 	http.Redirect(w, r, targetURL, http.StatusFound)

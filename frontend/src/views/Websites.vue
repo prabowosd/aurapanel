@@ -92,7 +92,7 @@
               <p class="text-xs text-gray-400">Path: {{ item.path }}</p>
               <p class="text-xs text-gray-400">Docroot: {{ item.docroot }}</p>
               <div class="flex items-center gap-2 text-[11px]">
-                <span class="px-2 py-0.5 rounded border border-panel-border text-gray-300">Owner: {{ item._owner || item.owner || 'aura' }}</span>
+                <span class="px-2 py-0.5 rounded border border-panel-border text-gray-300">Owner: {{ item._owner || item.owner || item.user || '-' }}</span>
                 <span :class="item.has_docroot ? 'px-2 py-0.5 rounded border border-emerald-500/30 text-emerald-300' : 'px-2 py-0.5 rounded border border-yellow-500/30 text-yellow-300'">
                   {{ item.has_docroot ? 'Docroot Var' : 'Docroot Yok' }}
                 </span>
@@ -155,7 +155,7 @@
               <div class="text-sm text-gray-400 mt-1 flex flex-wrap items-center gap-4">
                 <span class="flex items-center gap-1"><HardDrive class="w-4 h-4" /> {{ site.disk_usage }} / {{ site.quota }}</span>
                 <span class="flex items-center gap-1"><Cpu class="w-4 h-4" /> PHP {{ site.php }}</span>
-                <span class="flex items-center gap-1"><User class="w-4 h-4" /> {{ site.user || 'aura' }}</span>
+                <span class="flex items-center gap-1"><User class="w-4 h-4" /> {{ site.user || site.owner || '-' }}</span>
                 <span class="flex items-center gap-1">Paket: {{ site.package || 'default' }}</span>
                 <span class="flex items-center gap-1">Email: {{ site.email || `webmaster@${site.domain}` }}</span>
               </div>
@@ -447,7 +447,7 @@
             </div>
             <div>
               <label class="block text-sm text-gray-400 mb-1">Sahip Kullanici</label>
-              <input v-model="editSiteForm.owner" type="text" class="aura-input w-full" placeholder="aura" />
+              <input v-model="editSiteForm.owner" type="text" class="aura-input w-full" placeholder="owner" />
             </div>
             <div>
               <label class="block text-sm text-gray-400 mb-1">PHP Version</label>
@@ -628,7 +628,7 @@ const siteLogsLoading = ref(false)
 
 const siteForm = ref({
   domain: '',
-  user: 'aura',
+  user: '',
   php_version: '8.3',
   package: 'default',
   email: '',
@@ -636,7 +636,7 @@ const siteForm = ref({
 })
 const editSiteForm = ref({
   domain: '',
-  owner: 'aura',
+  owner: '',
   php_version: '8.3',
   package: 'default',
   email: '',
@@ -686,11 +686,9 @@ const packageOptions = computed(() => {
 })
 
 const owners = computed(() => {
-  const names = users.value
+  return users.value
     .map(u => u.username)
     .filter(Boolean)
-  if (!names.includes('aura')) names.unshift('aura')
-  return names
 })
 
 const parentDomains = computed(() =>
@@ -985,7 +983,7 @@ async function loadDiscoveredSites() {
     discoveredSites.value = items.map((item) => ({
       ...item,
       _php_version: item?.suggested_php || phpVersions.value[0] || '8.3',
-      _owner: item?.owner || 'aura',
+      _owner: item?.owner || item?.user || owners.value[0] || '',
     }))
   } catch {
     discoveredSites.value = []
@@ -1017,7 +1015,7 @@ async function importDiscoveredSite(item) {
   try {
     await api.post('/vhost/import', {
       domain: item.domain,
-      owner: item._owner || item.owner || 'aura',
+      owner: item._owner || item.owner || item.user || undefined,
       php_version: item._php_version || item.suggested_php || phpVersions.value[0] || '8.3',
       package: 'default',
     })
@@ -1082,7 +1080,7 @@ async function addSite() {
   try {
     await api.post('/vhost', {
       domain: siteForm.value.domain,
-      user: siteForm.value.user || 'aura',
+      user: siteForm.value.user || undefined,
       php_version: siteForm.value.php_version,
       package: siteForm.value.package || 'default',
       email: siteForm.value.email || undefined,
@@ -1091,7 +1089,7 @@ async function addSite() {
     showAddSiteModal.value = false
     siteForm.value = {
       domain: '',
-      user: siteForm.value.user || 'aura',
+      user: siteForm.value.user || owners.value[0] || '',
       php_version: '8.3',
       package: siteForm.value.package || 'default',
       email: '',
@@ -1147,7 +1145,7 @@ async function toggleSuspend(site) {
 function openEditSiteModal(site) {
   editSiteForm.value = {
     domain: site.domain || '',
-    owner: site.owner || site.user || 'aura',
+    owner: site.owner || site.user || '',
     php_version: site.php_version || site.php || '8.3',
     package: site.package || 'default',
     email: site.email || `webmaster@${site.domain || ''}`,
@@ -1238,7 +1236,7 @@ async function convertSubdomain(subdomain) {
   try {
     await api.post('/websites/subdomains/convert', {
       fqdn: subdomain.fqdn,
-      owner: 'aura',
+      owner: subdomain.owner || siteForm.value.user || owners.value[0] || undefined,
       php_version: subdomain.php_version,
     })
     activeTab.value = 'sites'

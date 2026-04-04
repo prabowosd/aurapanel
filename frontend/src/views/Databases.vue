@@ -500,7 +500,7 @@ const createForm = ref({
   site_domain: '',
   create_website: false,
   new_site_domain: '',
-  website_owner: 'aura',
+  website_owner: '',
   website_php: '8.3',
   website_package: 'default',
   website_email: '',
@@ -646,7 +646,7 @@ function resetCreateForm() {
     site_domain: createForm.value.site_domain || siteOptions.value[0] || '',
     create_website: false,
     new_site_domain: '',
-    website_owner: 'aura',
+    website_owner: '',
     website_php: '8.3',
     website_package: websitePackageOptions.value[0] || 'default',
     website_email: '',
@@ -701,14 +701,14 @@ const createDatabase = async () => {
   const eng = createForm.value.engine
   const desiredSiteDomain = targetSiteDomain.value || ''
   const resolvedOwner = createForm.value.create_website
-    ? String(createForm.value.website_owner || 'aura').trim()
+    ? String(createForm.value.website_owner || '').trim()
     : resolveSiteOwner(desiredSiteDomain)
 
   try {
     if (createForm.value.create_website) {
       await api.post('/vhost', {
         domain: desiredSiteDomain,
-        user: createForm.value.website_owner || 'aura',
+        user: createForm.value.website_owner || undefined,
         php_version: createForm.value.website_php || '8.3',
         package: createForm.value.website_package || 'default',
         email: createForm.value.website_email || undefined,

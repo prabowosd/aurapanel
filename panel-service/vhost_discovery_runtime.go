@@ -50,6 +50,7 @@ func (s *service) discoverWebsitesFromFilesystem(includeManaged bool) ([]Discove
 
 	s.mu.RLock()
 	managed := make(map[string]Website, len(s.state.Websites))
+	fallbackOwner := s.defaultOwnerLocked()
 	for _, site := range s.state.Websites {
 		managed[normalizeDomain(site.Domain)] = site
 	}
@@ -75,7 +76,7 @@ func (s *service) discoverWebsitesFromFilesystem(includeManaged bool) ([]Discove
 
 		owner := sanitizeName(detectFilesystemOwner(siteRoot))
 		if owner == "" {
-			owner = "aura"
+			owner = fallbackOwner
 		}
 		suggestedPHP := defaultPHP
 		if isManaged {
@@ -154,7 +155,7 @@ func (s *service) handleVhostImport(w http.ResponseWriter, r *http.Request) {
 
 	owner := sanitizeName(firstNonEmpty(strings.TrimSpace(payload.Owner), strings.TrimSpace(payload.User), detectFilesystemOwner(siteRoot)))
 	if owner == "" {
-		owner = "aura"
+		owner = s.resolveRequestedOwner(r, payload.Owner, payload.User)
 	}
 
 	email := firstNonEmpty(strings.TrimSpace(payload.Email), "webmaster@"+domain)
@@ -180,6 +181,10 @@ func (s *service) handleVhostImport(w http.ResponseWriter, r *http.Request) {
 
 	if s.findWebsiteLocked(domain) != nil {
 		writeError(w, http.StatusConflict, "Website already exists.")
+		return
+	}
+	if err := s.enforceOwnerDomainsLimitLocked(owner); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	site.Quota = quotaForPackage(s.state.Packages, site.Package)

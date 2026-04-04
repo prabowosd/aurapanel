@@ -48,11 +48,11 @@ func TestHandleUsersDeletePersistsState(t *testing.T) {
 	if user := svc.findUserLocked("demo"); user != nil {
 		t.Fatalf("demo user should be removed from runtime state")
 	}
-	if got := svc.state.Websites[0].Owner; got != "aura" {
-		t.Fatalf("website owner should be reassigned to aura, got %q", got)
+	if got := svc.state.Websites[0].Owner; got != "admin" {
+		t.Fatalf("website owner should be reassigned to admin, got %q", got)
 	}
-	if got := svc.state.Websites[0].User; got != "aura" {
-		t.Fatalf("website user should be reassigned to aura, got %q", got)
+	if got := svc.state.Websites[0].User; got != "admin" {
+		t.Fatalf("website user should be reassigned to admin, got %q", got)
 	}
 
 	raw, err := os.ReadFile(statePath)
@@ -92,4 +92,3 @@ func TestHandleUsersDeleteRejectsAdmin(t *testing.T) {
 		t.Fatalf("admin user should remain in runtime state")
 	}
 }
-

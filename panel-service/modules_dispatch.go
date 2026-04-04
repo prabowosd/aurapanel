@@ -149,7 +149,7 @@ func (s *service) handleExtendedRoutes(w http.ResponseWriter, r *http.Request) b
 		s.handleDNSZoneDynamicRoutes(w, r)
 		return true
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mail/list":
-		s.handleMailboxesList(w)
+		s.handleMailboxesList(w, r)
 		return true
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/mail/create":
 		s.handleMailboxCreate(w, r)

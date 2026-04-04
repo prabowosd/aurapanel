@@ -57,11 +57,6 @@ const (
 	lockDuration      = 15 * time.Minute
 )
 
-func devSimulationEnabled() bool {
-	normalized := strings.ToLower(strings.TrimSpace(os.Getenv("AURAPANEL_DEV_SIMULATION")))
-	return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on"
-}
-
 func gatewayEnvPath() string {
 	if path := strings.TrimSpace(os.Getenv("AURAPANEL_GATEWAY_ENV_PATH")); path != "" {
 		return path
@@ -124,10 +119,6 @@ func loadAdminCredentials() (adminCredentials, error) {
 	}
 
 	if creds.passwordHash == "" && creds.passwordText == "" {
-		if devSimulationEnabled() {
-			creds.passwordText = "password123"
-			return creds, nil
-		}
 		return creds, errors.New("admin credentials are not configured")
 	}
 

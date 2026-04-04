@@ -539,9 +539,9 @@ func TestRuntimeStatePersistsUserPasswordHashes(t *testing.T) {
 	expectedHash := mustHashPassword("super-secret")
 	svc.state.Users = append(svc.state.Users, PanelUser{
 		ID:           99,
-		Username:     "aura",
-		Name:         "Aura",
-		Email:        "aura@example.com",
+		Username:     "tenant1",
+		Name:         "Tenant One",
+		Email:        "tenant1@example.com",
 		Role:         "user",
 		Package:      "default",
 		Sites:        0,
@@ -563,9 +563,9 @@ func TestRuntimeStatePersistsUserPasswordHashes(t *testing.T) {
 		t.Fatalf("loadRuntimeState: %v", err)
 	}
 
-	user := restored.findUserLocked("aura")
+	user := restored.findUserLocked("tenant1")
 	if user == nil {
-		t.Fatalf("expected aura user after reload")
+		t.Fatalf("expected tenant user after reload")
 	}
 	if user.PasswordHash != expectedHash {
 		t.Fatalf("expected persisted password hash to survive reload")
