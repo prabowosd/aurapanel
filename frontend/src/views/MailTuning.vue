@@ -2,12 +2,12 @@
   <div class="space-y-6 max-w-5xl">
     <div class="flex items-center justify-between gap-3">
       <div>
-        <h1 class="text-2xl font-bold text-white">Mail Tuning</h1>
+        <h1 class="text-2xl font-bold text-white">{{ t('mail_tuning.title') }}</h1>
         <p class="text-gray-400 mt-1">
-          Postfix tarafındaki temel limitleri panelden güvenli şekilde yönetin.
+          {{ t('mail_tuning.subtitle') }}
         </p>
       </div>
-      <button class="btn-secondary" @click="loadConfig">Yenile</button>
+      <button class="btn-secondary" @click="loadConfig">{{ t('common.refresh') }}</button>
     </div>
 
     <div v-if="error" class="aura-card border-red-500/30 bg-red-500/5 text-red-400">{{ error }}</div>
@@ -15,38 +15,38 @@
 
     <div class="aura-card space-y-6">
       <div class="rounded-xl border border-brand-500/15 bg-brand-500/5 px-4 py-3 text-sm text-gray-300">
-        Kayıt sonrasında Postfix yeniden başlatılır. Değerleri byte veya adet olarak girin.
+        {{ t('mail_tuning.notice') }}
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div class="rounded-xl border border-panel-border bg-panel-dark/40 p-4">
-          <label class="block text-sm text-gray-400 mb-2">Mesaj boyutu limiti</label>
+          <label class="block text-sm text-gray-400 mb-2">{{ t('mail_tuning.message_size_limit') }}</label>
           <input v-model.trim="form.message_size_limit" type="text" class="aura-input w-full" placeholder="10485760" />
-          <p class="mt-2 text-xs text-gray-500">Varsayılan: 10 MB</p>
+          <p class="mt-2 text-xs text-gray-500">{{ t('mail_tuning.default_10mb') }}</p>
         </div>
 
         <div class="rounded-xl border border-panel-border bg-panel-dark/40 p-4">
-          <label class="block text-sm text-gray-400 mb-2">Mailbox boyutu limiti</label>
+          <label class="block text-sm text-gray-400 mb-2">{{ t('mail_tuning.mailbox_size_limit') }}</label>
           <input v-model.trim="form.mailbox_size_limit" type="text" class="aura-input w-full" placeholder="51200000" />
-          <p class="mt-2 text-xs text-gray-500">Varsayılan: 50 MB</p>
+          <p class="mt-2 text-xs text-gray-500">{{ t('mail_tuning.default_50mb') }}</p>
         </div>
 
         <div class="rounded-xl border border-panel-border bg-panel-dark/40 p-4">
-          <label class="block text-sm text-gray-400 mb-2">SMTP istemci bağlantı limiti</label>
+          <label class="block text-sm text-gray-400 mb-2">{{ t('mail_tuning.client_connection_limit') }}</label>
           <input
             v-model.trim="form.smtpd_client_connection_count_limit"
             type="text"
             class="aura-input w-full"
             placeholder="50"
           />
-          <p class="mt-2 text-xs text-gray-500">Aynı istemci için eşzamanlı bağlantı sayısı</p>
+          <p class="mt-2 text-xs text-gray-500">{{ t('mail_tuning.client_connection_hint') }}</p>
         </div>
       </div>
 
       <div class="flex flex-wrap gap-3 justify-end">
-        <button class="btn-secondary" @click="resetDefaults">Varsayılanlar</button>
+        <button class="btn-secondary" @click="resetDefaults">{{ t('mail_tuning.reset_defaults') }}</button>
         <button class="btn-primary" :disabled="saving" @click="saveConfig">
-          {{ saving ? 'Kaydediliyor...' : 'Kaydet ve Uygula' }}
+          {{ saving ? t('mail_tuning.saving') : t('mail_tuning.save_apply') }}
         </button>
       </div>
     </div>
@@ -55,8 +55,10 @@
 
 <script setup>
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '../services/api'
 
+const { t } = useI18n({ useScope: 'global' })
 const error = ref('')
 const success = ref('')
 const saving = ref(false)
@@ -84,7 +86,7 @@ async function loadConfig() {
     const res = await api.get('/mail/tuning')
     form.value = { ...defaultForm(), ...(res.data?.data || {}) }
   } catch (err) {
-    error.value = apiErrorMessage(err, 'Mail tuning ayarları yüklenemedi.')
+    error.value = apiErrorMessage(err, t('mail_tuning.load_failed'))
   }
 }
 
@@ -99,9 +101,9 @@ async function saveConfig() {
       smtpd_client_connection_count_limit: String(form.value.smtpd_client_connection_count_limit || '').trim(),
     }
     await api.post('/mail/tuning', payload)
-    success.value = 'Mail tuning ayarları kaydedildi ve Postfix yeniden başlatıldı.'
+    success.value = t('mail_tuning.save_success')
   } catch (err) {
-    error.value = apiErrorMessage(err, 'Mail tuning ayarları kaydedilemedi.')
+    error.value = apiErrorMessage(err, t('mail_tuning.save_failed'))
   } finally {
     saving.value = false
   }

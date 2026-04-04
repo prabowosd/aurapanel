@@ -14,7 +14,7 @@
         class="px-4 py-2 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition flex items-center gap-2"
       >
         <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': loading }" />
-        Yenile
+        {{ t('common.refresh') }}
       </button>
     </div>
 
@@ -29,11 +29,11 @@
           </select>
         </div>
         <div>
-          <label class="block text-sm text-gray-400 mb-1">Başlangıç Tarihi</label>
+          <label class="block text-sm text-gray-400 mb-1">{{ t('activity_log.filter_date_from') }}</label>
           <input v-model="filterDateFrom" type="datetime-local" class="aura-input" @change="applyFilters" />
         </div>
         <div>
-          <label class="block text-sm text-gray-400 mb-1">Bitiş Tarihi</label>
+          <label class="block text-sm text-gray-400 mb-1">{{ t('activity_log.filter_date_to') }}</label>
           <input v-model="filterDateTo" type="datetime-local" class="aura-input" @change="applyFilters" />
         </div>
       </div>
@@ -44,11 +44,11 @@
       <div class="p-4 border-b border-panel-border flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">
           {{ t('activity_log.title') }}
-          <span class="ml-2 text-sm font-normal text-gray-400">({{ filteredLogs.length }} kayıt)</span>
+          <span class="ml-2 text-sm font-normal text-gray-400">{{ t('activity_log.records_count', { count: filteredLogs.length }) }}</span>
         </h2>
         <div class="flex items-center gap-2 text-xs text-gray-500">
           <span class="w-2 h-2 rounded-full bg-green-400 inline-block animate-pulse"></span>
-          Otomatik yenileme: 30s
+          {{ t('activity_log.auto_refresh', { seconds: 30 }) }}
         </div>
       </div>
 
@@ -102,7 +102,7 @@
       <!-- Pagination -->
       <div v-if="totalPages > 1" class="p-4 border-t border-panel-border flex items-center justify-between">
         <p class="text-sm text-gray-400">
-          Sayfa {{ currentPage }} / {{ totalPages }} · Toplam {{ filteredLogs.length }} kayıt
+          {{ t('activity_log.pagination_summary', { page: currentPage, totalPages, count: filteredLogs.length }) }}
         </p>
         <div class="flex gap-2">
           <button
@@ -110,14 +110,14 @@
             :disabled="currentPage === 1"
             class="px-3 py-1.5 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            ← Önceki
+            {{ t('activity_log.previous') }}
           </button>
           <button
             @click="currentPage++"
             :disabled="currentPage === totalPages"
             class="px-3 py-1.5 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Sonraki →
+            {{ t('activity_log.next') }}
           </button>
         </div>
       </div>
@@ -131,7 +131,7 @@ import { useI18n } from 'vue-i18n'
 import { BookOpen, RefreshCw } from 'lucide-vue-next'
 import api from '../services/api'
 
-const { t } = useI18n()
+const { t, locale } = useI18n({ useScope: 'global' })
 
 const logs = ref([])
 const loading = ref(false)
@@ -182,7 +182,7 @@ function applyFilters() {
 function formatDate(timestamp) {
   if (!timestamp) return '-'
   try {
-    return new Date(timestamp).toLocaleString('tr-TR', {
+    return new Date(timestamp).toLocaleString(locale.value || 'en-US', {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',

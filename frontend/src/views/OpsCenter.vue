@@ -2,8 +2,8 @@
   <div class="space-y-6">
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-bold text-white">Ops Center</h1>
-        <p class="mt-1 text-gray-400">SRE, GitOps, Redis isolation and health checks.</p>
+        <h1 class="text-2xl font-bold text-white">{{ t('ops_center.title') }}</h1>
+        <p class="mt-1 text-gray-400">{{ t('ops_center.subtitle') }}</p>
       </div>
     </div>
 
@@ -14,100 +14,100 @@
     <section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <div class="rounded-xl border border-panel-border bg-panel-card p-5">
         <div class="mb-3 flex items-center justify-between">
-          <h2 class="text-lg font-semibold text-white">Health</h2>
+          <h2 class="text-lg font-semibold text-white">{{ t('ops_center.health.title') }}</h2>
           <button class="rounded bg-panel-hover px-3 py-1.5 text-xs text-gray-300 transition hover:bg-gray-600" @click="loadHealth">
-            Refresh
+            {{ t('common.refresh') }}
           </button>
         </div>
         <div class="space-y-2 text-sm text-gray-300">
-          <p>Status: <span class="font-semibold text-white">{{ health.status || '-' }}</span></p>
-          <p>Version: <span class="font-semibold text-white">{{ health.version || '-' }}</span></p>
-          <p>Uptime: <span class="font-semibold text-white">{{ health.uptime ?? '-' }}</span></p>
+          <p>{{ t('ops_center.health.status') }}: <span class="font-semibold text-white">{{ health.status || '-' }}</span></p>
+          <p>{{ t('ops_center.health.version') }}: <span class="font-semibold text-white">{{ health.version || '-' }}</span></p>
+          <p>{{ t('ops_center.health.uptime') }}: <span class="font-semibold text-white">{{ health.uptime ?? '-' }}</span></p>
         </div>
       </div>
 
       <div class="rounded-xl border border-panel-border bg-panel-card p-5">
         <div class="mb-3 flex items-center justify-between">
-          <h2 class="text-lg font-semibold text-white">SRE Prediction</h2>
+          <h2 class="text-lg font-semibold text-white">{{ t('ops_center.prediction.title') }}</h2>
           <button class="rounded bg-panel-hover px-3 py-1.5 text-xs text-gray-300 transition hover:bg-gray-600" @click="loadPrediction">
-            Analyze
+            {{ t('ops_center.prediction.analyze') }}
           </button>
         </div>
-        <p class="text-sm text-gray-300">{{ prediction || 'No prediction loaded yet.' }}</p>
+        <p class="text-sm text-gray-300">{{ prediction || t('ops_center.prediction.empty') }}</p>
       </div>
     </section>
 
     <section class="rounded-xl border border-panel-border bg-panel-card p-5">
-      <h2 class="mb-3 text-lg font-semibold text-white">SRE Log Query</h2>
+      <h2 class="mb-3 text-lg font-semibold text-white">{{ t('ops_center.query.title') }}</h2>
       <div class="flex flex-col gap-3 md:flex-row">
         <input
           v-model="sreQuery"
           type="text"
           class="aura-input flex-1"
-          placeholder="e.g. 404 errors in nginx logs"
+          :placeholder="t('ops_center.query.placeholder')"
         />
         <button class="rounded bg-gradient-to-r from-orange-600 to-amber-600 px-4 py-2 text-sm font-medium text-white transition hover:from-orange-700 hover:to-amber-700" @click="runSreQuery">
-          Run Query
+          {{ t('ops_center.query.run') }}
         </button>
       </div>
       <div class="mt-4 space-y-2 text-sm text-gray-300">
-        <p><span class="text-gray-400">Answer:</span> {{ sreAnswer.answer || '-' }}</p>
-        <p><span class="text-gray-400">Confidence:</span> {{ sreAnswer.confidence || '-' }}</p>
-        <p><span class="text-gray-400">Sources:</span> {{ (sreAnswer.matched_sources || []).join(', ') || '-' }}</p>
+        <p><span class="text-gray-400">{{ t('ops_center.query.answer') }}:</span> {{ sreAnswer.answer || '-' }}</p>
+        <p><span class="text-gray-400">{{ t('ops_center.query.confidence') }}:</span> {{ sreAnswer.confidence || '-' }}</p>
+        <p><span class="text-gray-400">{{ t('ops_center.query.sources') }}:</span> {{ (sreAnswer.matched_sources || []).join(', ') || '-' }}</p>
       </div>
     </section>
 
     <section class="rounded-xl border border-panel-border bg-panel-card p-5">
       <div class="mb-3 flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-white">SRE Optimization Suggestions</h2>
+        <h2 class="text-lg font-semibold text-white">{{ t('ops_center.optimizations.title') }}</h2>
         <button class="rounded bg-panel-hover px-3 py-1.5 text-xs text-gray-300 transition hover:bg-gray-600" @click="loadOptimizations">
-          Generate
+          {{ t('ops_center.optimizations.generate') }}
         </button>
       </div>
       <ul class="space-y-2 text-sm text-gray-300">
         <li v-for="(item, idx) in optimizations" :key="idx" class="rounded-lg bg-panel-darker px-3 py-2">
           {{ item }}
         </li>
-        <li v-if="optimizations.length === 0" class="text-gray-500">No suggestions loaded yet.</li>
+        <li v-if="optimizations.length === 0" class="text-gray-500">{{ t('ops_center.optimizations.empty') }}</li>
       </ul>
     </section>
 
     <section class="grid grid-cols-1 gap-4 xl:grid-cols-2">
       <div class="rounded-xl border border-panel-border bg-panel-card p-5">
-        <h2 class="mb-3 text-lg font-semibold text-white">GitOps Deploy</h2>
+        <h2 class="mb-3 text-lg font-semibold text-white">{{ t('ops_center.gitops.title') }}</h2>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <input v-model="gitops.domain" type="text" class="aura-input" placeholder="Domain (example.com)" />
-          <input v-model="gitops.branch" type="text" class="aura-input" placeholder="Branch (main)" />
-          <input v-model="gitops.repo_url" type="text" class="aura-input md:col-span-2" placeholder="Repository URL" />
-          <input v-model="gitops.deploy_path" type="text" class="aura-input md:col-span-2" placeholder="/home/user/public_html/example.com" />
-          <input v-model="gitops.webhook_secret" type="text" class="aura-input md:col-span-2" placeholder="Webhook secret" />
+          <input v-model="gitops.domain" type="text" class="aura-input" :placeholder="t('ops_center.gitops.domain_placeholder')" />
+          <input v-model="gitops.branch" type="text" class="aura-input" :placeholder="t('ops_center.gitops.branch_placeholder')" />
+          <input v-model="gitops.repo_url" type="text" class="aura-input md:col-span-2" :placeholder="t('ops_center.gitops.repo_placeholder')" />
+          <input v-model="gitops.deploy_path" type="text" class="aura-input md:col-span-2" :placeholder="t('ops_center.gitops.deploy_path_placeholder')" />
+          <input v-model="gitops.webhook_secret" type="text" class="aura-input md:col-span-2" :placeholder="t('ops_center.gitops.webhook_placeholder')" />
         </div>
         <button class="mt-4 rounded bg-gradient-to-r from-orange-600 to-amber-600 px-4 py-2 text-sm font-medium text-white transition hover:from-orange-700 hover:to-amber-700" @click="deployGitops">
-          Deploy
+          {{ t('ops_center.gitops.deploy') }}
         </button>
       </div>
 
       <div class="rounded-xl border border-panel-border bg-panel-card p-5">
-        <h2 class="mb-3 text-lg font-semibold text-white">Redis Isolation</h2>
+        <h2 class="mb-3 text-lg font-semibold text-white">{{ t('ops_center.redis.title') }}</h2>
         <p class="mb-3 text-sm text-gray-400">
-          Host Redis isolation provisions a dedicated systemd service per domain. Docker Redis remains a separate container runtime choice.
+          {{ t('ops_center.redis.desc') }}
         </p>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <input v-model="redis.domain" type="text" class="aura-input md:col-span-2" placeholder="Domain (example.com)" />
-          <input v-model.number="redis.max_memory_mb" type="number" min="64" max="65536" class="aura-input" placeholder="Max memory (MB)" />
+          <input v-model="redis.domain" type="text" class="aura-input md:col-span-2" :placeholder="t('ops_center.redis.domain_placeholder')" />
+          <input v-model.number="redis.max_memory_mb" type="number" min="64" max="65536" class="aura-input" :placeholder="t('ops_center.redis.max_memory_placeholder')" />
         </div>
         <button class="mt-4 rounded bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:from-blue-700 hover:to-indigo-700" @click="createRedis">
-          Create Isolated Redis
+          {{ t('ops_center.redis.create') }}
         </button>
         <div class="mt-5 space-y-3">
           <div class="flex items-center justify-between">
-            <h3 class="text-sm font-semibold text-white">Host Redis Instances</h3>
+            <h3 class="text-sm font-semibold text-white">{{ t('ops_center.redis.instances_title') }}</h3>
             <button class="rounded bg-panel-hover px-3 py-1.5 text-xs text-gray-300 transition hover:bg-gray-600" @click="loadRedisIsolations">
-              Refresh
+              {{ t('common.refresh') }}
             </button>
           </div>
           <div v-if="redisIsolations.length === 0" class="rounded-lg bg-panel-darker px-3 py-3 text-sm text-gray-500">
-            No host Redis isolations created yet.
+            {{ t('ops_center.redis.empty') }}
           </div>
           <div v-for="item in redisIsolations" :key="item.domain" class="rounded-lg border border-panel-border/60 bg-panel-darker px-4 py-3">
             <div class="flex items-start justify-between gap-3">
@@ -129,7 +129,10 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '../services/api'
+
+const { t } = useI18n({ useScope: 'global' })
 
 const health = reactive({ status: '', version: '', uptime: 0 })
 const prediction = ref('')
@@ -165,7 +168,7 @@ const loadHealth = async () => {
     health.version = payload.version || payload.architecture || ''
     health.uptime = payload.uptime ?? 0
   } catch (err) {
-    notify(err.response?.data?.message || err.message || 'Health check failed.', 'error')
+    notify(err.response?.data?.message || err.message || t('ops_center.messages.health_failed'), 'error')
   }
 }
 
@@ -173,15 +176,15 @@ const loadPrediction = async () => {
   try {
     const { data } = await api.get('/monitor/sre')
     const payload = data.data || data
-    prediction.value = payload.prediction || data.message || 'No prediction returned.'
+    prediction.value = payload.prediction || data.message || t('ops_center.prediction.empty')
   } catch (err) {
-    notify(err.response?.data?.message || err.message || 'SRE prediction failed.', 'error')
+    notify(err.response?.data?.message || err.message || t('ops_center.messages.prediction_failed'), 'error')
   }
 }
 
 const runSreQuery = async () => {
   if (!sreQuery.value.trim()) {
-    notify('Please enter a query.', 'error')
+    notify(t('ops_center.messages.query_required'), 'error')
     return
   }
   try {
@@ -191,7 +194,7 @@ const runSreQuery = async () => {
     sreAnswer.confidence = payload.confidence ?? ''
     sreAnswer.matched_sources = payload.matched_sources || []
   } catch (err) {
-    notify(err.response?.data?.message || err.message || 'SRE log query failed.', 'error')
+    notify(err.response?.data?.message || err.message || t('ops_center.messages.query_failed'), 'error')
   }
 }
 
@@ -201,26 +204,26 @@ const loadOptimizations = async () => {
     const payload = data.data || data
     optimizations.value = payload.actions || []
   } catch (err) {
-    notify(err.response?.data?.message || err.message || 'SRE optimization failed.', 'error')
+    notify(err.response?.data?.message || err.message || t('ops_center.messages.optimizations_failed'), 'error')
   }
 }
 
 const deployGitops = async () => {
   if (!gitops.domain || !gitops.repo_url || !gitops.branch || !gitops.deploy_path || !gitops.webhook_secret) {
-    notify('All GitOps fields are required.', 'error')
+    notify(t('ops_center.messages.gitops_required'), 'error')
     return
   }
   try {
     const { data } = await api.post('/gitops/deploy', { ...gitops })
-    notify(data.message || 'GitOps deployment started.')
+    notify(data.message || t('ops_center.messages.gitops_started'))
   } catch (err) {
-    notify(err.response?.data?.message || err.message || 'GitOps deploy failed.', 'error')
+    notify(err.response?.data?.message || err.message || t('ops_center.messages.gitops_failed'), 'error')
   }
 }
 
 const createRedis = async () => {
   if (!redis.domain) {
-    notify('Domain is required for Redis setup.', 'error')
+    notify(t('ops_center.messages.redis_domain_required'), 'error')
     return
   }
   try {
@@ -228,10 +231,10 @@ const createRedis = async () => {
       domain: redis.domain,
       max_memory_mb: Number(redis.max_memory_mb || 512),
     })
-    notify(data.message || 'Host Redis instance created.')
+    notify(data.message || t('ops_center.messages.redis_created'))
     await loadRedisIsolations()
   } catch (err) {
-    notify(err.response?.data?.message || err.message || 'Redis setup failed.', 'error')
+    notify(err.response?.data?.message || err.message || t('ops_center.messages.redis_failed'), 'error')
   }
 }
 
@@ -240,7 +243,7 @@ const loadRedisIsolations = async () => {
     const { data } = await api.get('/perf/redis')
     redisIsolations.value = data.data || []
   } catch (err) {
-    notify(err.response?.data?.message || err.message || 'Failed to load Redis isolations.', 'error')
+    notify(err.response?.data?.message || err.message || t('ops_center.messages.redis_load_failed'), 'error')
   }
 }
 

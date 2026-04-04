@@ -13,7 +13,7 @@
         @click="loadAll"
         class="px-4 py-2 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition"
       >
-        Yenile
+        {{ t('common.refresh') }}
       </button>
     </div>
 
@@ -39,16 +39,16 @@
     <div class="bg-panel-card border border-panel-border rounded-xl overflow-hidden">
       <div class="p-4 border-b border-panel-border">
         <h2 class="text-lg font-semibold text-white">
-          {{ activeEngine === 'mariadb' ? 'MariaDB' : 'PostgreSQL' }} Veritabanları
+          {{ t('db_backup.databases_title', { engine: activeEngine === 'mariadb' ? t('db_backup.engine_mariadb') : t('db_backup.engine_postgresql') }) }}
         </h2>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="text-gray-400 border-b border-panel-border">
-              <th class="text-left px-4 py-3 font-medium">Veritabanı</th>
-              <th class="text-left px-4 py-3 font-medium">Boyut</th>
-              <th class="text-right px-4 py-3 font-medium">İşlem</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('db_backup.table_database') }}</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('db_backup.table_size') }}</th>
+              <th class="text-right px-4 py-3 font-medium">{{ t('common.actions') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -66,14 +66,14 @@
                   class="px-3 py-1.5 bg-teal-600/20 text-teal-300 rounded-lg text-xs hover:bg-teal-600/40 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 ml-auto"
                 >
                   <DatabaseBackupIcon class="w-3.5 h-3.5" />
-                  <span v-if="backingUp === db.name">Yedekleniyor...</span>
+                  <span v-if="backingUp === db.name">{{ t('db_backup.backing_up') }}</span>
                   <span v-else>{{ t('db_backup.create_backup') }}</span>
                 </button>
               </td>
             </tr>
             <tr v-if="currentDatabases.length === 0">
               <td colspan="3" class="px-4 py-12 text-center text-gray-500">
-                Veritabanı bulunamadı
+                {{ t('db_backup.no_databases') }}
               </td>
             </tr>
           </tbody>
@@ -86,18 +86,18 @@
       <div class="p-4 border-b border-panel-border flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">{{ t('db_backup.backup_history') }}</h2>
         <button @click="loadBackups" class="px-3 py-1.5 bg-panel-hover text-gray-300 rounded-lg text-sm hover:bg-gray-600 transition">
-          Yenile
+          {{ t('common.refresh') }}
         </button>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="text-gray-400 border-b border-panel-border">
-              <th class="text-left px-4 py-3 font-medium">Dosya</th>
-              <th class="text-left px-4 py-3 font-medium">Engine</th>
-              <th class="text-left px-4 py-3 font-medium">Boyut</th>
-              <th class="text-left px-4 py-3 font-medium">Tarih</th>
-              <th class="text-right px-4 py-3 font-medium">İşlem</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('db_backup.table_file') }}</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('db_backup.table_engine') }}</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('db_backup.table_size') }}</th>
+              <th class="text-left px-4 py-3 font-medium">{{ t('db_backup.table_date') }}</th>
+              <th class="text-right px-4 py-3 font-medium">{{ t('common.actions') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -109,7 +109,7 @@
               <td class="px-4 py-3 text-white font-mono text-xs">{{ backup.filename || backup.id }}</td>
               <td class="px-4 py-3">
                 <span :class="['px-2 py-0.5 rounded text-xs font-medium', backup.engine === 'mariadb' ? 'bg-orange-500/15 text-orange-400' : 'bg-blue-500/15 text-blue-400']">
-                  {{ backup.engine === 'mariadb' ? 'MariaDB' : 'PostgreSQL' }}
+                  {{ backup.engine === 'mariadb' ? t('db_backup.engine_mariadb') : t('db_backup.engine_postgresql') }}
                 </span>
               </td>
               <td class="px-4 py-3 text-gray-400">{{ backup.size || '-' }}</td>
@@ -163,7 +163,7 @@ import { useI18n } from 'vue-i18n'
 import { HardDrive, DatabaseBackup as DatabaseBackupIcon } from 'lucide-vue-next'
 import api from '../services/api'
 
-const { t } = useI18n()
+const { t, locale } = useI18n({ useScope: 'global' })
 
 const activeEngine = ref('mariadb')
 const mariadbDbs = ref([])
@@ -185,7 +185,7 @@ function showNotif(message, type = 'success') {
 function formatDate(timestamp) {
   if (!timestamp) return '-'
   try {
-    return new Date(timestamp).toLocaleString('tr-TR', {
+    return new Date(timestamp).toLocaleString(locale.value || 'en-US', {
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit',
     })

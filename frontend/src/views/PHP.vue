@@ -71,16 +71,16 @@
             <option v-for="v in installedVersions" :key="`ext-${v}`" :value="v">PHP {{ v }}</option>
           </select>
           <button class="btn-secondary" @click="loadExtensions">{{ t('common.refresh') }}</button>
-          <span class="text-xs text-gray-400">Paket yoneticisi: {{ extensionPackageManager || '-' }}</span>
+          <span class="text-xs text-gray-400">{{ t('php.package_manager') }}: {{ extensionPackageManager || '-' }}</span>
         </div>
         <div v-if="extensionLoading" class="p-6 text-center text-gray-400">{{ t('common.loading') }}</div>
         <table v-else class="w-full text-sm">
           <thead>
             <tr class="text-gray-400 border-b border-panel-border">
-              <th class="text-left px-4 py-3">Extension</th>
-              <th class="text-left px-4 py-3">Paket</th>
-              <th class="text-left px-4 py-3">Durum</th>
-              <th class="text-left px-4 py-3">Aksiyon</th>
+              <th class="text-left px-4 py-3">{{ t('php.extension_name') }}</th>
+              <th class="text-left px-4 py-3">{{ t('php.package') }}</th>
+              <th class="text-left px-4 py-3">{{ t('php.status') }}</th>
+              <th class="text-left px-4 py-3">{{ t('php.action') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -92,9 +92,9 @@
               <td class="px-4 py-3 text-gray-300 font-mono text-xs">{{ item.package || '-' }}</td>
               <td class="px-4 py-3">
                 <span :class="['px-2 py-0.5 rounded text-xs font-medium', item.installed ? 'bg-green-500/15 text-green-400' : 'bg-gray-500/15 text-gray-400']">
-                  {{ item.installed ? 'Installed' : 'Not Installed' }}
+                  {{ item.installed ? t('php.installed') : t('php.not_installed') }}
                 </span>
-                <span v-if="item.baseline" class="ml-2 px-2 py-0.5 rounded text-xs bg-blue-500/15 text-blue-300">Baseline</span>
+                <span v-if="item.baseline" class="ml-2 px-2 py-0.5 rounded text-xs bg-blue-500/15 text-blue-300">{{ t('php.baseline') }}</span>
               </td>
               <td class="px-4 py-3">
                 <div class="flex items-center gap-2">
@@ -104,7 +104,7 @@
                     @click="installExtension(item)"
                   >
                     <Loader2 v-if="extensionActionKey === `install-${item.id}`" class="w-3 h-3 animate-spin mr-1 inline" />
-                    Install
+                    {{ t('php.install') }}
                   </button>
                   <button
                     class="btn-danger px-3 py-1.5 text-xs"
@@ -112,13 +112,13 @@
                     @click="removeExtension(item)"
                   >
                     <Loader2 v-if="extensionActionKey === `remove-${item.id}`" class="w-3 h-3 animate-spin mr-1 inline" />
-                    Remove
+                    {{ t('php.remove') }}
                   </button>
                 </div>
               </td>
             </tr>
             <tr v-if="extensionItems.length===0">
-              <td colspan="4" class="p-4 text-center text-gray-500">Extension listesi alinamadi.</td>
+              <td colspan="4" class="p-4 text-center text-gray-500">{{ t('php.extension_list_failed') }}</td>
             </tr>
           </tbody>
         </table>
@@ -240,7 +240,7 @@ async function installPhp(version) {
 async function removePhp(version) {
   error.value = ''
   success.value = ''
-  if (!confirm(`PHP ${version} kaldirmak istediginize emin misiniz?`)) return
+  if (!confirm(t('php.remove_confirm', { version }))) return
   try {
     const res = await api.post('/php/remove', { version })
     success.value = res.data?.message || t('php.messages.removed', { version })
@@ -327,7 +327,7 @@ async function installExtension(item) {
       version: selectedExtensionVersion.value,
       extension: item.id,
     })
-    success.value = res.data?.message || `${item.name} installed.`
+    success.value = res.data?.message || t('php.messages.extension_installed', { name: item.name })
     await loadExtensions()
   } catch (e) {
     error.value = apiErrorMessage(e, 'php.messages.install_failed')
@@ -346,7 +346,7 @@ async function removeExtension(item) {
       version: selectedExtensionVersion.value,
       extension: item.id,
     })
-    success.value = res.data?.message || `${item.name} removed.`
+    success.value = res.data?.message || t('php.messages.extension_removed', { name: item.name })
     await loadExtensions()
   } catch (e) {
     error.value = apiErrorMessage(e, 'php.messages.remove_failed')

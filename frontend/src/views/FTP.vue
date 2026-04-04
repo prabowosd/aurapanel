@@ -18,13 +18,13 @@
           @click="activeTab = 'ftp'"
           :class="['pb-3 text-sm font-medium transition', activeTab === 'ftp' ? 'text-emerald-400 border-b-2 border-emerald-400' : 'text-gray-400 hover:text-white']"
         >
-          FTP Users
+          {{ t('ftp_manager.ftp_users_tab') }}
         </button>
         <button
           @click="activeTab = 'tuning'"
           :class="['pb-3 text-sm font-medium transition', activeTab === 'tuning' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-white']"
         >
-          Tuning & Config
+          {{ t('ftp_manager.tuning_tab') }}
         </button>
       </nav>
     </div>
@@ -37,22 +37,22 @@
             <h2 class="text-lg font-bold text-white">{{ t('ftp_manager.tuning.title') }}</h2>
             <p class="text-sm text-gray-400">{{ t('ftp_manager.tuning.desc') }}</p>
           </div>
-          <button class="btn-secondary" @click="loadTuning">{{ t('common.refresh') || 'Yenile' }}</button>
+          <button class="btn-secondary" @click="loadTuning">{{ t('common.refresh') }}</button>
         </div>
         
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Passive Port Range</label>
-            <input v-model="tuningForm.PassivePortRange" type="text" class="aura-input w-full" placeholder="Örn: 30000 30049" />
+            <label class="block text-sm text-gray-400 mb-1">{{ t('ftp_manager.tuning.passive_port_range') }}</label>
+            <input v-model="tuningForm.PassivePortRange" type="text" class="aura-input w-full" :placeholder="t('ftp_manager.tuning.example_passive_port_range')" />
             <p class="text-xs text-gray-500 mt-1">{{ t('ftp_manager.tuning.passive_port_desc') }}</p>
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Max Clients Number</label>
-            <input v-model="tuningForm.MaxClientsNumber" type="text" class="aura-input w-full" placeholder="Örn: 50" />
+            <label class="block text-sm text-gray-400 mb-1">{{ t('ftp_manager.tuning.max_clients_number') }}</label>
+            <input v-model="tuningForm.MaxClientsNumber" type="text" class="aura-input w-full" :placeholder="t('ftp_manager.tuning.example_max_clients')" />
             <p class="text-xs text-gray-500 mt-1">{{ t('ftp_manager.tuning.max_clients_desc') }}</p>
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">TLS</label>
+            <label class="block text-sm text-gray-400 mb-1">{{ t('ftp_manager.tuning.tls') }}</label>
             <select v-model="tuningForm.TLS" class="aura-input w-full">
               <option value="0">{{ t('ftp_manager.tuning.tls_0') }}</option>
               <option value="1">{{ t('ftp_manager.tuning.tls_1') }}</option>
@@ -210,7 +210,7 @@ async function saveTuning() {
   tuningSaving.value = true
   try {
     await api.post('/ftp/tuning', tuningForm.value)
-    success.value = 'Pure-FTPd Tuning ayarları başarıyla kaydedildi ve servis yeniden başlatıldı.'
+    success.value = t('ftp_manager.tuning.save_success')
     setTimeout(() => { success.value = '' }, 3000)
   } catch (err) {
     error.value = 'Hata: ' + (err.response?.data?.message || err.message)

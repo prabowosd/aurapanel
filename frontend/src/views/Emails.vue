@@ -14,7 +14,7 @@
         <button @click="tab='forwards'" :class="tabClass('forwards')">{{ t('email_manager.tabs.forwards') }}</button>
         <button @click="tab='routing'" :class="tabClass('routing')">{{ t('email_manager.tabs.routing') }}</button>
         <button @click="tab='dkim'" :class="tabClass('dkim')">{{ t('email_manager.tabs.dkim') }}</button>
-        <button @click="tab='tuning'" :class="tabClass('tuning')">Tuning & Config</button>
+        <button @click="tab='tuning'" :class="tabClass('tuning')">{{ t('email_manager.tuning_tab') }}</button>
         <button @click="tab='premium'" :class="tabClass('premium')">{{ t('email_manager.tabs.premium') }}</button>
       </nav>
     </div>
@@ -29,23 +29,23 @@
             <h2 class="text-lg font-bold text-white">{{ t('email_manager.tuning.title') }}</h2>
             <p class="text-sm text-gray-400">{{ t('email_manager.tuning.desc') }}</p>
           </div>
-          <button class="btn-secondary" @click="loadTuning">{{ t('common.refresh') || 'Yenile' }}</button>
+          <button class="btn-secondary" @click="loadTuning">{{ t('common.refresh') }}</button>
         </div>
         
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Message Size Limit</label>
-            <input v-model="tuningForm.message_size_limit" type="text" class="aura-input w-full" placeholder="Örn: 10485760 (10MB)" />
+            <label class="block text-sm text-gray-400 mb-1">{{ t('email_manager.tuning.message_size_limit') }}</label>
+            <input v-model="tuningForm.message_size_limit" type="text" class="aura-input w-full" :placeholder="t('email_manager.tuning_example_message_size')" />
             <p class="text-xs text-gray-500 mt-1">{{ t('email_manager.tuning.msg_size_desc') }}</p>
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Mailbox Size Limit</label>
-            <input v-model="tuningForm.mailbox_size_limit" type="text" class="aura-input w-full" placeholder="Örn: 51200000 (50MB)" />
+            <label class="block text-sm text-gray-400 mb-1">{{ t('email_manager.tuning.mailbox_size_limit') }}</label>
+            <input v-model="tuningForm.mailbox_size_limit" type="text" class="aura-input w-full" :placeholder="t('email_manager.tuning_example_mailbox_size')" />
             <p class="text-xs text-gray-500 mt-1">{{ t('email_manager.tuning.mbox_size_desc') }}</p>
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Max Client Connections</label>
-            <input v-model="tuningForm.smtpd_client_connection_count_limit" type="text" class="aura-input w-full" placeholder="Örn: 50" />
+            <label class="block text-sm text-gray-400 mb-1">{{ t('email_manager.tuning.max_client_connections') }}</label>
+            <input v-model="tuningForm.smtpd_client_connection_count_limit" type="text" class="aura-input w-full" :placeholder="t('email_manager.tuning_example_client_limit')" />
             <p class="text-xs text-gray-500 mt-1">{{ t('email_manager.tuning.max_conn_desc') }}</p>
           </div>
         </div>
@@ -74,9 +74,9 @@
               <option v-for="d in domains" :key="`auth-domain-${d}`" :value="d">{{ d }}</option>
             </select>
             <select v-model="premiumForm.policy" class="aura-input">
-              <option value="none">none</option>
-              <option value="quarantine">quarantine</option>
-              <option value="reject">reject</option>
+              <option value="none">{{ t('email_manager.policy_none') }}</option>
+              <option value="quarantine">{{ t('email_manager.policy_quarantine') }}</option>
+              <option value="reject">{{ t('email_manager.policy_reject') }}</option>
             </select>
             <input v-model="premiumForm.rua" class="aura-input" :placeholder="t('email_manager.premium.auth.rua')" />
             <input v-model="premiumForm.ruf" class="aura-input" :placeholder="t('email_manager.premium.auth.ruf')" />
@@ -109,8 +109,8 @@
             <p class="text-sm mt-1" :class="deliverabilityRiskClass(deliverability.risk)">{{ deliverability.risk || '-' }}</p>
           </div>
           <div class="space-y-2 text-sm">
-            <p class="text-gray-300">DKIM: <span :class="deliverabilityCheckClass(deliverability?.checks?.dkim)">{{ yesNo(deliverability?.checks?.dkim) }}</span></p>
-            <p class="text-gray-300">SPF/DMARC: <span :class="deliverabilityCheckClass(deliverability?.checks?.spf_dmarc)">{{ yesNo(deliverability?.checks?.spf_dmarc) }}</span></p>
+            <p class="text-gray-300">{{ t('email_manager.dkim_label') }}: <span :class="deliverabilityCheckClass(deliverability?.checks?.dkim)">{{ yesNo(deliverability?.checks?.dkim) }}</span></p>
+            <p class="text-gray-300">{{ t('email_manager.spf_dmarc_label') }}: <span :class="deliverabilityCheckClass(deliverability?.checks?.spf_dmarc)">{{ yesNo(deliverability?.checks?.spf_dmarc) }}</span></p>
             <p class="text-gray-300">{{ t('email_manager.premium.deliverability.mailboxes') }}: <span class="text-white">{{ deliverability?.observability?.mailboxes ?? 0 }}</span></p>
             <p class="text-gray-300">{{ t('email_manager.premium.deliverability.catch_all') }}: <span :class="deliverabilityCheckClass(!(deliverability?.observability?.catch_all_enabled))">{{ deliverability?.observability?.catch_all_enabled ? t('common.active') : t('common.inactive') }}</span></p>
           </div>
@@ -394,7 +394,7 @@ async function saveTuning() {
   tuningSaving.value = true
   try {
     await api.post('/mail/tuning', tuningForm.value)
-    alert('Postfix Tuning ayarları başarıyla kaydedildi ve servis yeniden başlatıldı.')
+    alert(t('email_manager.tuning_save_success'))
   } catch (err) {
     alert('Hata: ' + (err.response?.data?.message || err.message))
   } finally {

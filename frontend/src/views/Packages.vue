@@ -89,37 +89,37 @@
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="block text-sm text-gray-400 mb-1">{{ t('packages.disk') }} (GB)</label>
-                <input v-model.number="form.disk_gb" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
+                <input v-model.number="form.disk_gb" type="number" min="0" class="aura-input w-full" :placeholder="t('packages.unlimited_zero_placeholder')" />
               </div>
               <div>
                 <label class="block text-sm text-gray-400 mb-1">{{ t('packages.bandwidth') }} (GB)</label>
-                <input v-model.number="form.bandwidth_gb" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
+                <input v-model.number="form.bandwidth_gb" type="number" min="0" class="aura-input w-full" :placeholder="t('packages.unlimited_zero_placeholder')" />
               </div>
               <div>
                 <label class="block text-sm text-gray-400 mb-1">{{ t('packages.domains') }}</label>
-                <input v-model.number="form.domains" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
+                <input v-model.number="form.domains" type="number" min="0" class="aura-input w-full" :placeholder="t('packages.unlimited_zero_placeholder')" />
               </div>
               <div>
                 <label class="block text-sm text-gray-400 mb-1">{{ t('packages.databases') }}</label>
-                <input v-model.number="form.databases" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
+                <input v-model.number="form.databases" type="number" min="0" class="aura-input w-full" :placeholder="t('packages.unlimited_zero_placeholder')" />
               </div>
               <div class="col-span-2">
                 <label class="block text-sm text-gray-400 mb-1">{{ t('packages.emails') }}</label>
-                <input v-model.number="form.emails" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
+                <input v-model.number="form.emails" type="number" min="0" class="aura-input w-full" :placeholder="t('packages.unlimited_zero_placeholder')" />
               </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="block text-sm text-gray-400 mb-1">{{ t('packages.cpu_limit') }} (%)</label>
-                <input v-model.number="form.cpu_limit" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
+                <input v-model.number="form.cpu_limit" type="number" min="0" class="aura-input w-full" :placeholder="t('packages.unlimited_zero_placeholder')" />
               </div>
               <div>
                 <label class="block text-sm text-gray-400 mb-1">{{ t('packages.ram_limit') }} (MB)</label>
-                <input v-model.number="form.ram_mb" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
+                <input v-model.number="form.ram_mb" type="number" min="0" class="aura-input w-full" :placeholder="t('packages.unlimited_zero_placeholder')" />
               </div>
               <div class="col-span-2">
                 <label class="block text-sm text-gray-400 mb-1">{{ t('packages.io_limit') }} (MB/s)</label>
-                <input v-model.number="form.io_limit" type="number" min="0" class="aura-input w-full" placeholder="0=Sınırsız" />
+                <input v-model.number="form.io_limit" type="number" min="0" class="aura-input w-full" :placeholder="t('packages.unlimited_zero_placeholder')" />
               </div>
             </div>
           </div>

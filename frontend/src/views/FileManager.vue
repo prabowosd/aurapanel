@@ -355,16 +355,16 @@ const editPermissions = async (item) => {
   if (input == null) return
   const mode = String(input).trim()
   if (!/^[0-7]{3,4}$/.test(mode)) {
-    showNotif('Geçersiz izin formatı. Örnek: 644', 'error')
+    showNotif(t('filemanager.messages.perm_invalid_example'), 'error')
     return
   }
   try {
     const path = currentPath.value.replace(/\/$/, '') + '/' + item.name
     await api.post('/files/chmod', { path, mode })
-    showNotif('İzinler güncellendi')
+    showNotif(t('filemanager.messages.perm_updated'))
     loadFiles()
   } catch {
-    showNotif('İzin güncelleme başarısız', 'error')
+    showNotif(t('filemanager.messages.perm_update_failed'), 'error')
   }
 }
 

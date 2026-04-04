@@ -53,7 +53,7 @@
           @click="engine = 'tuning'"
           :class="['pb-3 text-sm font-medium transition', engine === 'tuning' ? 'text-emerald-400 border-b-2 border-emerald-400' : 'text-gray-400 hover:text-white']"
         >
-          <span class="flex items-center gap-2"><Settings2 class="w-4 h-4" /> Tuning & Config</span>
+          <span class="flex items-center gap-2"><Settings2 class="w-4 h-4" /> {{ t('database_manager.tuning.tab_title') }}</span>
         </button>
       </nav>
     </div>
@@ -65,12 +65,12 @@
         <button 
           @click="tuningEngine = 'mariadb'; loadTuning()" 
           :class="['px-4 py-2 rounded-lg text-sm font-medium transition', tuningEngine === 'mariadb' ? 'bg-blue-600 text-white' : 'bg-panel-card text-gray-400 border border-panel-border hover:text-white']">
-          MariaDB Tuning
+          {{ t('database_manager.tuning.mariadb_tab') }}
         </button>
         <button 
           @click="tuningEngine = 'postgresql'; loadTuning()" 
           :class="['px-4 py-2 rounded-lg text-sm font-medium transition', tuningEngine === 'postgresql' ? 'bg-blue-600 text-white' : 'bg-panel-card text-gray-400 border border-panel-border hover:text-white']">
-          PostgreSQL Tuning
+          {{ t('database_manager.tuning.postgresql_tab') }}
         </button>
       </div>
 
@@ -81,28 +81,28 @@
             <h2 class="text-lg font-bold text-white">{{ t('database_manager.tuning.mariadb_title') }}</h2>
             <p class="text-sm text-gray-400">{{ t('database_manager.tuning.mariadb_desc') }}</p>
           </div>
-          <button class="btn-secondary" @click="loadTuning">{{ t('common.refresh') || 'Yenile' }}</button>
+          <button class="btn-secondary" @click="loadTuning">{{ t('common.refresh') }}</button>
         </div>
         
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Max Connections</label>
-            <input v-model="tuningForm.max_connections" type="text" class="aura-input w-full" placeholder="Örn: 151" />
+            <label class="block text-sm text-gray-400 mb-1">{{ t('database_manager.tuning.max_connections') }}</label>
+            <input v-model="tuningForm.max_connections" type="text" class="aura-input w-full" :placeholder="t('database_manager.tuning.example', { value: '151' })" />
             <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.max_conn_desc') }}</p>
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">InnoDB Buffer Pool Size</label>
-            <input v-model="tuningForm.innodb_buffer_pool_size" type="text" class="aura-input w-full" placeholder="Örn: 128M" />
+            <label class="block text-sm text-gray-400 mb-1">{{ t('database_manager.tuning.innodb_buffer_pool_size') }}</label>
+            <input v-model="tuningForm.innodb_buffer_pool_size" type="text" class="aura-input w-full" :placeholder="t('database_manager.tuning.example', { value: '128M' })" />
             <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.innodb_pool_desc') }}</p>
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Key Buffer Size</label>
-            <input v-model="tuningForm.key_buffer_size" type="text" class="aura-input w-full" placeholder="Örn: 16M" />
+            <label class="block text-sm text-gray-400 mb-1">{{ t('database_manager.tuning.key_buffer_size') }}</label>
+            <input v-model="tuningForm.key_buffer_size" type="text" class="aura-input w-full" :placeholder="t('database_manager.tuning.example', { value: '16M' })" />
             <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.key_buffer_desc') }}</p>
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Max Allowed Packet</label>
-            <input v-model="tuningForm.max_allowed_packet" type="text" class="aura-input w-full" placeholder="Örn: 16M" />
+            <label class="block text-sm text-gray-400 mb-1">{{ t('database_manager.tuning.max_allowed_packet') }}</label>
+            <input v-model="tuningForm.max_allowed_packet" type="text" class="aura-input w-full" :placeholder="t('database_manager.tuning.example', { value: '16M' })" />
             <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.max_packet_desc') }}</p>
           </div>
         </div>
@@ -121,28 +121,28 @@
             <h2 class="text-lg font-bold text-white">{{ t('database_manager.tuning.pg_title') }}</h2>
             <p class="text-sm text-gray-400">{{ t('database_manager.tuning.pg_desc') }}</p>
           </div>
-          <button class="btn-secondary" @click="loadTuning">{{ t('common.refresh') || 'Yenile' }}</button>
+          <button class="btn-secondary" @click="loadTuning">{{ t('common.refresh') }}</button>
         </div>
         
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Max Connections</label>
-            <input v-model="pgTuningForm.max_connections" type="text" class="aura-input w-full" placeholder="Örn: 100" />
+            <label class="block text-sm text-gray-400 mb-1">{{ t('database_manager.tuning.max_connections') }}</label>
+            <input v-model="pgTuningForm.max_connections" type="text" class="aura-input w-full" :placeholder="t('database_manager.tuning.example', { value: '100' })" />
             <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.max_conn_desc') }}</p>
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Shared Buffers</label>
-            <input v-model="pgTuningForm.shared_buffers" type="text" class="aura-input w-full" placeholder="Örn: 128MB" />
+            <label class="block text-sm text-gray-400 mb-1">{{ t('database_manager.tuning.shared_buffers') }}</label>
+            <input v-model="pgTuningForm.shared_buffers" type="text" class="aura-input w-full" :placeholder="t('database_manager.tuning.example', { value: '128MB' })" />
             <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.shared_buffers_desc') }}</p>
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Work Mem</label>
-            <input v-model="pgTuningForm.work_mem" type="text" class="aura-input w-full" placeholder="Örn: 4MB" />
+            <label class="block text-sm text-gray-400 mb-1">{{ t('database_manager.tuning.work_mem') }}</label>
+            <input v-model="pgTuningForm.work_mem" type="text" class="aura-input w-full" :placeholder="t('database_manager.tuning.example', { value: '4MB' })" />
             <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.work_mem_desc') }}</p>
           </div>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">Maintenance Work Mem</label>
-            <input v-model="pgTuningForm.maintenance_work_mem" type="text" class="aura-input w-full" placeholder="Örn: 64MB" />
+            <label class="block text-sm text-gray-400 mb-1">{{ t('database_manager.tuning.maintenance_work_mem') }}</label>
+            <input v-model="pgTuningForm.maintenance_work_mem" type="text" class="aura-input w-full" :placeholder="t('database_manager.tuning.example', { value: '64MB' })" />
             <p class="text-xs text-gray-500 mt-1">{{ t('database_manager.tuning.maintenance_work_mem_desc') }}</p>
           </div>
         </div>
@@ -456,10 +456,10 @@ async function saveTuning() {
   try {
     if (tuningEngine.value === 'mariadb') {
       await api.post('/db/mariadb/tuning', tuningForm.value)
-      showNotif('MariaDB Tuning ayarları kaydedildi ve servis yeniden başlatıldı.', 'success')
+      showNotif(t('database_manager.tuning.save_mariadb_success'), 'success')
     } else {
       await api.post('/db/postgresql/tuning', pgTuningForm.value)
-      showNotif('PostgreSQL Tuning ayarları kaydedildi ve servis yeniden başlatıldı.', 'success')
+      showNotif(t('database_manager.tuning.save_pg_success'), 'success')
     }
   } catch (err) {
     showNotif('Tuning kaydedilemedi: ' + err.message, 'error')

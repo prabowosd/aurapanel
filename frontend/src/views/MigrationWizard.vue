@@ -2,12 +2,12 @@
   <div class="space-y-6">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h1 class="text-2xl font-bold text-white">Migration Wizard</h1>
+        <h1 class="text-2xl font-bold text-white">{{ t('migration_wizard.title') }}</h1>
         <p class="text-sm text-gray-400 mt-1">
-          cPanel/CyberPanel hesap (tek hesap/site) yedeklerini analiz edin, dönüşüm planını ve import durumunu izleyin.
+          {{ t('migration_wizard.subtitle') }}
         </p>
       </div>
-      <button class="btn-secondary" @click="resetAll">Temizle</button>
+      <button class="btn-secondary" @click="resetAll">{{ t('migration_wizard.reset') }}</button>
     </div>
 
     <div v-if="error" class="aura-card border-red-500/30 bg-red-500/5 text-red-400">
@@ -18,13 +18,13 @@
     </div>
 
     <div class="aura-card space-y-4">
-      <h2 class="text-lg font-semibold text-white">1. Backup Yükle ve Kaynak Seç</h2>
+      <h2 class="text-lg font-semibold text-white">{{ t('migration_wizard.step1_title') }}</h2>
       <p class="text-xs text-gray-400">
-        Not: Bu ekran şu an tam sunucu imajı değil, hesap/site tabanlı backup (.tar.gz/.tgz/.zip) importu içindir.
+        {{ t('migration_wizard.step1_note') }}
       </p>
       <div class="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <div class="space-y-2 lg:col-span-2">
-          <label class="block text-sm text-gray-400">Backup dosyası (.tar.gz / .tgz / .zip)</label>
+          <label class="block text-sm text-gray-400">{{ t('migration_wizard.backup_file_label') }}</label>
           <input
             type="file"
             accept=".tar,.tar.gz,.tgz,.zip,application/gzip,application/x-gzip,application/zip"
@@ -33,9 +33,9 @@
           />
         </div>
         <div class="space-y-2">
-          <label class="block text-sm text-gray-400">Kaynak panel</label>
+          <label class="block text-sm text-gray-400">{{ t('migration_wizard.source_panel') }}</label>
           <select v-model="sourceType" class="aura-input w-full">
-            <option value="auto">Otomatik</option>
+            <option value="auto">{{ t('migration_wizard.source_auto') }}</option>
             <option value="cpanel">cPanel</option>
             <option value="cyberpanel">CyberPanel</option>
             <option value="plesk">Plesk</option>
@@ -46,7 +46,7 @@
 
       <div class="flex flex-wrap gap-2">
         <button class="btn-primary" :disabled="uploading || !selectedFile" @click="uploadBackup">
-          {{ uploading ? 'Yükleniyor...' : 'Yedeği Yükle' }}
+          {{ uploading ? t('migration_wizard.uploading') : t('migration_wizard.upload_backup') }}
         </button>
       </div>
 
@@ -54,11 +54,11 @@
         <div class="h-2 rounded bg-panel-dark overflow-hidden">
           <div class="h-full bg-gradient-to-r from-blue-500 to-brand-500 transition-all" :style="{ width: `${uploadProgress}%` }"></div>
         </div>
-        <p class="text-xs text-gray-400">Upload: %{{ uploadProgress }}</p>
+        <p class="text-xs text-gray-400">{{ t('migration_wizard.upload_progress', { progress: uploadProgress }) }}</p>
       </div>
 
       <div class="space-y-2">
-        <label class="block text-sm text-gray-400">Arşiv yolu</label>
+        <label class="block text-sm text-gray-400">{{ t('migration_wizard.archive_path') }}</label>
         <input
           v-model="archivePath"
           class="aura-input w-full font-mono text-xs"
@@ -69,36 +69,36 @@
 
     <div class="aura-card space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 class="text-lg font-semibold text-white">2. Backup Analizi</h2>
+        <h2 class="text-lg font-semibold text-white">{{ t('migration_wizard.step2_title') }}</h2>
         <button class="btn-primary" :disabled="analyzing || !archivePath" @click="analyzeBackup">
-          {{ analyzing ? 'Analiz ediliyor...' : 'Analiz Et' }}
+          {{ analyzing ? t('migration_wizard.analyzing') : t('migration_wizard.analyze') }}
         </button>
       </div>
 
       <div v-if="analysis" class="space-y-4">
         <div class="grid grid-cols-1 gap-3 md:grid-cols-6">
           <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
-            <p class="text-xs text-gray-400">Panel</p>
+            <p class="text-xs text-gray-400">{{ t('migration_wizard.panel') }}</p>
             <p class="text-sm text-white mt-1">{{ analysis.source_type }}</p>
           </div>
           <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
-            <p class="text-xs text-gray-400">Dosya</p>
+            <p class="text-xs text-gray-400">{{ t('migration_wizard.files') }}</p>
             <p class="text-sm text-white mt-1">{{ analysis.stats.file_count }}</p>
           </div>
           <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
-            <p class="text-xs text-gray-400">DB</p>
+            <p class="text-xs text-gray-400">{{ t('migration_wizard.db') }}</p>
             <p class="text-sm text-white mt-1">{{ analysis.stats.database_count }}</p>
           </div>
           <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
-            <p class="text-xs text-gray-400">E-Posta</p>
+            <p class="text-xs text-gray-400">{{ t('migration_wizard.emails') }}</p>
             <p class="text-sm text-white mt-1">{{ analysis.stats.email_count }}</p>
           </div>
           <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
-            <p class="text-xs text-gray-400">Arşiv Boyutu</p>
+            <p class="text-xs text-gray-400">{{ t('migration_wizard.archive_size') }}</p>
             <p class="text-sm text-white mt-1">{{ analysis.archive_size_human || '-' }}</p>
           </div>
           <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
-            <p class="text-xs text-gray-400">Pre-check</p>
+            <p class="text-xs text-gray-400">{{ t('migration_wizard.precheck') }}</p>
             <p class="text-sm mt-1" :class="isPrecheckReady ? 'text-green-400' : 'text-red-400'">
               {{ isPrecheckReady ? 'READY' : 'BLOCKED' }}
             </p>
@@ -107,9 +107,9 @@
 
         <div class="rounded-lg border border-panel-border p-3 space-y-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h3 class="text-sm font-semibold text-white">Pre-check Raporu</h3>
+            <h3 class="text-sm font-semibold text-white">{{ t('migration_wizard.precheck_report') }}</h3>
             <p class="text-xs text-gray-300">
-              Tahmini süre: <span class="text-white">{{ etaText(analysis.precheck?.eta_seconds) }}</span>
+              {{ t('migration_wizard.eta', { value: etaText(analysis.precheck?.eta_seconds) }) }}
             </p>
           </div>
 
@@ -125,7 +125,7 @@
           </div>
 
           <div v-if="(analysis.precheck?.conflicts || []).length" class="rounded-lg border border-red-500/30 bg-red-500/5 p-3">
-            <p class="text-xs text-red-300 mb-2">Conflicts:</p>
+            <p class="text-xs text-red-300 mb-2">{{ t('migration_wizard.conflicts') }}</p>
             <p
               v-for="(conflict, idx) in analysis.precheck?.conflicts || []"
               :key="`${conflict.type}-${conflict.target}-${idx}`"
@@ -137,7 +137,7 @@
           </div>
 
           <div v-if="(analysis.precheck?.recommendations || []).length" class="rounded-lg border border-cyan-500/30 bg-cyan-500/5 p-3">
-            <p class="text-xs text-cyan-300 mb-2">Öneriler:</p>
+            <p class="text-xs text-cyan-300 mb-2">{{ t('migration_wizard.recommendations') }}</p>
             <p v-for="(rec, idx) in analysis.precheck?.recommendations || []" :key="idx" class="text-xs text-cyan-100 mb-1">
               - {{ rec }}
             </p>
@@ -146,30 +146,30 @@
 
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div class="rounded-lg border border-panel-border p-3">
-            <h3 class="text-sm font-semibold text-white mb-2">MySQL Dump Dosyaları</h3>
+            <h3 class="text-sm font-semibold text-white mb-2">{{ t('migration_wizard.mysql_dumps') }}</h3>
             <div class="max-h-48 overflow-auto text-xs font-mono text-gray-300 space-y-1">
               <p v-for="item in analysis.mysql_dumps" :key="item">{{ item }}</p>
-              <p v-if="analysis.mysql_dumps.length === 0" class="text-gray-500">Kayıt yok.</p>
+              <p v-if="analysis.mysql_dumps.length === 0" class="text-gray-500">{{ t('migration_wizard.no_records') }}</p>
             </div>
           </div>
           <div class="rounded-lg border border-panel-border p-3">
-            <h3 class="text-sm font-semibold text-white mb-2">E-Posta Hesapları</h3>
+            <h3 class="text-sm font-semibold text-white mb-2">{{ t('migration_wizard.email_accounts') }}</h3>
             <div class="max-h-48 overflow-auto text-xs font-mono text-gray-300 space-y-1">
               <p v-for="item in analysis.email_accounts" :key="item">{{ item }}</p>
-              <p v-if="analysis.email_accounts.length === 0" class="text-gray-500">Kayıt yok.</p>
+              <p v-if="analysis.email_accounts.length === 0" class="text-gray-500">{{ t('migration_wizard.no_records') }}</p>
             </div>
           </div>
           <div class="rounded-lg border border-panel-border p-3">
-            <h3 class="text-sm font-semibold text-white mb-2">VHost Adayları</h3>
+            <h3 class="text-sm font-semibold text-white mb-2">{{ t('migration_wizard.vhost_candidates') }}</h3>
             <div class="max-h-48 overflow-auto text-xs font-mono text-gray-300 space-y-1">
               <p v-for="item in analysis.vhost_candidates" :key="item">{{ item }}</p>
-              <p v-if="analysis.vhost_candidates.length === 0" class="text-gray-500">Kayıt yok.</p>
+              <p v-if="analysis.vhost_candidates.length === 0" class="text-gray-500">{{ t('migration_wizard.no_records') }}</p>
             </div>
           </div>
         </div>
 
         <div v-if="analysis.warnings?.length" class="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3">
-          <p class="text-xs text-yellow-300 mb-1">Uyarılar:</p>
+          <p class="text-xs text-yellow-300 mb-1">{{ t('migration_wizard.warnings') }}</p>
           <p v-for="(w, i) in analysis.warnings" :key="i" class="text-xs text-yellow-200">- {{ w }}</p>
         </div>
       </div>
@@ -177,31 +177,31 @@
 
     <div class="aura-card space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 class="text-lg font-semibold text-white">3. Import Başlat ve İzle</h2>
+        <h2 class="text-lg font-semibold text-white">{{ t('migration_wizard.step3_title') }}</h2>
         <button class="btn-primary" :disabled="importStarting || !archivePath || !isPrecheckReady" @click="startImport">
-          {{ importStarting ? 'Başlatılıyor...' : 'Import Başlat' }}
+          {{ importStarting ? t('migration_wizard.starting') : t('migration_wizard.start_import') }}
         </button>
       </div>
-      <p class="text-xs text-gray-400">Import sadece pre-check sonucu READY ise başlatılır.</p>
+      <p class="text-xs text-gray-400">{{ t('migration_wizard.import_condition') }}</p>
 
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div>
-          <label class="block text-sm text-gray-400 mb-1">Hedef owner</label>
+          <label class="block text-sm text-gray-400 mb-1">{{ t('migration_wizard.target_owner') }}</label>
           <input v-model="targetOwner" class="aura-input w-full" placeholder="aura" />
         </div>
         <div>
-          <label class="block text-sm text-gray-400 mb-1">Job ID</label>
+          <label class="block text-sm text-gray-400 mb-1">{{ t('migration_wizard.job_id') }}</label>
           <input :value="job?.id || '-'" class="aura-input w-full font-mono text-xs" disabled />
         </div>
       </div>
 
       <div v-if="job" class="space-y-3">
         <div class="flex flex-wrap items-center gap-2 text-sm">
-          <span class="text-gray-400">Durum:</span>
+          <span class="text-gray-400">{{ t('migration_wizard.status') }}</span>
           <span :class="statusClass(job.status)">{{ job.status }}</span>
           <span class="text-gray-500">|</span>
           <span class="text-gray-300">%{{ job.progress }}</span>
-          <button class="btn-secondary ml-auto" @click="fetchJobStatus">Yenile</button>
+          <button class="btn-secondary ml-auto" @click="fetchJobStatus">{{ t('common.refresh') }}</button>
         </div>
 
         <div class="h-2 rounded bg-panel-dark overflow-hidden">
@@ -209,18 +209,18 @@
         </div>
 
         <div class="rounded-lg border border-panel-border bg-panel-dark p-3">
-          <p class="text-xs text-gray-400 mb-2">Canlı Log</p>
+          <p class="text-xs text-gray-400 mb-2">{{ t('migration_wizard.live_log') }}</p>
           <pre class="max-h-64 overflow-auto text-xs text-gray-200 whitespace-pre-wrap">{{ (job.logs || []).join('\n') }}</pre>
         </div>
 
         <div v-if="job.summary" class="rounded-lg border border-panel-border p-3 space-y-2">
-          <p class="text-sm text-white font-semibold">Import Özeti</p>
-          <p class="text-xs text-gray-300">DB çıktı dosyası: {{ job.summary.converted_db_files?.length || 0 }}</p>
-          <p class="text-xs text-gray-300 font-mono">Mail plani: {{ job.summary.email_plan_file }}</p>
-          <p class="text-xs text-gray-300 font-mono">VHost plani: {{ job.summary.vhost_plan_file }}</p>
+          <p class="text-sm text-white font-semibold">{{ t('migration_wizard.import_summary') }}</p>
+          <p class="text-xs text-gray-300">{{ t('migration_wizard.db_output_files', { count: job.summary.converted_db_files?.length || 0 }) }}</p>
+          <p class="text-xs text-gray-300 font-mono">{{ t('migration_wizard.mail_plan', { file: job.summary.email_plan_file }) }}</p>
+          <p class="text-xs text-gray-300 font-mono">{{ t('migration_wizard.vhost_plan', { file: job.summary.vhost_plan_file }) }}</p>
           <p class="text-xs text-gray-400">
-            Sistem import modu:
-            <span class="text-gray-200">{{ job.summary.system_apply_enabled ? 'AKTİF' : 'DRY-RUN' }}</span>
+            {{ t('migration_wizard.system_mode') }}
+            <span class="text-gray-200">{{ job.summary.system_apply_enabled ? t('migration_wizard.mode_active') : t('migration_wizard.mode_dry_run') }}</span>
           </p>
         </div>
       </div>
@@ -230,8 +230,10 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '../services/api'
 
+const { t } = useI18n({ useScope: 'global' })
 const selectedFile = ref(null)
 const archivePath = ref('')
 const sourceType = ref('auto')
@@ -282,9 +284,9 @@ async function uploadBackup() {
       },
     })
     archivePath.value = res.data?.data?.archive_path || ''
-    setSuccess('Backup dosyası yüklendi.')
+    setSuccess(t('migration_wizard.upload_success'))
   } catch (err) {
-    setError(err?.response?.data?.message || 'Backup yüklenemedi.')
+    setError(err?.response?.data?.message || t('migration_wizard.upload_failed'))
   } finally {
     uploading.value = false
   }
@@ -303,9 +305,9 @@ async function analyzeBackup() {
     }
     const res = await api.post('/migration/analyze', payload)
     analysis.value = res.data?.data || null
-    setSuccess('Backup analizi tamamlandı.')
+    setSuccess(t('migration_wizard.analyze_success'))
   } catch (err) {
-    setError(err?.response?.data?.message || 'Backup analizi başarısız.')
+    setError(err?.response?.data?.message || t('migration_wizard.analyze_failed'))
   } finally {
     analyzing.value = false
   }
@@ -328,7 +330,7 @@ function startPolling() {
 async function startImport() {
   if (!archivePath.value) return
   if (!isPrecheckReady.value) {
-    setError('Pre-check sonucunda blocker var. Import başlatılmadı.')
+    setError(t('migration_wizard.blocked_precheck'))
     return
   }
   importStarting.value = true
@@ -346,9 +348,9 @@ async function startImport() {
     if (job.value?.id) {
       startPolling()
     }
-    setSuccess('Import kuyruğa alındı.')
+    setSuccess(t('migration_wizard.import_queued'))
   } catch (err) {
-    setError(err?.response?.data?.message || 'Import başlatılamadı.')
+    setError(err?.response?.data?.message || t('migration_wizard.import_failed'))
   } finally {
     importStarting.value = false
   }
@@ -364,7 +366,7 @@ async function fetchJobStatus() {
       stopPolling()
     }
   } catch (err) {
-    setError(err?.response?.data?.message || 'Job durumu alınamadı.')
+    setError(err?.response?.data?.message || t('migration_wizard.status_failed'))
     stopPolling()
   }
 }
@@ -397,10 +399,12 @@ function etaText(seconds) {
   if (!raw) return '-'
   const mins = Math.round(raw / 60)
   if (mins < 1) return `${raw}s`
-  if (mins < 60) return `${mins} dk`
+  if (mins < 60) return t('migration_wizard.eta_minutes', { value: mins })
   const h = Math.floor(mins / 60)
   const m = mins % 60
-  return m === 0 ? `${h} sa` : `${h} sa ${m} dk`
+  return m === 0
+    ? t('migration_wizard.eta_hours', { hours: h })
+    : t('migration_wizard.eta_hours_minutes', { hours: h, minutes: m })
 }
 
 function resetAll() {

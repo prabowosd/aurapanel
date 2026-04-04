@@ -52,11 +52,11 @@
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div>
           <label class="cf-field-label mb-1 block text-sm">{{ t('cloudflare_manager.email') }}</label>
-          <input v-model="cfEmail" type="email" placeholder="user@example.com" class="aura-input" />
+          <input v-model="cfEmail" type="email" :placeholder="t('cloudflare_manager.placeholders.email')" class="aura-input" />
         </div>
         <div>
           <label class="cf-field-label mb-1 block text-sm">{{ t('cloudflare_manager.api_key') }}</label>
-          <input v-model="cfApiKey" type="password" placeholder="****************" class="aura-input" />
+          <input v-model="cfApiKey" type="password" :placeholder="t('cloudflare_manager.placeholders.api_key')" class="aura-input" />
         </div>
       </div>
       <button
@@ -296,7 +296,7 @@
               :disabled="analyticsLoading || !selectedZone?.id"
               @click="loadAnalytics"
             >
-              {{ analyticsLoading ? 'Loading...' : 'Load Analytics' }}
+              {{ analyticsLoading ? t('cloudflare_manager.analytics.loading') : t('cloudflare_manager.analytics.load') }}
             </button>
           </div>
         </div>
@@ -307,21 +307,21 @@
 
         <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div class="rounded-xl border border-panel-border bg-panel-card p-5">
-            <p class="text-xs uppercase tracking-wide text-gray-400">Requests</p>
+            <p class="text-xs uppercase tracking-wide text-gray-400">{{ t('cloudflare_manager.analytics.requests') }}</p>
             <p class="mt-2 text-2xl font-semibold text-white">{{ analyticsSummary.requests }}</p>
           </div>
           <div class="rounded-xl border border-panel-border bg-panel-card p-5">
-            <p class="text-xs uppercase tracking-wide text-gray-400">Page Views</p>
+            <p class="text-xs uppercase tracking-wide text-gray-400">{{ t('cloudflare_manager.analytics.page_views') }}</p>
             <p class="mt-2 text-2xl font-semibold text-white">{{ analyticsSummary.pageViews }}</p>
           </div>
           <div class="rounded-xl border border-panel-border bg-panel-card p-5">
-            <p class="text-xs uppercase tracking-wide text-gray-400">Bandwidth</p>
+            <p class="text-xs uppercase tracking-wide text-gray-400">{{ t('cloudflare_manager.analytics.bandwidth') }}</p>
             <p class="mt-2 text-2xl font-semibold text-white">{{ analyticsSummary.bandwidth }}</p>
           </div>
         </div>
 
         <div class="rounded-xl border border-panel-border bg-panel-card p-5">
-          <h3 class="mb-3 text-sm font-semibold text-white">Raw Analytics Response</h3>
+          <h3 class="mb-3 text-sm font-semibold text-white">{{ t('cloudflare_manager.analytics.raw_response') }}</h3>
           <pre class="max-h-[360px] overflow-auto rounded-lg bg-panel-darker p-3 text-xs text-gray-300">{{ formattedAnalytics }}</pre>
         </div>
       </div>
@@ -339,11 +339,11 @@
           </div>
           <div>
             <label class="mb-1 block text-sm text-gray-400">{{ t('cloudflare_manager.dns.name') }}</label>
-            <input v-model="newDns.name" type="text" placeholder="@, www, mail" class="aura-input" />
+            <input v-model="newDns.name" type="text" :placeholder="t('cloudflare_manager.placeholders.dns_name')" class="aura-input" />
           </div>
           <div>
             <label class="mb-1 block text-sm text-gray-400">{{ t('cloudflare_manager.dns.value') }}</label>
-            <input v-model="newDns.content" type="text" placeholder="93.184.216.34" class="aura-input" />
+            <input v-model="newDns.content" type="text" :placeholder="t('cloudflare_manager.placeholders.dns_value')" class="aura-input" />
           </div>
           <div class="flex items-center gap-4">
             <label class="flex items-center gap-2 text-sm text-gray-300">
@@ -404,7 +404,7 @@ const tabs = [
   { id: 'ssl', label: t('cloudflare_manager.tabs.ssl') },
   { id: 'cache', label: t('cloudflare_manager.tabs.cache') },
   { id: 'security', label: t('cloudflare_manager.tabs.security') },
-  { id: 'analytics', label: 'Analytics' },
+  { id: 'analytics', label: t('cloudflare_manager.tabs.analytics') },
 ]
 
 const zones = ref([])

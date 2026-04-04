@@ -40,21 +40,21 @@
             <h3 class="text-lg font-bold text-white">{{ zone.name }}</h3>
             <p class="text-sm text-gray-400">{{ zone.kind }} · {{ zone.records }} {{ t('dns.add_record') }}</p>
             <p class="text-xs mt-1" :class="zone.dnssec_enabled ? 'text-green-400' : 'text-yellow-400'">
-              DNSSEC: {{ zone.dnssec_enabled ? 'Aktif' : 'Pasif' }}
+              {{ t('dns.dnssec') }}: {{ zone.dnssec_enabled ? t('dns.active') : t('dns.passive') }}
             </p>
           </div>
         </div>
         <div class="flex items-center gap-2">
           <button class="btn-secondary px-3 py-1.5 text-sm" :disabled="dnssecDomain === zone.name" @click="toggleDnssec(zone)">
             <Loader2 v-if="dnssecDomain === zone.name" class="w-4 h-4 mr-1 inline animate-spin" />
-            DNSSEC {{ zone.dnssec_enabled ? 'Kapat' : 'Ac' }}
+            {{ t('dns.dnssec') }} {{ zone.dnssec_enabled ? t('dns.disable') : t('dns.enable') }}
           </button>
           <button class="btn-secondary px-3 py-1.5 text-sm" :disabled="reconcilingDomain === zone.name" @click="reconcileZone(zone)">
             <Loader2 v-if="reconcilingDomain === zone.name" class="w-4 h-4 mr-1 inline animate-spin" />
-            Mutabakat
+            {{ t('dns.reconcile') }}
           </button>
           <button class="btn-secondary px-3 py-1.5 text-sm" @click="selectZone(zone)">
-            {{ t('dns.manage_records') || 'Manage Records' }}
+            {{ t('dns.manage_records') }}
           </button>
           <button class="btn-danger px-2 py-1.5" @click="confirmDeleteZone(zone)">
             <Trash2 class="w-4 h-4" />
@@ -66,7 +66,7 @@
     <!-- DNS Records Panel -->
     <div v-if="selectedZone" class="aura-card">
       <div class="flex justify-between items-center mb-4">
-        <h2 class="text-lg font-bold text-white">{{ selectedZone.name }} — {{ t('dns.manage_records') || 'Manage Records' }}</h2>
+        <h2 class="text-lg font-bold text-white">{{ selectedZone.name }} — {{ t('dns.manage_records') }}</h2>
         <button class="btn-primary text-sm" @click="openAddRecordModal">
           <Plus class="w-4 h-4 mr-1 inline" />{{ t('dns.add_record') }}
         </button>
@@ -111,7 +111,7 @@
         <div class="bg-panel-card border border-panel-border rounded-2xl p-8 w-full max-w-md shadow-2xl">
           <h2 class="text-xl font-bold text-white mb-6">{{ t('dns.add_zone') }}</h2>
           <div>
-            <label class="block text-sm text-gray-400 mb-1">{{ t('dns.zone') }} (Domain)</label>
+            <label class="block text-sm text-gray-400 mb-1">{{ t('dns.domain_label') }}</label>
             <input v-model="newZone" list="dns-domain-options" type="text" class="aura-input w-full" placeholder="example.com" />
             <datalist id="dns-domain-options">
               <option v-for="domainName in suggestedDomains" :key="`dns-zone-${domainName}`" :value="domainName" />
@@ -146,7 +146,7 @@
             </div>
             <div>
               <label class="block text-sm text-gray-400 mb-1">{{ t('dns.record_name') }}</label>
-              <input v-model="newRecord.name" type="text" class="aura-input w-full" placeholder="subdomain or @" />
+              <input v-model="newRecord.name" type="text" class="aura-input w-full" :placeholder="t('dns.record_name_placeholder')" />
             </div>
             <div>
               <label class="block text-sm text-gray-400 mb-1">{{ t('dns.record_value') }}</label>
@@ -176,28 +176,28 @@
           <h2 class="text-xl font-bold text-white mb-6">{{ t('dns.default_ns') }}</h2>
           <div class="space-y-4">
             <div>
-              <label class="block text-sm text-gray-400 mb-1">Wizard Base Domain</label>
+              <label class="block text-sm text-gray-400 mb-1">{{ t('dns.wizard_base_domain') }}</label>
               <div class="flex gap-2">
                 <input v-model="wizardBaseDomain" list="dns-domain-options" type="text" class="aura-input w-full" placeholder="example.com" />
                 <button class="btn-secondary whitespace-nowrap" :disabled="nsWizardLoading" @click="fillNsByWizard">
                   <Loader2 v-if="nsWizardLoading" class="w-4 h-4 mr-1 inline animate-spin" />
-                  Wizard
+                  {{ t('dns.wizard_fill') }}
                 </button>
               </div>
             </div>
             <div>
-              <label class="block text-sm text-gray-400 mb-1">Nameserver 1</label>
+              <label class="block text-sm text-gray-400 mb-1">{{ t('dns.nameserver_1') }}</label>
               <input v-model="nsConfig.ns1" type="text" class="aura-input w-full" placeholder="ns1.example.com" />
             </div>
             <div>
-              <label class="block text-sm text-gray-400 mb-1">Nameserver 2</label>
+              <label class="block text-sm text-gray-400 mb-1">{{ t('dns.nameserver_2') }}</label>
               <input v-model="nsConfig.ns2" type="text" class="aura-input w-full" placeholder="ns2.example.com" />
             </div>
           </div>
           <div class="flex gap-3 mt-8">
             <button class="btn-secondary" :disabled="nsResetLoading" @click="resetDefaultNs">
               <Loader2 v-if="nsResetLoading" class="w-4 h-4 mr-1 animate-spin inline" />
-              Reset
+              {{ t('dns.reset') }}
             </button>
             <button class="btn-secondary flex-1" @click="showNsModal = false">{{ t('common.cancel') }}</button>
             <button class="btn-primary flex-1" @click="saveDefaultNs" :disabled="savingNs">
@@ -317,7 +317,7 @@ async function addZone() {
 }
 
 async function confirmDeleteZone(zone) {
-  if (!confirm(t('common.confirm_action') || 'Are you sure you want to delete this zone?')) return
+  if (!confirm(t('dns.confirm_delete_zone'))) return
   const rawDomain = zone.name.endsWith('.') ? zone.name.slice(0, -1) : zone.name
   try {
     await api.delete(`/dns/zones/${rawDomain}`)
@@ -389,7 +389,7 @@ async function addRecord() {
 }
 
 async function deleteRecord(record) {
-  if (!confirm(t('common.confirm_action') || 'Delete this record?')) return
+  if (!confirm(t('dns.confirm_delete_record'))) return
   const rawDomain = selectedZone.value.name.endsWith('.') ? selectedZone.value.name.slice(0, -1) : selectedZone.value.name
   try {
     await api.delete(`/dns/zones/${rawDomain}/records`, {

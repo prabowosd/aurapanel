@@ -54,7 +54,7 @@
                 <span>{{ t('menu.websites') }}</span>
               </router-link>
               <router-link v-if="can('/migration')" to="/migration" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                <span>Migration Wizard</span>
+                <span>{{ t('routes.MigrationWizard') }}</span>
               </router-link>
               <router-link v-if="can('/packages')" to="/packages" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
                 <span>{{ t('menu.packages') }}</span>
@@ -141,10 +141,10 @@
               <transition name="accordion">
                 <div v-show="ftpMenuOpen" class="ml-3 mt-1 space-y-0.5 border-l border-panel-border/40 pl-3">
                   <router-link v-if="can('/ftp')" to="/ftp" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                    <span>FTP</span>
+                    <span>{{ t('routes.FTP') }}</span>
                   </router-link>
                   <router-link v-if="can('/sftp')" to="/sftp" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                    <span>SFTP</span>
+                    <span>{{ t('routes.SFTP') }}</span>
                   </router-link>
                 </div>
               </transition>
@@ -175,7 +175,7 @@
           <button @click="toggleTopLevelMenu('tuning')" class="sidebar-link w-full justify-between" :class="{ 'sidebar-link-section-active': isTuningRoute }">
             <div class="flex items-center">
               <Activity class="w-5 h-5 mr-3" />
-              <span>Tuning</span>
+              <span>{{ t('layout.groups.tuning') }}</span>
             </div>
             <ChevronDown class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': tuningMenuOpen }" />
           </button>
@@ -196,7 +196,7 @@
                 class="sidebar-sub-link"
                 :class="{ 'sidebar-sub-link-active': isDatabaseTuningActive('mariadb') }"
               >
-                <span>MariaDB Tuning</span>
+                <span>{{ t('layout.links.mariadb_tuning') }}</span>
               </router-link>
               <router-link
                 v-if="can('/databases')"
@@ -204,7 +204,7 @@
                 class="sidebar-sub-link"
                 :class="{ 'sidebar-sub-link-active': isDatabaseTuningActive('postgresql') }"
               >
-                <span>PostgreSQL Tuning</span>
+                <span>{{ t('layout.links.postgresql_tuning') }}</span>
               </router-link>
               <router-link
                 v-if="can('/ftp')"
@@ -212,7 +212,7 @@
                 class="sidebar-sub-link"
                 :class="{ 'sidebar-sub-link-active': isFtpTuningRoute }"
               >
-                <span>FTP Tuning</span>
+                <span>{{ t('layout.links.ftp_tuning') }}</span>
               </router-link>
               <router-link
                 v-if="can('/php')"
@@ -220,7 +220,7 @@
                 class="sidebar-sub-link"
                 :class="{ 'sidebar-sub-link-active': isPhpTuningRoute }"
               >
-                <span>PHP Config</span>
+                <span>{{ t('layout.links.php_config') }}</span>
               </router-link>
               <router-link
                 v-if="can('/mail-tuning')"
@@ -228,7 +228,7 @@
                 class="sidebar-sub-link"
                 :class="{ 'sidebar-sub-link-active': route.path === '/mail-tuning' }"
               >
-                <span>Mail Tuning</span>
+                <span>{{ t('routes.MailTuning') }}</span>
               </router-link>
             </div>
           </transition>
@@ -248,7 +248,7 @@
               <button @click="sslMenuOpen = !sslMenuOpen" class="sidebar-sub-link w-full justify-between" :class="{ 'sidebar-sub-link-active': isSslRoute }">
                 <div class="flex items-center">
                   <Lock class="w-4 h-4 mr-2" />
-                  <span>SSL</span>
+                  <span>{{ t('routes.SSL') }}</span>
                 </div>
                 <ChevronDown class="w-3.5 h-3.5 transition-transform duration-200" :class="{ 'rotate-180': sslMenuOpen }" />
               </button>
@@ -393,7 +393,7 @@
                 <span>{{ t('routes.Federated') }}</span>
               </router-link>
               <router-link v-if="can('/ops-center')" to="/ops-center" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                <span>Ops Center</span>
+                <span>{{ t('routes.OpsCenter') }}</span>
               </router-link>
             </div>
           </transition>
@@ -692,7 +692,7 @@ const routeTitleKeys = {
   AITools: 'routes.AITools',
   Backups: 'routes.Backups',
   OlsTuning: 'routes.OlsTuning',
-  MailTuning: 'Mail Tuning',
+  MailTuning: 'routes.MailTuning',
   Reseller: 'routes.Reseller',
   ActivityLog: 'routes.ActivityLog',
   DbBackup: 'routes.DbBackup',
@@ -703,7 +703,8 @@ const routeTitleKeys = {
   'Docker Installed Apps': 'routes.Docker Installed Apps',
   'Docker Packages': 'routes.Docker Packages',
   CloudFlare: 'routes.CloudFlare',
-  OpsCenter: 'Ops Center',
+  MigrationWizard: 'routes.MigrationWizard',
+  OpsCenter: 'routes.OpsCenter',
 }
 
 const pageTitle = computed(() => {
@@ -752,7 +753,7 @@ const canSystemGroup = computed(() =>
 const commandItems = computed(() => [
   { label: t('routes.Dashboard'), path: '/' },
   { label: t('routes.Websites'), path: '/websites' },
-  { label: 'Migration Wizard', path: '/migration' },
+  { label: t('routes.MigrationWizard'), path: '/migration' },
   { label: t('routes.Users'), path: '/users' },
   { label: t('routes.Packages'), path: '/packages' },
   { label: t('routes.Databases'), path: '/databases' },
@@ -773,14 +774,14 @@ const commandItems = computed(() => [
   { label: t('routes.LogViewer'), path: '/log-viewer' },
   { label: t('routes.Federated'), path: '/federated' },
   { label: t('routes.FileManager'), path: '/filemanager' },
-  { label: 'Ops Center', path: '/ops-center' },
+  { label: t('routes.OpsCenter'), path: '/ops-center' },
   { label: t('routes.PHP'), path: '/php' },
   { label: t('routes.OlsTuning'), path: '/ols-tuning' },
-  { label: 'MariaDB Tuning', path: '/databases?tab=tuning&tuning_engine=mariadb' },
-  { label: 'PostgreSQL Tuning', path: '/databases?tab=tuning&tuning_engine=postgresql' },
-  { label: 'FTP Tuning', path: '/ftp?tab=tuning' },
-  { label: 'PHP Config', path: '/php?tab=config' },
-  { label: 'Mail Tuning', path: '/mail-tuning' },
+  { label: t('layout.links.mariadb_tuning'), path: '/databases?tab=tuning&tuning_engine=mariadb' },
+  { label: t('layout.links.postgresql_tuning'), path: '/databases?tab=tuning&tuning_engine=postgresql' },
+  { label: t('layout.links.ftp_tuning'), path: '/ftp?tab=tuning' },
+  { label: t('layout.links.php_config'), path: '/php?tab=config' },
+  { label: t('routes.MailTuning'), path: '/mail-tuning' },
   { label: t('layout.links.reseller_acl'), path: '/reseller' },
   { label: t('routes.ServerStatus'), path: '/server-status' },
   { label: t('routes.CloudLinux'), path: '/cloudlinux' },

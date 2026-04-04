@@ -37,15 +37,15 @@
       <h2 class="text-lg font-bold text-white">{{ t('security_center.firewall.title') }}</h2>
       <div class="rounded-xl border border-panel-border bg-panel-dark p-4">
         <div class="flex flex-wrap items-center gap-3 text-sm">
-          <span class="font-semibold text-white">Durum:</span>
+          <span class="font-semibold text-white">{{ t('security_center.status_label') }}</span>
           <span :class="status.firewall_active ? 'text-emerald-400' : 'text-yellow-400'">
-            {{ status.firewall_active ? 'Aktif' : 'Pasif / Tespit edilemedi' }}
+            {{ status.firewall_active ? t('security_center.overview.active') : t('security_center.passive_or_unknown') }}
           </span>
-          <span v-if="status.firewall_manager" class="text-gray-400">Yönetici: {{ status.firewall_manager }}</span>
-          <span v-if="status.server_ip" class="text-gray-400">Sunucu IP: {{ status.server_ip }}</span>
+          <span v-if="status.firewall_manager" class="text-gray-400">{{ t('security_center.manager_label', { manager: status.firewall_manager }) }}</span>
+          <span v-if="status.server_ip" class="text-gray-400">{{ t('security_center.server_ip_label', { ip: status.server_ip }) }}</span>
         </div>
         <p v-if="(status.firewall_open_ports || []).length" class="mt-3 text-xs text-gray-400">
-          Açık portlar: {{ status.firewall_open_ports.join(', ') }}
+          {{ t('security_center.open_ports_label', { ports: status.firewall_open_ports.join(', ') }) }}
         </p>
       </div>
       <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -56,13 +56,13 @@
         />
         <input v-model="firewallForm.reason" class="aura-input" :placeholder="t('security_center.firewall.reason')" />
         <select v-model="firewallForm.block" class="aura-input">
-          <option :value="true">{{ t('security_center.firewall.block') }} (Tüm trafik)</option>
-          <option :value="false">{{ t('security_center.firewall.allow') }} (Tüm trafik)</option>
+          <option :value="true">{{ t('security_center.firewall.block_all') }}</option>
+          <option :value="false">{{ t('security_center.firewall.allow_all') }}</option>
         </select>
         <button class="btn-primary" @click="addFirewallRule">{{ t('security_center.firewall.add_rule') }}</button>
       </div>
       <p class="text-xs text-gray-400">
-        Bu alan port değil, IP/CIDR tabanlı kural içindir. Port/TCP/UDP yönetimi için Panel Port veya servis bazlı firewall ekranını kullanın.
+        {{ t('security_center.firewall.ip_cidr_hint') }}
       </p>
       <div v-if="firewallError" class="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
         {{ firewallError }}
@@ -94,22 +94,22 @@
       </div>
 
       <div class="mt-4 rounded-xl border border-panel-border bg-panel-dark p-4 space-y-3">
-        <h3 class="text-base font-semibold text-white">Port Kuralları (TCP/UDP)</h3>
+        <h3 class="text-base font-semibold text-white">{{ t('security_center.firewall.port_rules_title') }}</h3>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-5">
-          <input v-model="firewallPortForm.port" type="number" min="1" max="65535" class="aura-input" placeholder="Port (orn: 3306)" />
+          <input v-model="firewallPortForm.port" type="number" min="1" max="65535" class="aura-input" :placeholder="t('security_center.firewall.port_placeholder')" />
           <select v-model="firewallPortForm.protocol" class="aura-input">
-            <option value="tcp">TCP</option>
-            <option value="udp">UDP</option>
+            <option value="tcp">{{ t('security_center.firewall.protocol_tcp') }}</option>
+            <option value="udp">{{ t('security_center.firewall.protocol_udp') }}</option>
           </select>
           <select v-model="firewallPortForm.block" class="aura-input">
-            <option :value="false">Allow</option>
-            <option :value="true">Block</option>
+            <option :value="false">{{ t('security_center.firewall.allow') }}</option>
+            <option :value="true">{{ t('security_center.firewall.block') }}</option>
           </select>
-          <input v-model="firewallPortForm.reason" class="aura-input" placeholder="Reason (opsiyonel)" />
-          <button class="btn-primary" @click="addFirewallPortRule">Port Kuralı Ekle</button>
+          <input v-model="firewallPortForm.reason" class="aura-input" :placeholder="t('security_center.firewall.reason_optional')" />
+          <button class="btn-primary" @click="addFirewallPortRule">{{ t('security_center.firewall.add_port_rule') }}</button>
         </div>
         <p class="text-xs text-gray-400">
-          Bu bölüm port bazlı kural içindir. IP tabanlı izin/engel işlemleri bir üstteki IP/CIDR bölümünden yönetilir.
+          {{ t('security_center.firewall.port_hint') }}
         </p>
         <div v-if="firewallPortError" class="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
           {{ firewallPortError }}
@@ -118,16 +118,16 @@
           <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-panel-border text-gray-400">
-                <th class="py-2 text-left">Port</th>
-                <th class="py-2 text-left">Protocol</th>
-                <th class="py-2 text-left">Action</th>
-                <th class="py-2 text-left">Reason</th>
-                <th class="py-2 text-right">İşlem</th>
+                <th class="py-2 text-left">{{ t('security_center.firewall.port') }}</th>
+                <th class="py-2 text-left">{{ t('security_center.firewall.protocol') }}</th>
+                <th class="py-2 text-left">{{ t('security_center.firewall.action') }}</th>
+                <th class="py-2 text-left">{{ t('security_center.firewall.reason') }}</th>
+                <th class="py-2 text-right">{{ t('common.actions') }}</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="firewallPortRules.length === 0">
-                <td colspan="5" class="py-4 text-center text-gray-400">Port kuralı yok</td>
+                <td colspan="5" class="py-4 text-center text-gray-400">{{ t('security_center.firewall.no_port_rules') }}</td>
               </tr>
               <tr
                 v-for="rule in firewallPortRules"
@@ -139,7 +139,7 @@
                 <td class="py-2">{{ rule.block ? 'Block' : 'Allow' }}</td>
                 <td class="py-2 text-gray-300">{{ rule.reason || '-' }}</td>
                 <td class="py-2 text-right">
-                  <button class="btn-danger px-3 py-1 text-xs" @click="deleteFirewallPortRule(rule)">Sil</button>
+                  <button class="btn-danger px-3 py-1 text-xs" @click="deleteFirewallPortRule(rule)">{{ t('common.delete') }}</button>
                 </td>
               </tr>
             </tbody>
@@ -150,15 +150,15 @@
 
     <div v-if="activeTab === 'waf'" class="space-y-4">
       <div class="aura-card">
-        <h2 class="text-lg font-bold text-white mb-4">ModSecurity & ML-WAF Yönetimi</h2>
+        <h2 class="text-lg font-bold text-white mb-4">{{ t('security_center.waf.manage_title') }}</h2>
         <div class="flex items-center justify-between p-4 rounded-xl border border-panel-border bg-panel-dark">
           <div>
-            <h3 class="font-semibold text-white">Global WAF Durumu</h3>
-            <p class="text-sm text-gray-400">Sunucu genelinde tüm web siteleri için ModSecurity kural motorunu açar veya kapatır.</p>
+            <h3 class="font-semibold text-white">{{ t('security_center.waf.global_status') }}</h3>
+            <p class="text-sm text-gray-400">{{ t('security_center.waf.global_desc') }}</p>
           </div>
           <div class="flex gap-2">
-            <button class="btn-primary" disabled>WAF Açık</button>
-            <button class="btn-secondary">Kapat</button>
+            <button class="btn-primary" disabled>{{ t('security_center.waf.open') }}</button>
+            <button class="btn-secondary">{{ t('security_center.waf.close') }}</button>
           </div>
         </div>
       </div>
@@ -189,7 +189,7 @@
             <p class="text-sm text-gray-400">{{ t('security_center.fail2ban.desc') }}</p>
           </div>
           <button class="btn-secondary" @click="loadFail2ban" :disabled="fail2banLoading">
-            {{ fail2banLoading ? t('common.loading') : t('common.refresh') || 'Yenile' }}
+            {{ fail2banLoading ? t('common.loading') : t('common.refresh') }}
           </button>
         </div>
 
@@ -207,7 +207,7 @@
           <div class="mt-6 border-t border-panel-border pt-4">
             <h3 class="text-sm font-semibold text-gray-300 mb-3">{{ t('security_center.fail2ban.unban_title') }}</h3>
             <div class="flex gap-3 max-w-md">
-              <input type="text" id="unbanIpInput" placeholder="Örn: 192.168.1.1" class="aura-input flex-1" />
+              <input type="text" id="unbanIpInput" :placeholder="t('security_center.fail2ban.unban_placeholder')" class="aura-input flex-1" />
               <button class="btn-primary" @click="() => { const el = document.getElementById('unbanIpInput'); if(el.value) unbanIp(el.value); }">{{ t('security_center.fail2ban.unban_btn') }}</button>
             </div>
           </div>
@@ -337,61 +337,61 @@
     <div v-if="activeTab === 'ssh_settings'" class="aura-card space-y-4">
       <div class="flex items-center justify-between mb-4">
         <div>
-          <h2 class="text-lg font-bold text-white">{{ t('security_center.ssh_config.title') || 'SSH Configuration' }}</h2>
-          <p class="text-sm text-gray-400">{{ t('security_center.ssh_config.desc') || 'Manage SSH port and Root login access.' }}</p>
+          <h2 class="text-lg font-bold text-white">{{ t('security_center.ssh_config.title') }}</h2>
+          <p class="text-sm text-gray-400">{{ t('security_center.ssh_config.desc') }}</p>
         </div>
         <button class="btn-secondary" @click="loadSshConfig" :disabled="sshConfigLoading">
-          {{ sshConfigLoading ? t('common.loading') : (t('common.refresh') || 'Yenile') }}
+          {{ sshConfigLoading ? t('common.loading') : t('common.refresh') }}
         </button>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
-          <label class="block text-sm text-gray-400 mb-1">SSH Port</label>
+          <label class="block text-sm text-gray-400 mb-1">{{ t('security_center.ssh_config.port_label') }}</label>
           <input v-model="sshConfig.port" type="number" class="aura-input w-full" placeholder="22" />
-          <p class="text-xs text-gray-500 mt-1">{{ t('security_center.ssh_config.port_desc') || 'Default is 22. Make sure you open the new port in your firewall first.' }}</p>
+          <p class="text-xs text-gray-500 mt-1">{{ t('security_center.ssh_config.port_desc') }}</p>
         </div>
         <div>
-          <label class="block text-sm text-gray-400 mb-1">Root Login (PermitRootLogin)</label>
+          <label class="block text-sm text-gray-400 mb-1">{{ t('security_center.ssh_config.root_login_label') }}</label>
           <select v-model="sshConfig.permit_root_login" class="aura-input w-full">
-            <option value="yes">Yes (Erişime Açık)</option>
-            <option value="prohibit-password">Prohibit Password (Sadece SSH Key)</option>
-            <option value="no">No (Tamamen Kapalı)</option>
+            <option value="yes">{{ t('security_center.ssh_config.root_yes') }}</option>
+            <option value="prohibit-password">{{ t('security_center.ssh_config.root_prohibit_password') }}</option>
+            <option value="no">{{ t('security_center.ssh_config.root_no') }}</option>
           </select>
-          <p class="text-xs text-gray-500 mt-1">{{ t('security_center.ssh_config.root_desc') || 'Disabling root login enhances security.' }}</p>
+          <p class="text-xs text-gray-500 mt-1">{{ t('security_center.ssh_config.root_desc') }}</p>
         </div>
       </div>
 
       <div class="mt-6 flex justify-end">
         <button class="btn-primary" @click="saveSshConfig" :disabled="sshConfigSaving">
-          {{ sshConfigSaving ? t('common.loading') : (t('security_center.ssh_config.save') || 'Save & Restart SSH') }}
+          {{ sshConfigSaving ? t('common.loading') : t('security_center.ssh_config.save') }}
         </button>
       </div>
     </div>
 
     <div v-if="activeTab === 'malware'" class="space-y-4">
       <div class="aura-card space-y-4">
-        <h2 class="text-lg font-bold text-white">Malware Scanner</h2>
+        <h2 class="text-lg font-bold text-white">{{ t('security_center.malware.title') }}</h2>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
           <input v-model="malwareForm.path" class="aura-input md:col-span-2" placeholder="/home/site/public_html" />
           <select v-model="malwareForm.engine" class="aura-input">
-            <option value="auto">Auto (ClamAV/Yara/Fallback)</option>
-            <option value="clamav">ClamAV</option>
-            <option value="yara">Yara</option>
-            <option value="signature">Signature Fallback</option>
+            <option value="auto">{{ t('security_center.malware.engine_auto') }}</option>
+            <option value="clamav">{{ t('security_center.malware.engine_clamav') }}</option>
+            <option value="yara">{{ t('security_center.malware.engine_yara') }}</option>
+            <option value="signature">{{ t('security_center.malware.engine_signature') }}</option>
           </select>
           <button class="btn-primary" :disabled="malwareStarting" @click="startMalwareScan">
-            {{ malwareStarting ? 'Tarama başlatılıyor...' : 'Taramayı Başlat' }}
+            {{ malwareStarting ? t('security_center.malware.starting') : t('security_center.malware.start_scan') }}
           </button>
         </div>
       </div>
 
       <div class="aura-card space-y-4">
         <div class="flex items-center justify-between">
-          <h3 class="text-base font-semibold text-white">Scan Jobs</h3>
-          <button class="btn-secondary" @click="loadMalwareJobs">Yenile</button>
+          <h3 class="text-base font-semibold text-white">{{ t('security_center.malware.scan_jobs') }}</h3>
+          <button class="btn-secondary" @click="loadMalwareJobs">{{ t('common.refresh') }}</button>
         </div>
-        <div v-if="malwareJobs.length === 0" class="text-sm text-gray-400">Tarama kaydı bulunmuyor.</div>
+        <div v-if="malwareJobs.length === 0" class="text-sm text-gray-400">{{ t('security_center.malware.scan_jobs_empty') }}</div>
         <div v-for="job in malwareJobs" :key="job.id" class="rounded-lg border border-panel-border bg-panel-dark p-4 space-y-3">
           <div class="flex flex-wrap items-center gap-2 text-sm">
             <span class="font-mono text-gray-300">{{ job.id }}</span>
@@ -400,15 +400,15 @@
             <span class="text-gray-500">|</span>
             <span class="text-gray-300">%{{ job.progress || 0 }}</span>
             <span class="text-gray-500">|</span>
-            <span class="text-gray-300">{{ job.infected_files || 0 }} bulgu</span>
-            <button class="btn-secondary ml-auto text-xs px-2 py-1" @click="loadMalwareStatus(job.id)">Detay</button>
+            <span class="text-gray-300">{{ t('security_center.malware.findings_count', { count: job.infected_files || 0 }) }}</span>
+            <button class="btn-secondary ml-auto text-xs px-2 py-1" @click="loadMalwareStatus(job.id)">{{ t('security_center.malware.details') }}</button>
           </div>
-          <p class="text-xs text-gray-400 break-all">Hedef: {{ job.target_path }}</p>
+          <p class="text-xs text-gray-400 break-all">{{ t('security_center.malware.target_label', { path: job.target_path }) }}</p>
           <div class="h-2 rounded bg-[#0f172a] overflow-hidden">
             <div class="h-full bg-gradient-to-r from-emerald-500 to-cyan-500" :style="{ width: `${job.progress || 0}%` }"></div>
           </div>
           <div v-if="job.findings?.length" class="space-y-2">
-            <p class="text-sm text-white font-semibold">Tespit Edilen Dosyalar</p>
+            <p class="text-sm text-white font-semibold">{{ t('security_center.malware.detected_files') }}</p>
             <div v-for="finding in job.findings" :key="finding.id" class="rounded border border-panel-border p-2 text-xs">
               <p class="text-gray-200 break-all font-mono">{{ finding.file_path }}</p>
               <p class="text-yellow-300 mt-1">{{ finding.signature }} ({{ finding.engine }})</p>
@@ -418,13 +418,13 @@
                   :disabled="finding.quarantined"
                   @click="quarantineMalwareFinding(job.id, finding.id)"
                 >
-                  {{ finding.quarantined ? 'Karantinada' : 'Karantinaya Al' }}
+                  {{ finding.quarantined ? t('security_center.malware.quarantined') : t('security_center.malware.quarantine') }}
                 </button>
               </div>
             </div>
           </div>
           <div v-if="job.logs?.length" class="rounded border border-panel-border p-2">
-            <p class="text-xs text-gray-400 mb-1">Scan Log</p>
+            <p class="text-xs text-gray-400 mb-1">{{ t('security_center.malware.scan_log') }}</p>
             <pre class="max-h-32 overflow-auto text-[11px] text-gray-300 whitespace-pre-wrap">{{ job.logs.join('\n') }}</pre>
           </div>
         </div>
@@ -432,20 +432,20 @@
 
       <div class="aura-card space-y-3">
         <div class="flex items-center justify-between">
-          <h3 class="text-base font-semibold text-white">Karantina Yöneticisi</h3>
-          <button class="btn-secondary" @click="loadQuarantineRecords">Yenile</button>
+          <h3 class="text-base font-semibold text-white">{{ t('security_center.malware.quarantine_manager') }}</h3>
+          <button class="btn-secondary" @click="loadQuarantineRecords">{{ t('common.refresh') }}</button>
         </div>
-        <div v-if="quarantineRecords.length === 0" class="text-sm text-gray-400">Karantina kaydı bulunmuyor.</div>
+        <div v-if="quarantineRecords.length === 0" class="text-sm text-gray-400">{{ t('security_center.malware.quarantine_empty') }}</div>
         <div v-for="item in quarantineRecords" :key="item.id" class="rounded-lg border border-panel-border bg-panel-dark p-3 text-xs space-y-1">
           <p class="text-gray-200 font-mono break-all">Orijinal: {{ item.original_path }}</p>
-          <p class="text-gray-400 font-mono break-all">Karantina: {{ item.quarantine_path }}</p>
+          <p class="text-gray-400 font-mono break-all">{{ t('security_center.malware.quarantine_label', { path: item.quarantine_path }) }}</p>
           <p class="text-gray-500">Job: {{ item.job_id }} • Finding: {{ item.finding_id }}</p>
           <button
             class="btn-secondary text-xs px-2 py-1 mt-2"
             :disabled="!!item.restored_at"
             @click="restoreQuarantineRecord(item.id)"
           >
-            {{ item.restored_at ? 'Geri Yüklendi' : 'Geri Yükle' }}
+            {{ item.restored_at ? t('security_center.malware.restored') : t('security_center.malware.restore') }}
           </button>
         </div>
       </div>
@@ -505,12 +505,12 @@ const authStore = useAuthStore()
 const tabs = [
   { id: 'overview', label: t('security_center.tabs.overview') },
   { id: 'firewall', label: t('security_center.tabs.firewall') },
-  { id: 'fail2ban', label: 'Fail2Ban' },
+  { id: 'fail2ban', label: t('security_center.tabs.fail2ban') },
   { id: 'waf', label: t('security_center.tabs.waf') },
-  { id: 'ddos', label: t('security_center.tabs.ddos') || 'DDoS' },
+  { id: 'ddos', label: t('security_center.tabs.ddos') },
   { id: '2fa', label: t('security_center.tabs.twofa') },
-  { id: 'ssh_settings', label: t('security_center.tabs.ssh_settings') || 'SSH Settings' },
-  { id: 'malware', label: 'Malware Scanner' },
+  { id: 'ssh_settings', label: t('security_center.tabs.ssh_settings') },
+  { id: 'malware', label: t('security_center.tabs.malware') },
   { id: 'hardening', label: t('security_center.tabs.hardening') },
   { id: 'kernel', label: t('security_center.tabs.kernel') },
 ]
@@ -551,12 +551,12 @@ async function loadFail2ban() {
 }
 
 async function unbanIp(ip) {
-  if (!confirm(`${ip} adresinin engelini kaldırmak istediğinize emin misiniz?`)) return
+  if (!confirm(t('security_center.fail2ban.unban_confirm', { ip }))) return
   try {
     await api.post(`/security/fail2ban/unban?ip=${ip}`)
     await loadFail2ban()
   } catch (err) {
-    alert('Hata: ' + (err.response?.data?.message || err.message))
+    alert(`${t('common.error')}: ${err.response?.data?.message || err.message}`)
   }
 }
 
@@ -585,7 +585,7 @@ async function loadDdos() {
     ddosRecommendations.value = Array.isArray(data.recommendations) ? data.recommendations : []
     ddosWarnings.value = []
   } catch (err) {
-    ddosWarnings.value = [err.response?.data?.message || err.message || 'DDoS ayarlari okunamadi.']
+    ddosWarnings.value = [err.response?.data?.message || err.message || t('security_center.ddos.load_failed')]
   } finally {
     ddosLoading.value = false
   }
@@ -610,7 +610,7 @@ async function saveDdos() {
     await loadDdos()
     await loadStatus()
   } catch (err) {
-    ddosWarnings.value = [err.response?.data?.message || err.message || 'DDoS ayarlari guncellenemedi.']
+    ddosWarnings.value = [err.response?.data?.message || err.message || t('security_center.ddos.save_failed')]
   } finally {
     ddosSaving.value = false
   }
@@ -658,16 +658,16 @@ const sshConfigLoading = ref(false)
 const sshConfigSaving = ref(false)
 
 const statusCards = computed(() => [
-  { key: 'ebpf', label: 'eBPF Monitoring', value: status.value.ebpf_monitoring },
-  { key: 'waf', label: 'ML-WAF', value: status.value.ml_waf },
-  { key: 'ddos', label: 'DDoS Guard', value: status.value.ddos_guard },
-  { key: 'totp', label: '2FA (TOTP)', value: status.value.totp_2fa },
-  { key: 'wg', label: 'WireGuard Federation', value: status.value.wireguard_federation },
-  { key: 'immutable', label: 'Immutable OS', value: status.value.immutable_os_support },
-  { key: 'livepatch', label: 'Live Patching', value: status.value.live_patching },
-  { key: 'hardening', label: 'One-Click Hardening', value: status.value.one_click_hardening },
-  { key: 'fw', label: 'nft Firewall', value: status.value.nft_firewall },
-  { key: 'ssh', label: 'SSH Key Manager', value: status.value.ssh_key_manager },
+  { key: 'ebpf', label: t('security_center.cards.ebpf'), value: status.value.ebpf_monitoring },
+  { key: 'waf', label: t('security_center.cards.waf'), value: status.value.ml_waf },
+  { key: 'ddos', label: t('security_center.cards.ddos'), value: status.value.ddos_guard },
+  { key: 'totp', label: t('security_center.cards.totp'), value: status.value.totp_2fa },
+  { key: 'wg', label: t('security_center.cards.wireguard'), value: status.value.wireguard_federation },
+  { key: 'immutable', label: t('security_center.cards.immutable'), value: status.value.immutable_os_support },
+  { key: 'livepatch', label: t('security_center.cards.livepatch'), value: status.value.live_patching },
+  { key: 'hardening', label: t('security_center.cards.hardening'), value: status.value.one_click_hardening },
+  { key: 'fw', label: t('security_center.cards.nft_firewall'), value: status.value.nft_firewall },
+  { key: 'ssh', label: t('security_center.cards.ssh_key_manager'), value: status.value.ssh_key_manager },
 ])
 
 function setTab(tab) {
@@ -709,7 +709,7 @@ async function loadFirewallRules() {
     const res = await api.get('/security/firewall/rules')
     firewallRules.value = res.data.data || []
   } catch (err) {
-    firewallError.value = err.response?.data?.message || err.message || 'Firewall kuralları alınamadı.'
+    firewallError.value = err.response?.data?.message || err.message || t('security_center.firewall.load_failed')
   }
 }
 
@@ -718,7 +718,7 @@ async function loadFirewallPortRules() {
     const res = await api.get('/security/firewall/ports')
     firewallPortRules.value = res.data.data || []
   } catch (err) {
-    firewallPortError.value = err.response?.data?.message || err.message || 'Firewall port kuralları alınamadı.'
+    firewallPortError.value = err.response?.data?.message || err.message || t('security_center.firewall.port_load_failed')
   }
 }
 
@@ -755,7 +755,7 @@ function isValidPort(input) {
 async function addFirewallRule() {
   const ipAddress = String(firewallForm.value.ip_address || '').trim()
   if (!isValidIPv4OrCIDR(ipAddress)) {
-    firewallError.value = 'Geçersiz IP/CIDR. Örnek: 185.190.140.62 veya 185.190.140.0/24'
+    firewallError.value = t('security_center.firewall.invalid_ip_cidr')
     return
   }
 
@@ -770,7 +770,7 @@ async function addFirewallRule() {
     firewallForm.value.reason = ''
     await loadFirewallRules()
   } catch (err) {
-    firewallError.value = err.response?.data?.message || err.message || 'Firewall kuralı eklenemedi.'
+    firewallError.value = err.response?.data?.message || err.message || t('security_center.firewall.add_failed')
   }
 }
 
@@ -780,14 +780,14 @@ async function deleteFirewallRule(ip) {
     await api.post('/security/firewall/rules/delete', { ip_address: ip })
     await loadFirewallRules()
   } catch (err) {
-    firewallError.value = err.response?.data?.message || err.message || 'Firewall kuralı silinemedi.'
+    firewallError.value = err.response?.data?.message || err.message || t('security_center.firewall.delete_failed')
   }
 }
 
 async function addFirewallPortRule() {
   const portText = String(firewallPortForm.value.port || '').trim()
   if (!isValidPort(portText)) {
-    firewallPortError.value = 'Geçersiz port. 1-65535 aralığında olmalı.'
+    firewallPortError.value = t('security_center.firewall.invalid_port')
     return
   }
 
@@ -803,7 +803,7 @@ async function addFirewallPortRule() {
     firewallPortForm.value.reason = ''
     await loadFirewallPortRules()
   } catch (err) {
-    firewallPortError.value = err.response?.data?.message || err.message || 'Firewall port kuralı eklenemedi.'
+    firewallPortError.value = err.response?.data?.message || err.message || t('security_center.firewall.add_port_failed')
   }
 }
 
@@ -817,7 +817,7 @@ async function deleteFirewallPortRule(rule) {
     })
     await loadFirewallPortRules()
   } catch (err) {
-    firewallPortError.value = err.response?.data?.message || err.message || 'Firewall port kuralı silinemedi.'
+    firewallPortError.value = err.response?.data?.message || err.message || t('security_center.firewall.delete_port_failed')
   }
 }
 
@@ -850,7 +850,7 @@ async function loadSshConfig() {
       sshConfig.value = res.data.data
     }
   } catch (err) {
-    alert('SSH ayarları okunamadı: ' + err.message)
+    alert(`${t('security_center.ssh_config.load_failed')}: ${err.message}`)
   } finally {
     sshConfigLoading.value = false
   }
@@ -864,9 +864,9 @@ async function saveSshConfig() {
       port: Number.isFinite(port) ? port : String(sshConfig.value.port || '').trim(),
       permit_root_login: String(sshConfig.value.permit_root_login || '').trim().toLowerCase(),
     })
-    alert('SSH ayarları başarıyla kaydedildi ve servis yeniden başlatıldı.')
+    alert(t('security_center.ssh_config.save_success'))
   } catch (err) {
-    alert('Hata: ' + (err.response?.data?.message || err.message))
+    alert(`${t('common.error')}: ${err.response?.data?.message || err.message}`)
   } finally {
     sshConfigSaving.value = false
   }

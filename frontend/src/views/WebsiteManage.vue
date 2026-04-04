@@ -130,7 +130,7 @@
             </label>
 
             <label class="block">
-              <span class="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">PHP Runtime</span>
+              <span class="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">{{ t('website_manage.php_runtime') }}</span>
               <select v-model="form.php_version" class="aura-input">
                 <option v-for="version in phpVersions" :key="version" :value="version">PHP {{ version }}</option>
               </select>
@@ -262,7 +262,7 @@
                         v-for="item in recentTrafficSeries"
                         :key="item.bucket"
                         class="flex h-full min-w-0 flex-col justify-end gap-2"
-                        :title="`${item.bucket} - ${item.hits} hit`"
+                        :title="t('website_manage.insights.hit_title', { bucket: item.bucket, hits: item.hits })"
                       >
                         <div class="relative flex-1 overflow-hidden rounded-xl bg-slate-950/80">
                           <div
@@ -285,7 +285,7 @@
                   <div v-else class="mt-4 max-h-[360px] space-y-3 overflow-auto pr-1">
                     <div v-for="row in traffic.top_paths" :key="row.path" class="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
                       <p class="break-all font-mono text-xs text-gray-200">{{ row.path }}</p>
-                      <p class="mt-2 text-xs text-gray-500">{{ row.hits }} hit | {{ formatBytes(row.bandwidth_bytes) }}</p>
+                      <p class="mt-2 text-xs text-gray-500">{{ t('website_manage.insights.hits_with_bandwidth', { hits: row.hits, bandwidth: formatBytes(row.bandwidth_bytes) }) }}</p>
                     </div>
                   </div>
                 </div>
@@ -455,13 +455,13 @@
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h3 class="text-base font-semibold text-white">{{ t('website_manage.open_basedir') }}</h3>
-                  <p class="mt-1 text-sm text-gray-400">{{ t('website_manage.enabled') }} filesystem izolasyonu</p>
+                  <p class="mt-1 text-sm text-gray-400">{{ t('website_manage.filesystem_isolation') }}</p>
                 </div>
                 <span
                   class="rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em]"
                   :class="advanced.open_basedir ? 'border-brand-500/30 bg-brand-500/10 text-brand-100' : 'border-white/10 bg-white/[0.04] text-gray-400'"
                 >
-                  {{ advanced.open_basedir ? t('website_manage.enabled') : 'Off' }}
+                  {{ advanced.open_basedir ? t('website_manage.enabled') : t('website_manage.off') }}
                 </span>
               </div>
 
@@ -480,7 +480,7 @@
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h3 class="text-base font-semibold text-white">{{ t('website_manage.custom_ssl') }}</h3>
-                  <p class="mt-1 text-sm text-gray-400">PEM formatinda sertifika ve private key girin.</p>
+                  <p class="mt-1 text-sm text-gray-400">{{ t('website_manage.custom_ssl_hint') }}</p>
                 </div>
                 <button class="btn-primary" @click="saveCustomSsl">
                   <ShieldCheck class="h-4 w-4" />
@@ -489,12 +489,12 @@
               </div>
 
               <label class="mt-4 block">
-                <span class="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">Certificate</span>
+                <span class="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">{{ t('website_manage.certificate') }}</span>
                 <textarea v-model="customSsl.cert_pem" rows="6" class="aura-input w-full font-mono text-xs" placeholder="-----BEGIN CERTIFICATE-----"></textarea>
               </label>
 
               <label class="mt-4 block">
-                <span class="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">Private Key</span>
+                <span class="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">{{ t('website_manage.private_key') }}</span>
                 <textarea v-model="customSsl.key_pem" rows="6" class="aura-input w-full font-mono text-xs" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
               </label>
             </div>
@@ -704,7 +704,7 @@ const launcherGroups = computed(() => [
       },
       {
         key: 'site_root',
-        label: 'public_html',
+        label: t('website_manage.public_html'),
         description: t('website_manage.launcher.site_root_desc'),
         action: () => goToFileManager(siteHomePath.value),
         icon: FolderOpen,
@@ -813,7 +813,7 @@ const launcherGroups = computed(() => [
         href: '#security',
         icon: Lock,
         iconClass: 'text-cyan-300',
-        badge: advanced.value.open_basedir ? t('website_manage.enabled') : 'Off',
+        badge: advanced.value.open_basedir ? t('website_manage.enabled') : t('website_manage.off'),
       },
       {
         key: 'custom_ssl',
