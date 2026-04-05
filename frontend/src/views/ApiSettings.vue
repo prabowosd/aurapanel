@@ -72,15 +72,26 @@ const notifications = useNotificationStore()
 const token = ref('')
 const showToken = ref(false)
 const saving = ref(false)
+const silentHeaders = { headers: { 'X-Aura-Silent-Error': '1' } }
+
+const notify = (type, message) => {
+  notifications.add({
+    title: 'Hosting Integration',
+    message,
+    type,
+    source: 'api-settings',
+  })
+}
 
 const loadToken = async () => {
   try {
-    const res = await api.get('/system/reseller-token')
+    const res = await api.get('/system/reseller-token', silentHeaders)
     if (res.data?.token) {
       token.value = res.data.token
     }
   } catch (err) {
-    notifications.showError('Failed to load API token')
+    const message = err?.response?.data?.message || 'Failed to load API token'
+    notify('error', message)
   }
 }
 
@@ -96,16 +107,17 @@ const generateToken = () => {
 
 const saveToken = async () => {
   if (!token.value) {
-    notifications.showWarning('Token cannot be empty')
+    notify('warning', 'Token cannot be empty')
     return
   }
   
   saving.value = true
   try {
-    await api.post('/system/reseller-token', { token: token.value })
-    notifications.showSuccess('API token updated successfully')
+    await api.post('/system/reseller-token', { token: token.value }, silentHeaders)
+    notify('success', 'API token updated successfully')
   } catch (err) {
-    notifications.showError('Failed to save API token')
+    const message = err?.response?.data?.message || 'Failed to save API token'
+    notify('error', message)
   } finally {
     saving.value = false
   }

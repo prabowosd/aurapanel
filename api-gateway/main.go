@@ -68,7 +68,20 @@ func main() {
 	// Legacy compatibility routes
 	protectedMux.HandleFunc("/api/system/status", handlers.GetSystemStatus)
 	protectedMux.HandleFunc("/api/system/env", handlers.GetEnv)
+	protectedMux.HandleFunc("/api/v1/system/status", handlers.GetSystemStatus)
+	protectedMux.HandleFunc("/api/v1/system/env", handlers.GetEnv)
 	protectedMux.HandleFunc("/api/system/reseller-token", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			controllers.GetResellerToken(w, r)
+			return
+		}
+		if r.Method == http.MethodPost {
+			controllers.UpdateResellerToken(w, r)
+			return
+		}
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	})
+	protectedMux.HandleFunc("/api/v1/system/reseller-token", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			controllers.GetResellerToken(w, r)
 			return
