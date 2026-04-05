@@ -60,6 +60,8 @@ func main() {
 	// DB tool launch bridges consume one-time tokens without panel bearer auth.
 	publicMux.Handle("/api/v1/db/tools/phpmyadmin/sso/consume", serviceProxy)
 	publicMux.Handle("/api/v1/db/tools/pgadmin/sso/consume", serviceProxy)
+	// Billing reseller SSO consume endpoint (tokenized URL).
+	publicMux.HandleFunc("/api/v1/reseller/sso/consume", controllers.ResellerSSOConsume)
 
 	// Protected auth/me routes
 	protectedMux.HandleFunc("/api/auth/me", controllers.Me)
@@ -167,6 +169,7 @@ func main() {
 	mainRouter.Handle("/api/v1/mail/webmail/sso/consume", publicHandler)
 	mainRouter.Handle("/api/v1/db/tools/phpmyadmin/sso/consume", publicHandler)
 	mainRouter.Handle("/api/v1/db/tools/pgadmin/sso/consume", publicHandler)
+	mainRouter.Handle("/api/v1/reseller/sso/consume", publicHandler)
 
 	// Protected
 	mainRouter.Handle("/api/v1/reseller/", resellerHandler)
