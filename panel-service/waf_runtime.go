@@ -8,6 +8,8 @@ import (
 )
 
 type wafInspectionInput struct {
+	Action    string `json:"action"`
+	Enabled   *bool  `json:"enabled"`
 	Method    string `json:"method"`
 	Path      string `json:"path"`
 	Query     string `json:"query"`
@@ -22,18 +24,112 @@ type wafInspectionResult struct {
 	Reason  string `json:"reason"`
 }
 
+func modSecurityBlockToken(content string) (string, error) {
+	candidates := []string{
+		"module mod_security {",
+		"module mod_security{",
+	}
+	for _, token := range candidates {
+		if strings.Contains(content, token) {
+			return token, nil
+		}
+	}
+	return "", fmt.Errorf("ModSecurity block not found in OpenLiteSpeed config")
+}
+
+func parseBoolDirectiveValue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "on", "true", "yes", "enabled":
+		return true
+	default:
+		return false
+	}
+}
+
+func readOLSDirectiveValue(block, key string) (string, bool) {
+	for _, line := range strings.Split(block, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		if fields[0] == key {
+			return fields[1], true
+		}
+	}
+	return "", false
+}
+
+func modSecurityEnabledFromContent(content string) (bool, error) {
+	token, err := modSecurityBlockToken(content)
+	if err != nil {
+		return false, err
+	}
+	block, err := extractOLSConfigBlock(content, token)
+	if err != nil {
+		return false, err
+	}
+	modValue, modFound := readOLSDirectiveValue(block, "modsecurity")
+	lsValue, lsFound := readOLSDirectiveValue(block, "ls_enabled")
+	return modFound && lsFound && parseBoolDirectiveValue(modValue) && parseBoolDirectiveValue(lsValue), nil
+}
+
+func readModSecurityState() (bool, error) {
+	if !fileExists(olsHTTPDConfigPath) {
+		return false, fmt.Errorf("OpenLiteSpeed config not found")
+	}
+	raw, err := os.ReadFile(olsHTTPDConfigPath)
+	if err != nil {
+		return false, err
+	}
+	return modSecurityEnabledFromContent(string(raw))
+}
+
+func setModSecurityState(enabled bool) error {
+	if !fileExists(olsHTTPDConfigPath) {
+		return fmt.Errorf("OpenLiteSpeed config not found")
+	}
+	previous, err := os.ReadFile(olsHTTPDConfigPath)
+	if err != nil {
+		return err
+	}
+	content := string(previous)
+	token, err := modSecurityBlockToken(content)
+	if err != nil {
+		return err
+	}
+	modsecurityValue := "off"
+	lsEnabledValue := "0"
+	if enabled {
+		modsecurityValue = "on"
+		lsEnabledValue = "1"
+	}
+	updated, err := replaceOLSBlockDirectives(content, token, map[string]string{
+		"modsecurity": modsecurityValue,
+		"ls_enabled":  lsEnabledValue,
+	})
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(olsHTTPDConfigPath, []byte(updated), 0o640); err != nil {
+		return err
+	}
+	if err := reloadOpenLiteSpeed(); err != nil {
+		_ = os.WriteFile(olsHTTPDConfigPath, previous, 0o640)
+		_ = reloadOpenLiteSpeed()
+		return err
+	}
+	return nil
+}
+
 func detectModSecurityActive() bool {
 	if !fileExists("/usr/local/lsws/modules/mod_security.so") || !fileExists(olsHTTPDConfigPath) {
 		return false
 	}
-	raw, err := os.ReadFile(olsHTTPDConfigPath)
+	enabled, err := readModSecurityState()
 	if err != nil {
 		return false
 	}
-	content := string(raw)
-	return strings.Contains(content, "module mod_security") &&
-		strings.Contains(content, "modsecurity  on") &&
-		strings.Contains(content, "ls_enabled              1")
+	return enabled
 }
 
 func inspectWAFPayload(input wafInspectionInput) wafInspectionResult {
@@ -91,12 +187,69 @@ func (s *service) handleSecurityWAF(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid WAF payload.")
 		return
 	}
-	result := inspectWAFPayload(payload)
-	writeJSON(w, http.StatusOK, apiResponse{
-		Status:  "success",
-		Allowed: result.Allowed,
-		Score:   result.Score,
-		Reason:  result.Reason,
-		Data:    result,
-	})
+
+	action := strings.ToLower(strings.TrimSpace(payload.Action))
+	if payload.Enabled != nil {
+		if *payload.Enabled {
+			action = "enable"
+		} else {
+			action = "disable"
+		}
+	}
+
+	switch action {
+	case "", "inspect", "analyze", "test":
+		result := inspectWAFPayload(payload)
+		writeJSON(w, http.StatusOK, apiResponse{
+			Status:  "success",
+			Allowed: result.Allowed,
+			Score:   result.Score,
+			Reason:  result.Reason,
+			Data:    result,
+		})
+		return
+	case "status":
+		enabled, err := readModSecurityState()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Unable to read WAF state: %v", err))
+			return
+		}
+		writeJSON(w, http.StatusOK, apiResponse{
+			Status:  "success",
+			Message: "WAF status loaded successfully.",
+			Data: map[string]interface{}{
+				"enabled": enabled,
+			},
+		})
+		return
+	case "enable", "disable":
+		if !fileExists("/usr/local/lsws/modules/mod_security.so") {
+			writeError(w, http.StatusBadRequest, "ModSecurity module is not installed on this server.")
+			return
+		}
+		targetEnabled := action == "enable"
+		if err := setModSecurityState(targetEnabled); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to update WAF state: %v", err))
+			return
+		}
+		currentState, err := readModSecurityState()
+		if err != nil {
+			currentState = targetEnabled
+		}
+		message := "WAF disabled successfully."
+		if currentState {
+			message = "WAF enabled successfully."
+		}
+		writeJSON(w, http.StatusOK, apiResponse{
+			Status:  "success",
+			Message: message,
+			Data: map[string]interface{}{
+				"enabled": currentState,
+			},
+		})
+		return
+	default:
+		writeError(w, http.StatusBadRequest, "Invalid WAF action. Supported actions: inspect, status, enable, disable.")
+		return
+	}
 }

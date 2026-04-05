@@ -266,32 +266,34 @@ type QuarantineRecord struct {
 }
 
 type appState struct {
-	GatewayPort         int
-	Websites            []Website
-	Packages            []Package
-	Users               []PanelUser
-	MariaDBs            []DatabaseRecord
-	PostgresDBs         []DatabaseRecord
-	MariaUsers          []DatabaseUser
-	PostgresUsers       []DatabaseUser
-	MariaRemoteRules    []RemoteAccessRule
-	PostgresRemoteRules []RemoteAccessRule
-	DBLinks             []WebsiteDBLink
-	Subdomains          []Subdomain
-	Aliases             []DomainAlias
-	AdvancedConfig      map[string]WebsiteAdvancedConfig
-	CustomSSL           map[string]WebsiteCustomSSL
-	Services            []ServiceStatus
-	Processes           []ProcessInfo
-	FirewallRules       []FirewallRule
-	SSHKeys             []SSHKey
-	EBPFEvents          []string
-	MalwareJobs         []MalwareJob
-	Quarantine          []QuarantineRecord
-	TwoFASecrets        map[string]string
-	NextPackageID       int
-	NextUserID          int
-	NextProcessPID      int
+	GatewayPort          int
+	Websites             []Website
+	Packages             []Package
+	Users                []PanelUser
+	MariaDBs             []DatabaseRecord
+	PostgresDBs          []DatabaseRecord
+	MariaUsers           []DatabaseUser
+	PostgresUsers        []DatabaseUser
+	MariaRemoteRules     []RemoteAccessRule
+	PostgresRemoteRules  []RemoteAccessRule
+	DBLinks              []WebsiteDBLink
+	Subdomains           []Subdomain
+	Aliases              []DomainAlias
+	AdvancedConfig       map[string]WebsiteAdvancedConfig
+	CustomSSL            map[string]WebsiteCustomSSL
+	Services             []ServiceStatus
+	Processes            []ProcessInfo
+	FirewallRules        []FirewallRule
+	SSHKeys              []SSHKey
+	EBPFEvents           []string
+	MalwareJobs          []MalwareJob
+	Quarantine           []QuarantineRecord
+	TwoFASecrets         map[string]string
+	ResellerToken        string
+	ResellerTokenSavedAt int64
+	NextPackageID        int
+	NextUserID           int
+	NextProcessPID       int
 }
 
 type service struct {
@@ -459,29 +461,31 @@ func seedState() appState {
 				IOLimit:     100,
 			},
 		},
-		Users:               users,
-		MariaDBs:            []DatabaseRecord{},
-		PostgresDBs:         []DatabaseRecord{},
-		MariaUsers:          []DatabaseUser{},
-		PostgresUsers:       []DatabaseUser{},
-		MariaRemoteRules:    []RemoteAccessRule{},
-		PostgresRemoteRules: []RemoteAccessRule{},
-		DBLinks:             []WebsiteDBLink{},
-		Subdomains:          []Subdomain{},
-		Aliases:             []DomainAlias{},
-		AdvancedConfig:      map[string]WebsiteAdvancedConfig{},
-		CustomSSL:           map[string]WebsiteCustomSSL{},
-		Services:            []ServiceStatus{},
-		Processes:           []ProcessInfo{},
-		FirewallRules:       []FirewallRule{},
-		SSHKeys:             []SSHKey{},
-		EBPFEvents:          []string{},
-		MalwareJobs:         []MalwareJob{},
-		Quarantine:          []QuarantineRecord{},
-		TwoFASecrets:        map[string]string{},
-		NextPackageID:       3,
-		NextUserID:          2,
-		NextProcessPID:      1201,
+		Users:                users,
+		MariaDBs:             []DatabaseRecord{},
+		PostgresDBs:          []DatabaseRecord{},
+		MariaUsers:           []DatabaseUser{},
+		PostgresUsers:        []DatabaseUser{},
+		MariaRemoteRules:     []RemoteAccessRule{},
+		PostgresRemoteRules:  []RemoteAccessRule{},
+		DBLinks:              []WebsiteDBLink{},
+		Subdomains:           []Subdomain{},
+		Aliases:              []DomainAlias{},
+		AdvancedConfig:       map[string]WebsiteAdvancedConfig{},
+		CustomSSL:            map[string]WebsiteCustomSSL{},
+		Services:             []ServiceStatus{},
+		Processes:            []ProcessInfo{},
+		FirewallRules:        []FirewallRule{},
+		SSHKeys:              []SSHKey{},
+		EBPFEvents:           []string{},
+		MalwareJobs:          []MalwareJob{},
+		Quarantine:           []QuarantineRecord{},
+		TwoFASecrets:         map[string]string{},
+		ResellerToken:        "",
+		ResellerTokenSavedAt: 0,
+		NextPackageID:        3,
+		NextUserID:           2,
+		NextProcessPID:       1201,
 	}
 }
 
@@ -874,6 +878,7 @@ func (s *service) nonAdminRoutePolicy(w http.ResponseWriter, r *http.Request) bo
 		"/api/v1/db/postgresql/tuning",
 		"/api/v1/mail/tuning",
 		"/api/v1/ftp/tuning",
+		"/api/v1/system/reseller-token",
 		"/api/v1/websites/vhost-config",
 		"/api/v1/websites/custom-ssl",
 	}
@@ -1030,6 +1035,14 @@ func (s *service) handleCompat(w http.ResponseWriter, r *http.Request) {
 		s.handleAuthLogin(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/logout":
 		s.handleAuthLogout(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/auth/me":
+		s.handleAuthMe(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system/reseller-token":
+		s.handleResellerTokenGet(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/api/v1/system/reseller-token":
+		s.handleResellerTokenSet(w, r)
+	case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/system/reseller-token":
+		s.handleResellerTokenDelete(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/vhost/list":
 		s.handleVhostList(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/vhost/discover":
@@ -1750,6 +1763,142 @@ func (s *service) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	clearServiceAuthCookie(w, r)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status": "success",
+	})
+}
+
+func (s *service) handleAuthMe(w http.ResponseWriter, r *http.Request) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return
+	}
+
+	s.mu.RLock()
+	for _, user := range s.state.Users {
+		if strings.EqualFold(strings.TrimSpace(user.Email), strings.TrimSpace(principal.Email)) ||
+			sanitizeName(user.Username) == sanitizeName(principal.Username) {
+			policyID, policyName, permissions := s.resolveUserACLLocked(user)
+			s.mu.RUnlock()
+			writeJSON(w, http.StatusOK, apiResponse{
+				Status: "success",
+				Data:   buildAuthUserPayload(user, permissions, policyID, policyName),
+			})
+			return
+		}
+	}
+	s.mu.RUnlock()
+
+	// Fallback for principals that are valid in headers but not present in runtime users list.
+	fallbackUser := PanelUser{
+		Username: firstNonEmpty(principal.Username, strings.Split(strings.ToLower(principal.Email), "@")[0]),
+		Name:     firstNonEmpty(principal.Name, principal.Username),
+		Email:    strings.ToLower(strings.TrimSpace(principal.Email)),
+		Role:     normalizeRole(principal.Role),
+		Active:   true,
+	}
+	writeJSON(w, http.StatusOK, apiResponse{
+		Status: "success",
+		Data:   buildAuthUserPayload(fallbackUser, principal.Permissions, principal.RolePolicyID, principal.RolePolicy),
+	})
+}
+
+func adminPrincipalFromContext(w http.ResponseWriter, r *http.Request) (servicePrincipal, bool) {
+	principal, ok := principalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized.")
+		return servicePrincipal{}, false
+	}
+	if normalizeRole(principal.Role) != "admin" {
+		writeError(w, http.StatusForbidden, "This endpoint is restricted to admin users.")
+		return servicePrincipal{}, false
+	}
+	return principal, true
+}
+
+func (s *service) handleResellerTokenGet(w http.ResponseWriter, r *http.Request) {
+	if _, ok := adminPrincipalFromContext(w, r); !ok {
+		return
+	}
+
+	s.mu.RLock()
+	token := strings.TrimSpace(s.state.ResellerToken)
+	savedAt := s.state.ResellerTokenSavedAt
+	s.mu.RUnlock()
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":   "success",
+		"token":    token,
+		"saved_at": savedAt,
+	})
+}
+
+func (s *service) handleResellerTokenSet(w http.ResponseWriter, r *http.Request) {
+	if _, ok := adminPrincipalFromContext(w, r); !ok {
+		return
+	}
+
+	var payload struct {
+		Token string `json:"token"`
+	}
+	if err := decodeJSON(r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid reseller token payload.")
+		return
+	}
+	token := strings.TrimSpace(payload.Token)
+	if token == "" {
+		writeError(w, http.StatusBadRequest, "Token cannot be empty.")
+		return
+	}
+	if len(token) > 4096 {
+		writeError(w, http.StatusBadRequest, "Token is too long.")
+		return
+	}
+
+	now := time.Now().UTC().UnixMilli()
+	s.mu.Lock()
+	prevToken := s.state.ResellerToken
+	prevSavedAt := s.state.ResellerTokenSavedAt
+	s.state.ResellerToken = token
+	s.state.ResellerTokenSavedAt = now
+	if err := s.saveRuntimeStateLocked(); err != nil {
+		s.state.ResellerToken = prevToken
+		s.state.ResellerTokenSavedAt = prevSavedAt
+		s.mu.Unlock()
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to persist reseller token: %v", err))
+		return
+	}
+	s.mu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":   "success",
+		"message":  "Reseller token saved successfully.",
+		"token":    token,
+		"saved_at": now,
+	})
+}
+
+func (s *service) handleResellerTokenDelete(w http.ResponseWriter, r *http.Request) {
+	if _, ok := adminPrincipalFromContext(w, r); !ok {
+		return
+	}
+
+	s.mu.Lock()
+	prevToken := s.state.ResellerToken
+	prevSavedAt := s.state.ResellerTokenSavedAt
+	s.state.ResellerToken = ""
+	s.state.ResellerTokenSavedAt = 0
+	if err := s.saveRuntimeStateLocked(); err != nil {
+		s.state.ResellerToken = prevToken
+		s.state.ResellerTokenSavedAt = prevSavedAt
+		s.mu.Unlock()
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to remove reseller token: %v", err))
+		return
+	}
+	s.mu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "success",
+		"message": "Reseller token deleted successfully.",
 	})
 }
 

@@ -145,11 +145,15 @@ const savedStatusText = computed(() => {
 const loadToken = async () => {
   try {
     const res = await api.get('/system/reseller-token', silentHeaders)
-    token.value = res.data?.token || ''
+    const responseToken = res.data?.token ?? res.data?.data?.token ?? ''
+    const responseSavedAt = res.data?.saved_at ?? res.data?.data?.saved_at ?? null
+    token.value = responseToken
     savedToken.value = token.value
     showSavedToken.value = false
-    if (savedToken.value && !lastSavedAt.value) {
-      lastSavedAt.value = Date.now()
+    if (savedToken.value) {
+      lastSavedAt.value = responseSavedAt || Date.now()
+    } else {
+      lastSavedAt.value = null
     }
   } catch (err) {
     const message = err?.response?.data?.message || 'Failed to load API token'

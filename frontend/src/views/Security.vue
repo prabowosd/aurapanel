@@ -155,11 +155,24 @@
           <div>
             <h3 class="font-semibold text-white">{{ t('security_center.waf.global_status') }}</h3>
             <p class="text-sm text-gray-400">{{ t('security_center.waf.global_desc') }}</p>
+            <p class="mt-2 text-sm" :class="status.ml_waf ? 'text-emerald-400' : 'text-yellow-400'">
+              {{ status.ml_waf ? t('common.active') : t('common.inactive') }}
+            </p>
           </div>
           <div class="flex gap-2">
-            <button class="btn-primary" disabled>{{ t('security_center.waf.open') }}</button>
-            <button class="btn-secondary">{{ t('security_center.waf.close') }}</button>
+            <button class="btn-primary" :disabled="wafStateSaving || !!status.ml_waf" @click="setWafState(true)">
+              {{ t('security_center.waf.open') }}
+            </button>
+            <button class="btn-secondary" :disabled="wafStateSaving || !status.ml_waf" @click="setWafState(false)">
+              {{ t('security_center.waf.close') }}
+            </button>
           </div>
+        </div>
+        <div v-if="wafActionMessage" class="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+          {{ wafActionMessage }}
+        </div>
+        <div v-if="wafActionError" class="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
+          {{ wafActionError }}
         </div>
       </div>
       
@@ -623,6 +636,9 @@ const firewallPortRules = ref([])
 const firewallPortError = ref('')
 const sshKeys = ref([])
 const wafResult = ref(null)
+const wafActionMessage = ref('')
+const wafActionError = ref('')
+const wafStateSaving = ref(false)
 const hardeningResult = ref(null)
 const immutableStatus = ref(null)
 const ebpfEvents = ref([])
@@ -822,8 +838,31 @@ async function deleteFirewallPortRule(rule) {
 }
 
 async function runWafTest() {
-  const res = await api.post('/security/waf', wafInput.value)
-  wafResult.value = res.data
+  wafActionError.value = ''
+  try {
+    const res = await api.post('/security/waf', wafInput.value)
+    wafResult.value = res.data?.data || res.data
+  } catch (err) {
+    wafActionError.value = err.response?.data?.message || err.message || t('common.error')
+  }
+}
+
+async function setWafState(enabled) {
+  wafActionError.value = ''
+  wafActionMessage.value = ''
+  wafStateSaving.value = true
+  try {
+    const res = await api.post('/security/waf', { action: enabled ? 'enable' : 'disable' })
+    const data = res.data?.data || {}
+    const nextState = typeof data.enabled === 'boolean' ? data.enabled : enabled
+    status.value = { ...status.value, ml_waf: nextState }
+    wafActionMessage.value = res.data?.message || (nextState ? 'WAF enabled successfully.' : 'WAF disabled successfully.')
+    await loadStatus()
+  } catch (err) {
+    wafActionError.value = err.response?.data?.message || err.message || t('common.error')
+  } finally {
+    wafStateSaving.value = false
+  }
 }
 
 async function setup2fa() {
