@@ -312,6 +312,8 @@ type service struct {
 	dbACLLastReload     time.Time
 	persistQueue        chan struct{}
 	persistDebounce     time.Duration
+	olsSyncQueue        chan olsSyncRequest
+	olsSyncDebounce     time.Duration
 	housekeepingEvery   time.Duration
 
 	securityMu              sync.Mutex
@@ -319,6 +321,13 @@ type service struct {
 	securityStatusCache     securitySnapshot
 	securityStatusCacheTime time.Time
 	securityStatusRate      map[string]securityStatusRateWindowState
+}
+
+type olsSyncRequest struct {
+	sites    []Website
+	advanced map[string]WebsiteAdvancedConfig
+	aliases  []DomainAlias
+	done     chan error
 }
 
 type jwtClaims struct {
@@ -392,6 +401,8 @@ func newService() *service {
 		dbToolTempUsers:     map[string]dbToolTempUser{},
 		persistQueue:        make(chan struct{}, 1),
 		persistDebounce:     statePersistDebounce(),
+		olsSyncQueue:        make(chan olsSyncRequest, 32),
+		olsSyncDebounce:     olsSyncDebounce(),
 		housekeepingEvery:   housekeepingInterval(),
 		securityStatusTTL:   securityStatusCacheTTL(),
 		securityStatusRate:  map[string]securityStatusRateWindowState{},
@@ -405,9 +416,15 @@ func newService() *service {
 	svc.reconcileUserRolePoliciesLocked()
 	svc.mu.Unlock()
 	svc.bootstrapModules()
+	svc.mu.Lock()
+	if err := svc.selfHealOLSManagedConfigLocked(); err != nil {
+		log.Printf("OpenLiteSpeed startup self-heal skipped: %v", err)
+	}
+	svc.mu.Unlock()
 	svc.initializeDBToolAccessRuntime()
 	svc.cleanupRuntimeTemporaryDBUsersOnStartup()
 	svc.startStatePersistenceWorker()
+	svc.startOLSSyncWorker()
 	svc.startHousekeepingWorker()
 	return svc
 }

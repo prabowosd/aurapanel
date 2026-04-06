@@ -1565,6 +1565,41 @@ func (s *service) transferOwnerHint(kind string, account TransferAccount) string
 	return s.websiteOwnerForDomainLocked(domain)
 }
 
+func (s *service) reconcileTransferRuntimePermissions(kind string, account TransferAccount) {
+	account = s.normalizeTransferAccountLocked(kind, account)
+	if strings.TrimSpace(account.HomeDir) == "" {
+		return
+	}
+
+	ownerHint := s.transferOwnerHint(kind, account)
+	if kind == "sftp" && strings.TrimSpace(ownerHint) == "" {
+		ownerHint = sanitizeName(account.Username)
+	}
+	owner := resolvedTransferOwner(account.HomeDir, ownerHint)
+	if owner != "" {
+		_ = runOLSChown(account.HomeDir, owner, owner, false)
+	}
+	_ = ensureOLSPathMode(account.HomeDir, 0o750)
+
+	domain := normalizeDomain(account.Domain)
+	if domain == "" {
+		domain = inferTransferDomainFromHomeDir(account.HomeDir)
+	}
+	if domain == "" {
+		return
+	}
+
+	s.mu.RLock()
+	site := s.findWebsiteLocked(domain)
+	s.mu.RUnlock()
+	if site == nil {
+		return
+	}
+	_ = ensureOLSManagedOwnerAccount(*site)
+	_ = ensureOLSManagedOwnership(*site)
+	_ = ensureOLSManagedVhostOwnership(domain)
+}
+
 func (s *service) syncRuntimeTransferAccountsLocked(kind string) ([]TransferAccount, error) {
 	source, err := runtimeTransferAccounts(kind)
 	if err != nil {
@@ -1670,6 +1705,7 @@ func (s *service) handleTransferCreate(w http.ResponseWriter, r *http.Request, k
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.reconcileTransferRuntimePermissions(kind, account)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	items := s.transferAccountsLocked(kind)

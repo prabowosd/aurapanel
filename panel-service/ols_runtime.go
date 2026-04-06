@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +37,42 @@ type olsManagedSite struct {
 }
 
 func (s *service) syncOLSVhostsLocked() error {
+	sites := append([]Website(nil), s.state.Websites...)
+	advanced := make(map[string]WebsiteAdvancedConfig, len(s.state.AdvancedConfig))
+	for key, value := range s.state.AdvancedConfig {
+		advanced[key] = value
+	}
+	aliases := append([]DomainAlias(nil), s.state.Aliases...)
+	if s.olsSyncQueue == nil {
+		return syncOLSRuntimeState(sites, advanced, aliases)
+	}
+	req := olsSyncRequest{
+		sites:    sites,
+		advanced: advanced,
+		aliases:  aliases,
+		done:     make(chan error, 1),
+	}
+	select {
+	case s.olsSyncQueue <- req:
+		return <-req.done
+	default:
+		// If queue is saturated, fall back to direct sync to keep control-plane operations responsive.
+		return syncOLSRuntimeState(sites, advanced, aliases)
+	}
+}
+
+func (s *service) selfHealOLSManagedConfigLocked() error {
+	if !fileExists(olsHTTPDConfigPath) || !fileExists(olsLSWSControlPath) {
+		return nil
+	}
+	current, err := os.ReadFile(olsHTTPDConfigPath)
+	if err != nil {
+		return err
+	}
+	if olsManagedMarkersHealthy(string(current)) {
+		return nil
+	}
+	log.Printf("OpenLiteSpeed managed marker drift detected; reconciling managed blocks at startup.")
 	sites := append([]Website(nil), s.state.Websites...)
 	advanced := make(map[string]WebsiteAdvancedConfig, len(s.state.AdvancedConfig))
 	for key, value := range s.state.AdvancedConfig {
@@ -719,6 +756,40 @@ func replaceOLSListenerMaps(current, listenerName, replacement string) (string, 
 	section := current[start : closeBrace+1]
 	section = replaceOrInsertManagedBlock(section, olsManagedListenerBegin, olsManagedListenerEnd, replacement, "\n}")
 	return current[:start] + section + current[closeBrace+1:], nil
+}
+
+func olsManagedMarkersHealthy(content string) bool {
+	if strings.Count(content, olsManagedVhostsBegin) != 1 || strings.Count(content, olsManagedVhostsEnd) != 1 {
+		return false
+	}
+	if !olsListenerManagedMarkersHealthy(content, "Default", true) {
+		return false
+	}
+	if !olsListenerManagedMarkersHealthy(content, "AuraPanelSSL", false) {
+		return false
+	}
+	return true
+}
+
+func olsListenerManagedMarkersHealthy(content, listenerName string, required bool) bool {
+	token := "listener " + listenerName + "{"
+	start := strings.Index(content, token)
+	if start < 0 {
+		return !required
+	}
+	openBrace := strings.Index(content[start:], "{")
+	if openBrace < 0 {
+		return false
+	}
+	openBrace += start
+	closeBrace, err := findMatchingBrace(content, openBrace)
+	if err != nil {
+		return false
+	}
+	section := content[start : closeBrace+1]
+	beginCount := strings.Count(section, olsManagedListenerBegin)
+	endCount := strings.Count(section, olsManagedListenerEnd)
+	return beginCount == 1 && endCount == 1
 }
 
 func findMatchingBrace(content string, openIndex int) (int, error) {
