@@ -550,6 +550,15 @@
         </div>
       </header>
 
+      <div
+        v-if="globalRequestBusy"
+        class="fixed right-6 top-20 z-[90] inline-flex items-center gap-2 rounded-xl border border-brand-500/30 bg-panel-card/95 px-3 py-2 text-sm text-brand-200 shadow-2xl backdrop-blur-md"
+      >
+        <Loader2 class="h-4 w-4 animate-spin text-brand-400" />
+        <span>{{ globalRequestMessage }}</span>
+        <span v-if="globalRequestCount > 1" class="text-xs text-brand-300/80">({{ globalRequestCount }})</span>
+      </div>
+
       <!-- Page Content -->
       <div class="flex-1 overflow-auto p-8">
         <div class="max-w-7xl mx-auto">
@@ -595,6 +604,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useNotificationStore } from '../stores/notifications'
+import { useRequestStateStore } from '../stores/requestState'
 import { canAccessPath } from '../security/rbac'
 import api from '../services/api'
 import LanguageSwitcher from '../components/LanguageSwitcher.vue'
@@ -629,7 +639,8 @@ import {
   BookOpen,
   DatabaseBackup,
   RefreshCw,
-  ArrowUpCircle
+  ArrowUpCircle,
+  Loader2
 } from 'lucide-vue-next'
 
 const { t, locale } = useI18n({ useScope: 'global' })
@@ -637,6 +648,7 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const notificationStore = useNotificationStore()
+const requestStateStore = useRequestStateStore()
 const toggleMenu = ref(false)
 const hostingMenuOpen = ref(false)
 const webAppsMenuOpen = ref(false)
@@ -665,6 +677,12 @@ let releaseStatusInterval = null
 
 const notifications = computed(() => notificationStore.orderedItems.slice(0, 50))
 const unreadCount = computed(() => notificationStore.unreadCount)
+const globalRequestBusy = computed(() => requestStateStore.isBusy)
+const globalRequestCount = computed(() => requestStateStore.pendingCount)
+const globalRequestMessage = computed(() => {
+  const key = requestStateStore.currentKey || 'processing'
+  return t(`request_state.${key}`)
+})
 
 const routeTitleKeys = {
   Dashboard: 'routes.Dashboard',
@@ -997,10 +1015,11 @@ const clearNotifications = () => {
 const fetchSidebarServerIp = async () => {
   sidebarIpLoading.value = true
   try {
-    const res = await api.get('/status/metrics')
+    const silentLoadingConfig = { headers: { 'X-Aura-Silent-Loading': '1' } }
+    const res = await api.get('/status/metrics', silentLoadingConfig)
     let rawIp = String(res.data?.data?.server_ip || '').trim()
     if (!rawIp) {
-      const sec = await api.get('/security/status')
+      const sec = await api.get('/security/status', silentLoadingConfig)
       rawIp = String(sec.data?.data?.server_ip || '').trim()
     }
     sidebarServerIp.value = rawIp
@@ -1016,7 +1035,8 @@ const checkHeaderUpdateStatus = async ({ silent = false } = {}) => {
   if (!canPanelUpdateAccess.value) return
   if (!silent) releaseCheckLoading.value = true
   try {
-    const res = await api.get('/status/update')
+    const config = silent ? { headers: { 'X-Aura-Silent-Loading': '1' } } : undefined
+    const res = await api.get('/status/update', config)
     if (res.data?.status === 'success' && res.data?.data) {
       headerUpdateStatus.value = {
         ...headerUpdateStatus.value,
