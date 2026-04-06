@@ -406,6 +406,7 @@ func newService() *service {
 	svc.mu.Unlock()
 	svc.bootstrapModules()
 	svc.initializeDBToolAccessRuntime()
+	svc.cleanupRuntimeTemporaryDBUsersOnStartup()
 	svc.startStatePersistenceWorker()
 	svc.startHousekeepingWorker()
 	return svc
