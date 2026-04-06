@@ -416,16 +416,16 @@ func newService() *service {
 	svc.reconcileUserRolePoliciesLocked()
 	svc.mu.Unlock()
 	svc.bootstrapModules()
-	svc.mu.Lock()
-	if err := svc.selfHealOLSManagedConfigLocked(); err != nil {
-		log.Printf("OpenLiteSpeed startup self-heal skipped: %v", err)
-	}
-	svc.mu.Unlock()
 	svc.initializeDBToolAccessRuntime()
 	svc.cleanupRuntimeTemporaryDBUsersOnStartup()
 	svc.startStatePersistenceWorker()
 	svc.startOLSSyncWorker()
 	svc.startHousekeepingWorker()
+	go func() {
+		if err := svc.selfHealOLSManagedConfig(); err != nil {
+			log.Printf("OpenLiteSpeed startup self-heal skipped: %v", err)
+		}
+	}()
 	return svc
 }
 

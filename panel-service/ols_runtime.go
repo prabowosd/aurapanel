@@ -61,7 +61,7 @@ func (s *service) syncOLSVhostsLocked() error {
 	}
 }
 
-func (s *service) selfHealOLSManagedConfigLocked() error {
+func (s *service) selfHealOLSManagedConfig() error {
 	if !fileExists(olsHTTPDConfigPath) || !fileExists(olsLSWSControlPath) {
 		return nil
 	}
@@ -73,12 +73,14 @@ func (s *service) selfHealOLSManagedConfigLocked() error {
 		return nil
 	}
 	log.Printf("OpenLiteSpeed managed marker drift detected; reconciling managed blocks at startup.")
+	s.mu.RLock()
 	sites := append([]Website(nil), s.state.Websites...)
 	advanced := make(map[string]WebsiteAdvancedConfig, len(s.state.AdvancedConfig))
 	for key, value := range s.state.AdvancedConfig {
 		advanced[key] = value
 	}
 	aliases := append([]DomainAlias(nil), s.state.Aliases...)
+	s.mu.RUnlock()
 	return syncOLSRuntimeState(sites, advanced, aliases)
 }
 
