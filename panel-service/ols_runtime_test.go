@@ -270,6 +270,62 @@ func TestShouldOverwriteOLSHTAccess(t *testing.T) {
 	}
 }
 
+func TestEnsureOLSManagedPublicSubdirBridgeForDocrootCreatesRootHTAccess(t *testing.T) {
+	docroot := t.TempDir()
+	publicDir := filepath.Join(docroot, "public")
+	if err := os.MkdirAll(publicDir, 0o755); err != nil {
+		t.Fatalf("mkdir public: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(publicDir, "index.php"), []byte("<?php echo 'ok';"), 0o644); err != nil {
+		t.Fatalf("seed public/index.php: %v", err)
+	}
+
+	if err := ensureOLSManagedPublicSubdirBridgeForDocroot(docroot); err != nil {
+		t.Fatalf("ensureOLSManagedPublicSubdirBridgeForDocroot: %v", err)
+	}
+
+	rootHTAccess := filepath.Join(docroot, ".htaccess")
+	raw, err := os.ReadFile(rootHTAccess)
+	if err != nil {
+		t.Fatalf("read root .htaccess: %v", err)
+	}
+	content := string(raw)
+	if !strings.Contains(content, "RewriteRule ^$ public/ [L]") {
+		t.Fatalf("expected root bridge rule, got %q", content)
+	}
+	if !strings.Contains(content, "RewriteRule ^(.*)$ public/$1 [L]") {
+		t.Fatalf("expected catch-all public rewrite, got %q", content)
+	}
+}
+
+func TestEnsureOLSManagedPublicSubdirBridgeForDocrootSkipsWhenRootHTAccessExists(t *testing.T) {
+	docroot := t.TempDir()
+	publicDir := filepath.Join(docroot, "public")
+	if err := os.MkdirAll(publicDir, 0o755); err != nil {
+		t.Fatalf("mkdir public: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(publicDir, "index.php"), []byte("<?php echo 'ok';"), 0o644); err != nil {
+		t.Fatalf("seed public/index.php: %v", err)
+	}
+	original := "RewriteEngine On\nRewriteRule ^ index.php [L]\n"
+	rootHTAccess := filepath.Join(docroot, ".htaccess")
+	if err := os.WriteFile(rootHTAccess, []byte(original), 0o644); err != nil {
+		t.Fatalf("seed root .htaccess: %v", err)
+	}
+
+	if err := ensureOLSManagedPublicSubdirBridgeForDocroot(docroot); err != nil {
+		t.Fatalf("ensureOLSManagedPublicSubdirBridgeForDocroot: %v", err)
+	}
+
+	raw, err := os.ReadFile(rootHTAccess)
+	if err != nil {
+		t.Fatalf("read root .htaccess: %v", err)
+	}
+	if string(raw) != original {
+		t.Fatalf("existing root .htaccess should stay untouched, got %q", string(raw))
+	}
+}
+
 func TestOLSManagedMarkersHealthy(t *testing.T) {
 	content := `listener Default{
     map                      Example *

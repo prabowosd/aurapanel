@@ -224,6 +224,9 @@ func ensureOLSManagedFilesystem(item olsManagedSite) error {
 	if err := seedOLSManagedDocrootFiles(item.Site.Domain, item.Config.RewriteRules); err != nil {
 		return err
 	}
+	if err := ensureOLSManagedPublicSubdirBridge(item.Site.Domain); err != nil {
+		return err
+	}
 	return ensureOLSManagedOwnership(item.Site)
 }
 
@@ -249,6 +252,29 @@ func seedOLSManagedDocrootContent(docroot, domain, rules string) error {
 		return nil
 	}
 	return os.WriteFile(indexPath, []byte(defaultOLSIndexPlaceholder(domain)), 0o644)
+}
+
+func ensureOLSManagedPublicSubdirBridge(domain string) error {
+	return ensureOLSManagedPublicSubdirBridgeForDocroot(domainDocroot(domain))
+}
+
+func ensureOLSManagedPublicSubdirBridgeForDocroot(docroot string) error {
+	rootHTAccess := filepath.Join(docroot, ".htaccess")
+	if fileExists(rootHTAccess) || fileExists(filepath.Join(docroot, "index.php")) || fileExists(filepath.Join(docroot, "index.html")) {
+		return nil
+	}
+	if !fileExists(filepath.Join(docroot, "public", "index.php")) {
+		return nil
+	}
+	bridgeRules := strings.TrimSpace(`
+RewriteEngine On
+RewriteRule ^$ public/ [L]
+RewriteCond %{REQUEST_URI} !^/public/
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ public/$1 [L]
+`)
+	return os.WriteFile(rootHTAccess, []byte(bridgeRules+"\n"), 0o644)
 }
 
 func olsDocrootEffectivelyEmpty(docroot string) bool {
