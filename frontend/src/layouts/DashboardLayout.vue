@@ -425,7 +425,7 @@
                 <span>{{ t('routes.AITools') }}</span>
               </router-link>
               <router-link v-if="can('/api-settings')" to="/api-settings" class="sidebar-sub-link" active-class="sidebar-sub-link-active">
-                <span>Hosting Integration</span>
+                <span>{{ t('routes.ApiSettings') }}</span>
               </router-link>
             </div>
           </transition>
@@ -724,15 +724,16 @@ const routeTitleKeys = {
   'Docker Packages': 'routes.Docker Packages',
   CloudFlare: 'routes.CloudFlare',
   MigrationWizard: 'routes.MigrationWizard',
+  Migration: 'routes.MigrationWizard',
   OpsCenter: 'routes.OpsCenter',
 }
 
 const pageTitle = computed(() => {
-  const metaTitle = typeof route.meta?.title === 'string' ? route.meta.title : ''
-  if (metaTitle) return metaTitle
   const routeName = String(route.name || '')
   const key = routeTitleKeys[routeName]
-  return key ? t(key) : routeName
+  if (key) return t(key)
+  const metaTitle = typeof route.meta?.title === 'string' ? route.meta.title : ''
+  return metaTitle || routeName
 })
 const displayName = computed(() => {
   const user = authStore.user || {}
@@ -808,7 +809,7 @@ const commandItems = computed(() => [
   { label: t('layout.links.panel_port'), path: '/panel-control' },
   { label: t('panel_update.title'), path: '/panel-update' },
   { label: t('routes.AITools'), path: '/ai-tools' },
-  { label: 'Hosting Integration', path: '/api-settings' },
+  { label: t('routes.ApiSettings'), path: '/api-settings' },
   { label: t('routes.Docker Images'), path: '/docker/images' },
   { label: t('routes.Docker Containers'), path: '/docker/containers' },
   { label: t('routes.Docker App Store'), path: '/docker/apps' },
