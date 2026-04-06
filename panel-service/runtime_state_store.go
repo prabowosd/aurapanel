@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	mysqlcfg "github.com/go-sql-driver/mysql"
@@ -23,8 +24,13 @@ const (
 
 type runtimeStateStore interface {
 	Name() string
-	Load() (persistedRuntimeState, bool, error)
+	Load() (runtimeStateRecord, bool, error)
 	Save(persistedRuntimeState) error
+}
+
+type runtimeStateRecord struct {
+	Payload             persistedRuntimeState
+	ObservedUpdatedUnix int64
 }
 
 type fileRuntimeStateStore struct {
@@ -76,19 +82,24 @@ func (s *fileRuntimeStateStore) Name() string {
 	return "file"
 }
 
-func (s *fileRuntimeStateStore) Load() (persistedRuntimeState, bool, error) {
+func (s *fileRuntimeStateStore) Load() (runtimeStateRecord, bool, error) {
 	raw, err := os.ReadFile(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return persistedRuntimeState{}, false, nil
+			return runtimeStateRecord{}, false, nil
 		}
-		return persistedRuntimeState{}, false, err
+		return runtimeStateRecord{}, false, err
+	}
+	info, statErr := os.Stat(s.path)
+	observed := int64(0)
+	if statErr == nil {
+		observed = info.ModTime().UTC().UnixNano()
 	}
 	var persisted persistedRuntimeState
 	if err := json.Unmarshal(raw, &persisted); err != nil {
-		return persistedRuntimeState{}, false, fmt.Errorf("decode runtime state: %w", err)
+		return runtimeStateRecord{}, false, fmt.Errorf("decode runtime state: %w", err)
 	}
-	return persisted, true, nil
+	return runtimeStateRecord{Payload: persisted, ObservedUpdatedUnix: observed}, true, nil
 }
 
 func (s *fileRuntimeStateStore) Save(payload persistedRuntimeState) error {
@@ -110,24 +121,29 @@ func (s *mariadbRuntimeStateStore) Name() string {
 	return "mariadb"
 }
 
-func (s *mariadbRuntimeStateStore) Load() (persistedRuntimeState, bool, error) {
+func (s *mariadbRuntimeStateStore) Load() (runtimeStateRecord, bool, error) {
 	db, err := s.ensureDB()
 	if err != nil {
-		return persistedRuntimeState{}, false, err
+		return runtimeStateRecord{}, false, err
 	}
 	var payload string
-	row := db.QueryRow("SELECT payload FROM " + runtimeStateMariaDBTableName + " WHERE id = 1 LIMIT 1")
-	if err := row.Scan(&payload); err != nil {
+	var observed sql.NullInt64
+	row := db.QueryRow("SELECT payload, UNIX_TIMESTAMP(updated_at) FROM " + runtimeStateMariaDBTableName + " WHERE id = 1 LIMIT 1")
+	if err := row.Scan(&payload, &observed); err != nil {
 		if err == sql.ErrNoRows {
-			return persistedRuntimeState{}, false, nil
+			return runtimeStateRecord{}, false, nil
 		}
-		return persistedRuntimeState{}, false, err
+		return runtimeStateRecord{}, false, err
 	}
 	var persisted persistedRuntimeState
 	if err := json.Unmarshal([]byte(payload), &persisted); err != nil {
-		return persistedRuntimeState{}, false, fmt.Errorf("decode runtime state: %w", err)
+		return runtimeStateRecord{}, false, fmt.Errorf("decode runtime state: %w", err)
 	}
-	return persisted, true, nil
+	observedUnix := int64(0)
+	if observed.Valid && observed.Int64 > 0 {
+		observedUnix = time.Unix(observed.Int64, 0).UTC().UnixNano()
+	}
+	return runtimeStateRecord{Payload: persisted, ObservedUpdatedUnix: observedUnix}, true, nil
 }
 
 func (s *mariadbRuntimeStateStore) Save(payload persistedRuntimeState) error {

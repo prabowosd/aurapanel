@@ -7,11 +7,15 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync/atomic"
+	"time"
 )
 
 type persistedRuntimeState struct {
-	State   appState    `json:"state"`
-	Modules moduleState `json:"modules"`
+	State            appState    `json:"state"`
+	Modules          moduleState `json:"modules"`
+	StateVersion     uint64      `json:"state_version,omitempty"`
+	StateSavedAtUnix int64       `json:"state_saved_at_unix,omitempty"`
 }
 
 type runtimeSnapshot struct {
@@ -19,11 +23,20 @@ type runtimeSnapshot struct {
 	Modules moduleState
 }
 
+type loadedRuntimeState struct {
+	store       runtimeStateStore
+	sourceIndex int
+	record      runtimeStateRecord
+}
+
+var runtimeStateVersionCounter atomic.Uint64
+
 func (s *service) loadRuntimeState() error {
 	stores := runtimeStateStores()
+	loaded := make([]loadedRuntimeState, 0, len(stores))
 	var loadErrs []error
 	for index, store := range stores {
-		persisted, found, err := store.Load()
+		record, found, err := store.Load()
 		if err != nil {
 			loadErrs = append(loadErrs, fmt.Errorf("%s: %w", store.Name(), err))
 			continue
@@ -31,22 +44,38 @@ func (s *service) loadRuntimeState() error {
 		if !found {
 			continue
 		}
-		s.state = persisted.State
-		s.modules = persisted.Modules
-		if index > 0 && len(stores) > 0 {
-			if err := stores[0].Save(persisted); err == nil {
-				log.Printf("runtime state migrated from %s to %s", store.Name(), stores[0].Name())
-			}
-		}
-		if rehydrateSeedCredentials(&s.state) {
-			if err := s.saveRuntimeStateLocked(); err != nil {
-				return fmt.Errorf("persist migrated runtime state: %w", err)
-			}
+		record.Payload.normalizeRuntimeStateMetadata(record.ObservedUpdatedUnix)
+		loaded = append(loaded, loadedRuntimeState{
+			store:       store,
+			sourceIndex: index,
+			record:      record,
+		})
+	}
+	if len(loaded) == 0 {
+		if len(loadErrs) > 0 {
+			return errors.Join(loadErrs...)
 		}
 		return nil
 	}
-	if len(loadErrs) > 0 {
-		return errors.Join(loadErrs...)
+	best := loaded[0]
+	for _, candidate := range loaded[1:] {
+		if isRuntimeStateNewer(candidate.record.Payload, best.record.Payload) {
+			best = candidate
+		}
+	}
+	s.state = best.record.Payload.State
+	s.modules = best.record.Payload.Modules
+	runtimeStateVersionCounter.Store(maxUint64(runtimeStateVersionCounter.Load(), best.record.Payload.StateVersion))
+
+	if best.sourceIndex > 0 && len(stores) > 0 {
+		if err := stores[0].Save(best.record.Payload); err == nil {
+			log.Printf("runtime state reconciled from %s to %s", best.store.Name(), stores[0].Name())
+		}
+	}
+	if rehydrateSeedCredentials(&s.state) {
+		if err := s.saveRuntimeStateLocked(); err != nil {
+			return fmt.Errorf("persist migrated runtime state: %w", err)
+		}
 	}
 	return nil
 }
@@ -58,9 +87,13 @@ func (s *service) saveRuntimeState() error {
 }
 
 func (s *service) saveRuntimeStateLocked() error {
+	nextVersion := runtimeStateVersionCounter.Add(1)
+	savedAt := time.Now().UTC().UnixNano()
 	payload := persistedRuntimeState{
-		State:   s.state,
-		Modules: s.modules,
+		State:            s.state,
+		Modules:          s.modules,
+		StateVersion:     nextVersion,
+		StateSavedAtUnix: savedAt,
 	}
 	stores := runtimeStateStores()
 	var persistErrs []error
@@ -78,6 +111,31 @@ func (s *service) saveRuntimeStateLocked() error {
 		return errors.Join(persistErrs...)
 	}
 	return nil
+}
+
+func (p *persistedRuntimeState) normalizeRuntimeStateMetadata(observedUpdatedUnix int64) {
+	if p.StateSavedAtUnix <= 0 && observedUpdatedUnix > 0 {
+		p.StateSavedAtUnix = observedUpdatedUnix
+	}
+}
+
+func isRuntimeStateNewer(candidate, current persistedRuntimeState) bool {
+	if candidate.StateVersion > 0 || current.StateVersion > 0 {
+		if candidate.StateVersion != current.StateVersion {
+			return candidate.StateVersion > current.StateVersion
+		}
+	}
+	if candidate.StateSavedAtUnix != current.StateSavedAtUnix {
+		return candidate.StateSavedAtUnix > current.StateSavedAtUnix
+	}
+	return false
+}
+
+func maxUint64(a, b uint64) uint64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (s *service) captureRuntimeSnapshotLocked() (runtimeSnapshot, error) {
