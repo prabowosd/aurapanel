@@ -1223,22 +1223,26 @@ func (s *service) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
 	status := s.getUpdateStatus(force)
 	job := s.getUpdateJobSnapshot()
 
+	data := map[string]interface{}{
+		"current_version":  status.CurrentVersion,
+		"latest_version":   status.LatestVersion,
+		"latest_tag":       status.LatestTag,
+		"update_available": status.UpdateAvailable,
+		"release_name":     status.ReleaseName,
+		"release_url":      status.ReleaseURL,
+		"release_notes":    status.ReleaseNotes,
+		"published_at":     status.PublishedAt,
+		"source":           status.Source,
+		"checked_at":       status.CheckedAt,
+		"error":            status.Error,
+	}
+	if !isPanelUpdateJobEmpty(job) {
+		data["job"] = job
+	}
+
 	writeJSON(w, http.StatusOK, apiResponse{
 		Status: "success",
-		Data: map[string]interface{}{
-			"current_version":  status.CurrentVersion,
-			"latest_version":   status.LatestVersion,
-			"latest_tag":       status.LatestTag,
-			"update_available": status.UpdateAvailable,
-			"release_name":     status.ReleaseName,
-			"release_url":      status.ReleaseURL,
-			"release_notes":    status.ReleaseNotes,
-			"published_at":     status.PublishedAt,
-			"source":           status.Source,
-			"checked_at":       status.CheckedAt,
-			"error":            status.Error,
-			"job":              job,
-		},
+		Data:   data,
 	})
 }
 
@@ -1260,6 +1264,10 @@ func (s *service) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 		return
+	}
+
+	if err := s.saveRuntimeState(); err != nil {
+		log.Printf("panel update job start persist failed: %v", err)
 	}
 
 	go s.runPanelUpdateJob()

@@ -73,12 +73,8 @@ func (s *service) loadRuntimeState() error {
 		if strings.TrimSpace(s.updateJob.FinishedAt) == "" {
 			s.updateJob.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 		}
-		if strings.TrimSpace(s.updateJob.Error) == "" {
-			s.updateJob.Error = "Panel deploy interrupted by panel-service restart."
-		}
-		if strings.TrimSpace(s.updateJob.Message) == "" {
-			s.updateJob.Message = "Panel deploy state recovered after restart."
-		}
+		s.updateJob.Error = "Panel deploy interrupted by panel-service restart."
+		s.updateJob.Message = "Panel deploy interrupted by service restart."
 	}
 	runtimeStateVersionCounter.Store(maxUint64(runtimeStateVersionCounter.Load(), best.record.Payload.StateVersion))
 

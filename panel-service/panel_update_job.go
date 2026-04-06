@@ -19,6 +19,19 @@ type panelUpdateJobState struct {
 	Warnings        []string `json:"warnings,omitempty"`
 }
 
+func isPanelUpdateJobEmpty(job panelUpdateJobState) bool {
+	return !job.Running &&
+		strings.TrimSpace(job.StartedAt) == "" &&
+		strings.TrimSpace(job.FinishedAt) == "" &&
+		strings.TrimSpace(job.Message) == "" &&
+		strings.TrimSpace(job.Error) == "" &&
+		strings.TrimSpace(job.PreviousVersion) == "" &&
+		strings.TrimSpace(job.CurrentVersion) == "" &&
+		strings.TrimSpace(job.TargetVersion) == "" &&
+		len(job.Steps) == 0 &&
+		len(job.Warnings) == 0
+}
+
 func clonePanelUpdateJobState(src panelUpdateJobState) panelUpdateJobState {
 	dst := src
 	dst.Steps = append([]string{}, src.Steps...)
