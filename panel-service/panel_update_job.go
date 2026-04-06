@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"strings"
 	"time"
 )
@@ -78,4 +79,8 @@ func (s *service) runPanelUpdateJob() {
 	s.updateJob = next
 	// Force a fresh git-based status read on next check.
 	s.update = updateStatusCache{}
+
+	if err := s.saveRuntimeState(); err != nil {
+		log.Printf("panel update job state persist failed: %v", err)
+	}
 }
