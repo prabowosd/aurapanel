@@ -126,11 +126,15 @@ func syncOLSRuntimeState(sites []Website, advanced map[string]WebsiteAdvancedCon
 		if err := writeOLSFileAtomically(olsHTTPDConfigPath, []byte(renderedHTTPD), 0o640); err != nil {
 			return err
 		}
+		if err := ensureOLSHTTPDConfigOwnership(); err != nil {
+			return err
+		}
 
 		// Always do a gracefull reload to apply new vhost configs immediately
 		if err := reloadOpenLiteSpeed(); err != nil {
 			// Rollback if reload fails due to syntax error
 			_ = writeOLSFileAtomically(olsHTTPDConfigPath, previousHTTPD, 0o640)
+			_ = ensureOLSHTTPDConfigOwnership()
 			_ = restoreOLSManagedVhostFiles(previousVhostFiles)
 			_ = reloadOpenLiteSpeed()
 			return err
@@ -1008,13 +1012,34 @@ func applyOLSTuningConfig(cfg OLSTuningConfig) error {
 		if err := writeOLSFileAtomically(olsHTTPDConfigPath, []byte(content), 0o640); err != nil {
 			return err
 		}
+		if err := ensureOLSHTTPDConfigOwnership(); err != nil {
+			return err
+		}
 		if err := reloadOpenLiteSpeed(); err != nil {
 			_ = writeOLSFileAtomically(olsHTTPDConfigPath, previous, 0o640)
+			_ = ensureOLSHTTPDConfigOwnership()
 			_ = reloadOpenLiteSpeed()
 			return err
 		}
 		return nil
 	})
+}
+
+func ensureOLSHTTPDConfigOwnership() error {
+	if !fileExists(olsHTTPDConfigPath) {
+		return nil
+	}
+	group := olsSharedRuntimeGroup()
+	if group == "" {
+		group = "root"
+	}
+	if err := runOLSChown(olsHTTPDConfigPath, "root", group, false); err != nil {
+		return err
+	}
+	if err := os.Chmod(olsHTTPDConfigPath, 0o640); err != nil {
+		return fmt.Errorf("chmod failed for %s: %w", olsHTTPDConfigPath, err)
+	}
+	return nil
 }
 
 func writeOLSFileAtomically(path string, content []byte, perm os.FileMode) error {
