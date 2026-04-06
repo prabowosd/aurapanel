@@ -52,8 +52,7 @@ func main() {
 			Status:  "ok",
 		})
 	})
-	publicMux.HandleFunc("/api/auth/login", controllers.Login)
-	// v1 login is delegated to the panel service to support dynamic role accounts.
+	// Login is delegated to the panel service as the single auth code path.
 	publicMux.Handle("/api/v1/auth/login", serviceProxy)
 	// Roundcube SSO bridge consumes one-time token without panel bearer auth.
 	publicMux.Handle("/api/v1/mail/webmail/sso/consume", serviceProxy)
@@ -64,7 +63,6 @@ func main() {
 	publicMux.HandleFunc("/api/v1/reseller/sso/consume", controllers.ResellerSSOConsume)
 
 	// Protected auth/me routes
-	protectedMux.HandleFunc("/api/auth/me", controllers.Me)
 	protectedMux.HandleFunc("/api/v1/auth/me", controllers.Me)
 
 	// Legacy compatibility routes
@@ -164,7 +162,6 @@ func main() {
 
 	// Public
 	mainRouter.Handle("/api/health", publicHandler)
-	mainRouter.Handle("/api/auth/login", publicHandler)
 	mainRouter.Handle("/api/v1/auth/login", publicHandler)
 	mainRouter.Handle("/api/v1/mail/webmail/sso/consume", publicHandler)
 	mainRouter.Handle("/api/v1/db/tools/phpmyadmin/sso/consume", publicHandler)
@@ -173,7 +170,6 @@ func main() {
 
 	// Protected
 	mainRouter.Handle("/api/v1/reseller/", resellerHandler)
-	mainRouter.Handle("/api/auth/me", protectedHandler)
 	mainRouter.Handle("/api/v1/auth/me", protectedHandler)
 	mainRouter.Handle("/api/system/", protectedHandler)
 	mainRouter.Handle("/api/websites", protectedHandler)

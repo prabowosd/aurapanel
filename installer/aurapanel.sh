@@ -2374,7 +2374,6 @@ smoke_check() {
 
   login_payload="$(jq -nc --arg email "${panel_user}" --arg password "${panel_pass}" '{email:$email,password:$password}')"
   curl -fsS -H "Content-Type: application/json" -d "${login_payload}" "http://127.0.0.1:${panel_port}/api/v1/auth/login" >/dev/null || fail "Panel login verification failed (/api/v1/auth/login)"
-  curl -fsS -H "Content-Type: application/json" -d "${login_payload}" "http://127.0.0.1:${panel_port}/api/auth/login" >/dev/null || fail "Gateway login verification failed (/api/auth/login)"
   ok "AuraPanel login credentials verified."
 
   ols_user="$(ols_admin_user)"

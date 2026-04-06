@@ -292,7 +292,7 @@ func parseTrustedProxyCIDRs(raw string) []netip.Prefix {
 
 func isDDoSAuthPath(path string) bool {
 	path = strings.TrimSpace(path)
-	return path == "/api/auth/login" || path == "/api/v1/auth/login"
+	return path == "/api/v1/auth/login"
 }
 
 func normalizeDDoSProfile(value string) string {
