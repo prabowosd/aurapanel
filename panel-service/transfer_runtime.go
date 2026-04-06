@@ -43,6 +43,19 @@ func resolvedTransferOwner(homeDir, ownerHint string) string {
 	if len(parts) >= 3 && parts[1] == "home" && systemUserExists(parts[2]) {
 		return parts[2]
 	}
+	for _, probe := range []string{homeDir, filepath.Dir(homeDir)} {
+		if probe == "" || probe == "." || probe == "/" {
+			continue
+		}
+		owner, err := commandOutputTrimmed("stat", "-c", "%U", probe)
+		if err != nil {
+			continue
+		}
+		owner = sanitizeName(owner)
+		if owner != "" && owner != "root" && systemUserExists(owner) {
+			return owner
+		}
+	}
 	for _, candidate := range []string{"www-data", "nobody"} {
 		if systemUserExists(candidate) {
 			return candidate
