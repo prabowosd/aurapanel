@@ -1915,8 +1915,8 @@ func (s *service) handleOLSTuningGet(w http.ResponseWriter) {
 }
 
 func (s *service) handleOLSTuningSet(w http.ResponseWriter, r *http.Request, apply bool) {
-	var payload OLSTuningConfig
-	if err := decodeJSON(r, &payload); err != nil {
+	payload, err := s.decodeFlexibleOLSTuningPayload(r)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid OLS tuning payload.")
 		return
 	}
@@ -1950,6 +1950,175 @@ func (s *service) handleOLSTuningSet(w http.ResponseWriter, r *http.Request, app
 		Message: "OpenLiteSpeed tuning applied.",
 		Data:    olsTuningResponseData(payload, false, ""),
 	})
+}
+
+func defaultOLSTuningConfig() OLSTuningConfig {
+	return OLSTuningConfig{
+		MaxConnections:       10000,
+		MaxSSLConnections:    10000,
+		ConnTimeoutSecs:      300,
+		KeepAliveTimeoutSecs: 5,
+		MaxKeepAliveRequests: 10000,
+		GzipCompression:      true,
+		StaticCacheEnabled:   false,
+		StaticCacheMaxAgeSec: 3600,
+	}
+}
+
+func normalizeOLSTuningDefaults(cfg OLSTuningConfig) OLSTuningConfig {
+	defaults := defaultOLSTuningConfig()
+	if cfg.MaxConnections <= 0 {
+		cfg.MaxConnections = defaults.MaxConnections
+	}
+	if cfg.MaxSSLConnections <= 0 {
+		cfg.MaxSSLConnections = defaults.MaxSSLConnections
+	}
+	if cfg.ConnTimeoutSecs <= 0 {
+		cfg.ConnTimeoutSecs = defaults.ConnTimeoutSecs
+	}
+	if cfg.KeepAliveTimeoutSecs <= 0 {
+		cfg.KeepAliveTimeoutSecs = defaults.KeepAliveTimeoutSecs
+	}
+	if cfg.MaxKeepAliveRequests <= 0 {
+		cfg.MaxKeepAliveRequests = defaults.MaxKeepAliveRequests
+	}
+	if cfg.StaticCacheMaxAgeSec < 0 {
+		cfg.StaticCacheMaxAgeSec = defaults.StaticCacheMaxAgeSec
+	}
+	return cfg
+}
+
+func olsPayloadValue(raw map[string]interface{}, keys ...string) (interface{}, bool) {
+	for _, key := range keys {
+		if value, ok := raw[key]; ok {
+			return value, true
+		}
+	}
+	return nil, false
+}
+
+func parseFlexibleOLSTuningInt(value interface{}, min int) (int, error) {
+	switch typed := value.(type) {
+	case float64:
+		parsed := int(typed)
+		if parsed < min {
+			return min, nil
+		}
+		return parsed, nil
+	case string:
+		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err != nil {
+			return 0, err
+		}
+		if parsed < min {
+			return min, nil
+		}
+		return parsed, nil
+	case bool:
+		if typed {
+			if 1 < min {
+				return min, nil
+			}
+			return 1, nil
+		}
+		if 0 < min {
+			return min, nil
+		}
+		return 0, nil
+	default:
+		return 0, fmt.Errorf("unsupported type")
+	}
+}
+
+func parseFlexibleOLSTuningBool(value interface{}) (bool, error) {
+	switch typed := value.(type) {
+	case bool:
+		return typed, nil
+	case float64:
+		return int(typed) != 0, nil
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "1", "true", "yes", "on", "enable", "enabled":
+			return true, nil
+		case "0", "false", "no", "off", "disable", "disabled":
+			return false, nil
+		default:
+			return false, fmt.Errorf("unsupported boolean value")
+		}
+	default:
+		return false, fmt.Errorf("unsupported type")
+	}
+}
+
+func (s *service) decodeFlexibleOLSTuningPayload(r *http.Request) (OLSTuningConfig, error) {
+	var raw map[string]interface{}
+	if err := decodeJSON(r, &raw); err != nil {
+		return OLSTuningConfig{}, err
+	}
+
+	s.mu.RLock()
+	base := normalizeOLSTuningDefaults(s.modules.OLSConfig)
+	s.mu.RUnlock()
+	cfg := base
+
+	if value, ok := olsPayloadValue(raw, "max_connections", "maxConnections"); ok {
+		parsed, err := parseFlexibleOLSTuningInt(value, 1)
+		if err != nil {
+			return OLSTuningConfig{}, err
+		}
+		cfg.MaxConnections = parsed
+	}
+	if value, ok := olsPayloadValue(raw, "max_ssl_connections", "maxSSLConnections"); ok {
+		parsed, err := parseFlexibleOLSTuningInt(value, 1)
+		if err != nil {
+			return OLSTuningConfig{}, err
+		}
+		cfg.MaxSSLConnections = parsed
+	}
+	if value, ok := olsPayloadValue(raw, "conn_timeout_secs", "connTimeoutSecs"); ok {
+		parsed, err := parseFlexibleOLSTuningInt(value, 1)
+		if err != nil {
+			return OLSTuningConfig{}, err
+		}
+		cfg.ConnTimeoutSecs = parsed
+	}
+	if value, ok := olsPayloadValue(raw, "keep_alive_timeout_secs", "keepAliveTimeoutSecs"); ok {
+		parsed, err := parseFlexibleOLSTuningInt(value, 1)
+		if err != nil {
+			return OLSTuningConfig{}, err
+		}
+		cfg.KeepAliveTimeoutSecs = parsed
+	}
+	if value, ok := olsPayloadValue(raw, "max_keep_alive_requests", "maxKeepAliveRequests"); ok {
+		parsed, err := parseFlexibleOLSTuningInt(value, 1)
+		if err != nil {
+			return OLSTuningConfig{}, err
+		}
+		cfg.MaxKeepAliveRequests = parsed
+	}
+	if value, ok := olsPayloadValue(raw, "gzip_compression", "gzipCompression"); ok {
+		parsed, err := parseFlexibleOLSTuningBool(value)
+		if err != nil {
+			return OLSTuningConfig{}, err
+		}
+		cfg.GzipCompression = parsed
+	}
+	if value, ok := olsPayloadValue(raw, "static_cache_enabled", "staticCacheEnabled"); ok {
+		parsed, err := parseFlexibleOLSTuningBool(value)
+		if err != nil {
+			return OLSTuningConfig{}, err
+		}
+		cfg.StaticCacheEnabled = parsed
+	}
+	if value, ok := olsPayloadValue(raw, "static_cache_max_age_secs", "staticCacheMaxAgeSecs", "staticCacheMaxAgeSec"); ok {
+		parsed, err := parseFlexibleOLSTuningInt(value, 0)
+		if err != nil {
+			return OLSTuningConfig{}, err
+		}
+		cfg.StaticCacheMaxAgeSec = parsed
+	}
+
+	return normalizeOLSTuningDefaults(cfg), nil
 }
 
 func olsTuningResponseData(cfg OLSTuningConfig, pending bool, runtimeErr string) map[string]interface{} {
