@@ -221,7 +221,7 @@ func ensureOLSManagedFilesystem(item olsManagedSite) error {
 	if err := os.MkdirAll(olsManagedVhostDir(item.Site.Domain), 0o755); err != nil {
 		return err
 	}
-	if err := seedOLSManagedDocrootFiles(item.Site.Domain, item.Config.RewriteRules); err != nil {
+	if err := seedOLSManagedDocrootFiles(item.Site, item.Config.RewriteRules); err != nil {
 		return err
 	}
 	if err := ensureOLSManagedPublicSubdirBridge(item.Site.Domain); err != nil {
@@ -230,12 +230,49 @@ func ensureOLSManagedFilesystem(item olsManagedSite) error {
 	return ensureOLSManagedOwnership(item.Site)
 }
 
-func seedOLSManagedDocrootFiles(domain, rules string) error {
-	docroot := domainDocroot(domain)
+func seedOLSManagedDocrootFiles(site Website, rules string) error {
+	if !shouldSeedOLSManagedDocroot(site) {
+		return nil
+	}
+	docroot := domainDocroot(site.Domain)
 	if err := os.MkdirAll(docroot, 0o755); err != nil {
 		return err
 	}
-	return seedOLSManagedDocrootContent(docroot, domain, rules)
+	return seedOLSManagedDocrootContent(docroot, site.Domain, rules)
+}
+
+func shouldSeedOLSManagedDocroot(site Website) bool {
+	mode := strings.ToLower(strings.TrimSpace(envOr("AURAPANEL_DOCROOT_SEED_MODE", "on-create")))
+	switch mode {
+	case "off", "disabled", "false", "0", "no":
+		return false
+	case "always":
+		return true
+	}
+
+	createdAt := site.CreatedAt
+	if createdAt <= 0 {
+		return false
+	}
+	created := time.Unix(createdAt, 0).UTC()
+	age := time.Since(created)
+	if age < 0 {
+		// Clock skew safety: treat future timestamps as just-created.
+		return true
+	}
+	window := olsDocrootSeedWindow()
+	return age <= window
+}
+
+func olsDocrootSeedWindow() time.Duration {
+	seconds := envInt("AURAPANEL_DOCROOT_SEED_WINDOW_SECONDS", 600)
+	if seconds < 0 {
+		seconds = 0
+	}
+	if seconds > 86400 {
+		seconds = 86400
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func seedOLSManagedDocrootContent(docroot, domain, rules string) error {

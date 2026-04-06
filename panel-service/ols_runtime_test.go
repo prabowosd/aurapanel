@@ -270,6 +270,50 @@ func TestShouldOverwriteOLSHTAccess(t *testing.T) {
 	}
 }
 
+func TestShouldSeedOLSManagedDocrootOnCreateMode(t *testing.T) {
+	t.Setenv("AURAPANEL_DOCROOT_SEED_MODE", "on-create")
+	t.Setenv("AURAPANEL_DOCROOT_SEED_WINDOW_SECONDS", "120")
+
+	recent := Website{Domain: "recent.example", CreatedAt: time.Now().UTC().Add(-30 * time.Second).Unix()}
+	if !shouldSeedOLSManagedDocroot(recent) {
+		t.Fatalf("recently created site should be seed-eligible in on-create mode")
+	}
+
+	old := Website{Domain: "old.example", CreatedAt: time.Now().UTC().Add(-10 * time.Minute).Unix()}
+	if shouldSeedOLSManagedDocroot(old) {
+		t.Fatalf("old site should not be seed-eligible in on-create mode")
+	}
+
+	unknown := Website{Domain: "unknown.example", CreatedAt: 0}
+	if shouldSeedOLSManagedDocroot(unknown) {
+		t.Fatalf("site with missing CreatedAt should not be seed-eligible in on-create mode")
+	}
+}
+
+func TestShouldSeedOLSManagedDocrootAlwaysAndOffModes(t *testing.T) {
+	site := Website{Domain: "example.com", CreatedAt: 0}
+
+	t.Setenv("AURAPANEL_DOCROOT_SEED_MODE", "always")
+	if !shouldSeedOLSManagedDocroot(site) {
+		t.Fatalf("always mode should allow seeding even without CreatedAt")
+	}
+
+	t.Setenv("AURAPANEL_DOCROOT_SEED_MODE", "off")
+	if shouldSeedOLSManagedDocroot(Website{Domain: "example.com", CreatedAt: time.Now().UTC().Unix()}) {
+		t.Fatalf("off mode should block docroot seeding")
+	}
+}
+
+func TestShouldSeedOLSManagedDocrootTreatsFutureTimestampAsFresh(t *testing.T) {
+	t.Setenv("AURAPANEL_DOCROOT_SEED_MODE", "on-create")
+	t.Setenv("AURAPANEL_DOCROOT_SEED_WINDOW_SECONDS", "30")
+
+	future := Website{Domain: "future.example", CreatedAt: time.Now().UTC().Add(5 * time.Minute).Unix()}
+	if !shouldSeedOLSManagedDocroot(future) {
+		t.Fatalf("future timestamp should be treated as fresh for clock-skew safety")
+	}
+}
+
 func TestEnsureOLSManagedPublicSubdirBridgeForDocrootCreatesRootHTAccess(t *testing.T) {
 	docroot := t.TempDir()
 	publicDir := filepath.Join(docroot, "public")
