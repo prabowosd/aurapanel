@@ -1,4 +1,13 @@
 {
+  "locale": {
+    "label": "Dil",
+    "select": "Dil seçin",
+    "options": {
+      "tr": "Türkçe",
+      "en": "English",
+      "id": "Bahasa Indonesia"
+    }
+  },
   "terminal": {
     "title": "Web Terminal",
     "subtitle": "Tarayıcı üzerinden sunucuya güvenli erişim",
