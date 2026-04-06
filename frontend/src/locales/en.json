@@ -2848,5 +2848,91 @@
       "tool_executed": "{tool} executed.",
       "quick_execute_failed": "Quick execute failed."
     }
+  },
+  "rbac_permissions": {
+    "users": {
+      "manage": "User Management"
+    },
+    "packages": {
+      "manage": "Package Management"
+    },
+    "reseller": {
+      "manage": "Reseller/ACL Management"
+    },
+    "websites": {
+      "manage": "Website Management"
+    },
+    "dns": {
+      "manage": "DNS Management"
+    },
+    "databases": {
+      "manage": "Database Management"
+    },
+    "mail": {
+      "manage": "Email Management"
+    },
+    "ftp": {
+      "manage": "FTP Management"
+    },
+    "sftp": {
+      "manage": "SFTP Management"
+    },
+    "backups": {
+      "manage": "Backup Management"
+    },
+    "apps": {
+      "manage": "App/WordPress/Plugin"
+    },
+    "runtime": {
+      "manage": "Docker/Runtime Management"
+    },
+    "files": {
+      "manage": "File Manager"
+    },
+    "terminal": {
+      "manage": "Web Terminal"
+    },
+    "php": {
+      "manage": "PHP Management"
+    },
+    "ssl": {
+      "manage": "SSL Management"
+    },
+    "security": {
+      "manage": "Security Management"
+    },
+    "monitoring": {
+      "read": "Server Status"
+    },
+    "logs": {
+      "read": "Log Viewer"
+    },
+    "cron": {
+      "manage": "Cron Management"
+    },
+    "cloudflare": {
+      "manage": "Cloudflare Management"
+    },
+    "migration": {
+      "manage": "Migration Wizard"
+    },
+    "cloudlinux": {
+      "manage": "CloudLinux Management"
+    },
+    "minio": {
+      "manage": "MinIO Management"
+    },
+    "activity": {
+      "read": "Activity Logs"
+    },
+    "ops": {
+      "manage": "Ops/Federated Management"
+    },
+    "panel": {
+      "manage": "Panel Management"
+    },
+    "ai": {
+      "manage": "AI Tools"
+    }
   }
 }
