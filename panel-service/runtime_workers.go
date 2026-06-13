@@ -58,6 +58,21 @@ func securityStatusCacheTTL() time.Duration {
 	return time.Duration(value) * time.Second
 }
 
+func olsSyncDebounce() time.Duration {
+	raw := strings.TrimSpace(envOr("AURAPANEL_OLS_SYNC_DEBOUNCE_MS", "120"))
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		value = 120
+	}
+	if value < 0 {
+		value = 0
+	}
+	if value > 2000 {
+		value = 2000
+	}
+	return time.Duration(value) * time.Millisecond
+}
+
 func syncStatePersistEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(osEnv("AURAPANEL_SYNC_STATE_PERSIST"))) {
 	case "1", "true", "yes", "on":
@@ -117,6 +132,59 @@ func (s *service) startStatePersistenceWorker() {
 					log.Printf("runtime state save failed in worker: %v", err)
 				}
 				dirty = false
+			}
+		}
+	}()
+}
+
+func (s *service) startOLSSyncWorker() {
+	if s.olsSyncQueue == nil {
+		return
+	}
+	debounce := s.olsSyncDebounce
+	if debounce < 0 {
+		debounce = 0
+	}
+	go func() {
+		pending := make([]olsSyncRequest, 0, 8)
+		for {
+			first := <-s.olsSyncQueue
+			latest := first
+			pending = append(pending[:0], first)
+			if debounce > 0 {
+				timer := time.NewTimer(debounce)
+			collectLoop:
+				for {
+					select {
+					case req := <-s.olsSyncQueue:
+						latest = req
+						pending = append(pending, req)
+					case <-timer.C:
+						break collectLoop
+					}
+				}
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+			}
+		drainLoop:
+			for {
+				select {
+				case req := <-s.olsSyncQueue:
+					latest = req
+					pending = append(pending, req)
+				default:
+					break drainLoop
+				}
+			}
+
+			err := syncOLSRuntimeState(latest.sites, latest.advanced, latest.aliases)
+			for _, req := range pending {
+				req.done <- err
+				close(req.done)
 			}
 		}
 	}()

@@ -312,6 +312,8 @@ type service struct {
 	dbACLLastReload     time.Time
 	persistQueue        chan struct{}
 	persistDebounce     time.Duration
+	olsSyncQueue        chan olsSyncRequest
+	olsSyncDebounce     time.Duration
 	housekeepingEvery   time.Duration
 
 	securityMu              sync.Mutex
@@ -319,6 +321,13 @@ type service struct {
 	securityStatusCache     securitySnapshot
 	securityStatusCacheTime time.Time
 	securityStatusRate      map[string]securityStatusRateWindowState
+}
+
+type olsSyncRequest struct {
+	sites    []Website
+	advanced map[string]WebsiteAdvancedConfig
+	aliases  []DomainAlias
+	done     chan error
 }
 
 type jwtClaims struct {
@@ -392,6 +401,8 @@ func newService() *service {
 		dbToolTempUsers:     map[string]dbToolTempUser{},
 		persistQueue:        make(chan struct{}, 1),
 		persistDebounce:     statePersistDebounce(),
+		olsSyncQueue:        make(chan olsSyncRequest, 32),
+		olsSyncDebounce:     olsSyncDebounce(),
 		housekeepingEvery:   housekeepingInterval(),
 		securityStatusTTL:   securityStatusCacheTTL(),
 		securityStatusRate:  map[string]securityStatusRateWindowState{},
@@ -404,11 +415,17 @@ func newService() *service {
 	svc.ensureUserHierarchyLocked()
 	svc.reconcileUserRolePoliciesLocked()
 	svc.mu.Unlock()
+	svc.startOLSSyncWorker()
 	svc.bootstrapModules()
 	svc.initializeDBToolAccessRuntime()
 	svc.cleanupRuntimeTemporaryDBUsersOnStartup()
 	svc.startStatePersistenceWorker()
 	svc.startHousekeepingWorker()
+	go func() {
+		if err := svc.selfHealOLSManagedConfig(); err != nil {
+			log.Printf("OpenLiteSpeed startup self-heal skipped: %v", err)
+		}
+	}()
 	return svc
 }
 
@@ -832,6 +849,7 @@ func (s *service) nonAdminRoutePolicy(w http.ResponseWriter, r *http.Request) bo
 		"/api/v1/security/2fa/verify",
 		"/api/v1/vhost/list",
 		"/api/v1/files",
+		"/api/v1/db/tools",
 	}
 	for _, prefix := range allowedWithoutDomain {
 		if servicePathMatchesPrefix(path, prefix) {
@@ -875,7 +893,6 @@ func (s *service) nonAdminRoutePolicy(w http.ResponseWriter, r *http.Request) bo
 		"/api/v1/status/update/apply",
 		"/api/v1/backup/destinations",
 		"/api/v1/backup/schedules",
-		"/api/v1/db/tools",
 		"/api/v1/db/mariadb/tuning",
 		"/api/v1/db/postgresql/tuning",
 		"/api/v1/mail/tuning",
